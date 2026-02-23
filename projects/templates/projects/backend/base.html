@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="tr">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Project Backend{% endblock %}</title>
+    <style>
+        :root {
+            --bg-0: #f7f5f2;
+            --bg-1: #ffffff;
+            --line: #d8d2c9;
+            --ink: #1e1a16;
+            --ink-muted: #675f55;
+            --accent: #1f7a65;
+            --accent-ink: #ffffff;
+            --danger: #ad2a2a;
+            --warning: #fff2d8;
+            --radius: 14px;
+            --shadow: 0 10px 24px rgba(34, 24, 17, 0.08);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            background: radial-gradient(circle at top right, #ece8e1 0%, var(--bg-0) 50%, #f2efea 100%);
+            color: var(--ink);
+            font-family: "Avenir Next", "Trebuchet MS", "Segoe UI", sans-serif;
+            min-height: 100vh;
+        }
+
+        .page {
+            width: min(980px, calc(100% - 2rem));
+            margin: 2rem auto 3rem;
+        }
+
+        .topbar {
+            background: var(--bg-1);
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            padding: 1rem 1.2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .topbar__title {
+            margin: 0;
+            font-size: 1.1rem;
+            letter-spacing: 0.03em;
+            text-transform: uppercase;
+            font-weight: 700;
+        }
+
+        .topbar__meta {
+            color: var(--ink-muted);
+            font-size: 0.92rem;
+        }
+
+        .card {
+            background: var(--bg-1);
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            padding: 1.2rem;
+        }
+
+        .messages {
+            margin-bottom: 1rem;
+            display: grid;
+            gap: 0.65rem;
+        }
+
+        .message {
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            padding: 0.8rem 0.9rem;
+            background: #fdfcf9;
+            color: var(--ink);
+        }
+
+        .message.success {
+            background: #ecf9f3;
+            border-color: #9fddc7;
+        }
+
+        .message.error {
+            background: #fdeeee;
+            border-color: #f5bbbb;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid transparent;
+            border-radius: 10px;
+            padding: 0.55rem 0.95rem;
+            text-decoration: none;
+            font: inherit;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 120ms ease, box-shadow 120ms ease;
+        }
+
+        .btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 14px rgba(27, 22, 16, 0.11);
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            color: var(--accent-ink);
+        }
+
+        .btn-secondary {
+            background: #f0ece5;
+            color: var(--ink);
+            border-color: var(--line);
+        }
+
+        .btn-danger {
+            background: var(--danger);
+            color: #fff;
+        }
+
+        .btn-link {
+            color: var(--ink);
+            background: transparent;
+            border-color: var(--line);
+        }
+
+        @media (max-width: 720px) {
+            .page {
+                width: calc(100% - 1rem);
+                margin: 1rem auto 2rem;
+            }
+
+            .topbar {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+        }
+    </style>
+</head>
+<body>
+<main class="page">
+    <header class="topbar">
+        <h1 class="topbar__title">Project Management</h1>
+        {% if request.user.is_authenticated %}
+            <div class="topbar__meta">{{ request.user.handle }}</div>
+        {% endif %}
+    </header>
+
+    {% if messages %}
+        <div class="messages">
+            {% for message in messages %}
+                <div class="message {{ message.tags }}">{{ message }}</div>
+            {% endfor %}
+        </div>
+    {% endif %}
+
+    <section class="card">
+        {% block content %}{% endblock %}
+    </section>
+</main>
+</body>
+</html>

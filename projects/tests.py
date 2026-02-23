@@ -3,6 +3,7 @@ import json
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError
 from django.test import TestCase
+from django.urls import reverse
 
 from .models import Issue, IssueComment, IssueUpvote, Project
 
@@ -226,3 +227,82 @@ class IssueApiTest(TestCase):
         comments = list_response.json()
         self.assertEqual(len(comments), 1)
         self.assertEqual(comments[0]["author_handle"], self.other_user.handle)
+
+
+class ProjectBackendUiTest(TestCase):
+    def setUp(self):
+        user_model = get_user_model()
+        self.owner = user_model.objects.create_user(
+            email="owner-ui@example.com",
+            handle="owner_ui",
+            password="test-pass-123",
+        )
+        self.other_user = user_model.objects.create_user(
+            email="other-ui@example.com",
+            handle="other_ui",
+            password="test-pass-123",
+        )
+
+    def test_list_requires_auth(self):
+        response = self.client.get(reverse("projects:backend-project-list"))
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/admin/login/", response.headers["Location"])
+
+    def test_owner_can_create_edit_and_delete_project(self):
+        self.client.force_login(self.owner)
+
+        create_response = self.client.post(
+            reverse("projects:backend-project-create"),
+            data={
+                "name": "Platform Revamp",
+                "slug": "",
+                "tagline": "Major overhaul",
+                "description": "New architecture and workflows.",
+                "visibility": Project.Visibility.PRIVATE,
+            },
+        )
+        self.assertEqual(create_response.status_code, 302)
+
+        project = Project.objects.get(owner=self.owner)
+        self.assertEqual(project.slug, "platform-revamp")
+
+        edit_response = self.client.post(
+            reverse("projects:backend-project-edit", args=[project.pk]),
+            data={
+                "name": "Platform Revamp V2",
+                "slug": "platform-v2",
+                "tagline": "Updated scope",
+                "description": "Updated description.",
+                "visibility": Project.Visibility.PUBLIC,
+            },
+        )
+        self.assertEqual(edit_response.status_code, 302)
+        project.refresh_from_db()
+        self.assertEqual(project.name, "Platform Revamp V2")
+        self.assertEqual(project.slug, "platform-v2")
+        self.assertEqual(project.visibility, Project.Visibility.PUBLIC)
+
+        delete_response = self.client.post(
+            reverse("projects:backend-project-delete", args=[project.pk])
+        )
+        self.assertEqual(delete_response.status_code, 302)
+        self.assertFalse(Project.objects.filter(pk=project.pk).exists())
+
+    def test_non_owner_cannot_access_edit_or_delete(self):
+        project = Project.objects.create(
+            owner=self.owner,
+            name="Secret Board",
+            slug="secret-board",
+        )
+
+        self.client.force_login(self.other_user)
+
+        edit_response = self.client.get(
+            reverse("projects:backend-project-edit", args=[project.pk])
+        )
+        delete_response = self.client.get(
+            reverse("projects:backend-project-delete", args=[project.pk])
+        )
+
+        self.assertEqual(edit_response.status_code, 404)
+        self.assertEqual(delete_response.status_code, 404)
