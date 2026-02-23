@@ -1,10 +1,14 @@
 from ninja import NinjaAPI
 
+from projects.api import router as projects_router
+
 api = NinjaAPI(
     title="FeatureRequest API",
     version="0.1.0",
     urls_namespace="feature_request_api",
 )
+
+api.add_router("", projects_router)
 
 
 @api.get("/health", tags=["system"])
