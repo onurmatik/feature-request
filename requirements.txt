@@ -1,3 +1,7 @@
 Django
 django-ninja
 django-sesame
+python-dotenv
+
+fabric
+PyJWT[crypto]

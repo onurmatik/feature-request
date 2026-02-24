@@ -1,16 +1,38 @@
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+load_dotenv(BASE_DIR / ".env")
+
+
+def env_bool(name, default=False):
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def env_list(name, default):
+    value = os.getenv(name)
+    if not value:
+        return default
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-only-secret-key-change-in-production")
-DEBUG = os.getenv("DJANGO_DEBUG", "1") == "1"
-ALLOWED_HOSTS = [
-    "127.0.0.1",
-    "localhost",
-    "featurerequest.io",
-    "www.featurerequest.io",
-]
+DEBUG = env_bool("DEBUG", env_bool("DJANGO_DEBUG", True))
+ALLOWED_HOSTS = env_list(
+    "ALLOWED_HOSTS",
+    [
+        "127.0.0.1",
+        "localhost",
+        "featurerequest.io",
+        "www.featurerequest.io",
+    ],
+)
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -82,12 +104,23 @@ TIME_ZONE = "Europe/Istanbul"
 USE_I18N = True
 USE_TZ = True
 
-STATIC_URL = "static/"
+STATIC_URL = os.getenv("STATIC_URL", "/static/")
+STATIC_ROOT = Path(os.getenv("STATIC_ROOT", str(BASE_DIR / "staticfiles")))
 
-CSRF_TRUSTED_ORIGINS = [
-    "http://127.0.0.1:5173",
-    "http://localhost:5173",
-]
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+STRIPE_PUBLIC_KEY = os.getenv("STRIPE_PUBLIC_KEY", "")
+STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "")
+TURNSTILE_SITEKEY = os.getenv("TURNSTILE_SITEKEY", "")
+TURNSTILE_SECRETKEY = os.getenv("TURNSTILE_SECRETKEY", "")
+EMAIL_BACKEND = os.getenv("EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend")
+
+CSRF_TRUSTED_ORIGINS = env_list(
+    "CSRF_TRUSTED_ORIGINS",
+    [
+        "http://127.0.0.1:5173",
+        "http://localhost:5173",
+    ],
+)
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
