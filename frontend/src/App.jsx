@@ -198,7 +198,6 @@ export default function App() {
   const [signInIdentity, setSignInIdentity] = useState("");
   const [signUpEmail, setSignUpEmail] = useState("");
   const [signUpHandle, setSignUpHandle] = useState("");
-  const [signUpDisplayName, setSignUpDisplayName] = useState("");
   const [authMode, setAuthMode] = useState(null);
   const [authFeedback, setAuthFeedback] = useState("");
   const [isAuthSubmitting, setIsAuthSubmitting] = useState(false);
@@ -335,7 +334,6 @@ export default function App() {
     event.preventDefault();
     const email = signUpEmail.trim().toLowerCase();
     const handle = signUpHandle.trim().toLowerCase();
-    const displayName = signUpDisplayName.trim();
 
     if (!email || !handle) {
       setAuthFeedback("Email and handle are required.");
@@ -356,7 +354,6 @@ export default function App() {
         body: JSON.stringify({
           email,
           handle,
-          display_name: displayName,
         }),
       });
 
@@ -1638,18 +1635,6 @@ export default function App() {
                       onChange={(event) => setSignUpEmail(event.target.value)}
                       className="w-full rounded-sm-ds border border-[#e5e7eb] px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-[#06B6D4]"
                       placeholder="you@company.com"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-mono font-bold uppercase tracking-wider text-[#6b7280]">
-                      Display Name (optional)
-                    </label>
-                    <input
-                      type="text"
-                      value={signUpDisplayName}
-                      onChange={(event) => setSignUpDisplayName(event.target.value)}
-                      className="w-full rounded-sm-ds border border-[#e5e7eb] px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-[#06B6D4]"
-                      placeholder="Product Team"
                     />
                   </div>
                   {authFeedback ? <p className="text-xs text-[#6b7280]">{authFeedback}</p> : null}

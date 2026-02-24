@@ -3,7 +3,9 @@ import {
   ArrowBigUpDash,
   FolderOpen,
   Layers,
-  MessageCircle,
+  Lock,
+  MessageSquare,
+  Palette,
   Sparkles,
 } from "lucide-react";
 
@@ -93,7 +95,6 @@ export default function LandingPage({ initialAuthMode = null }) {
   const [signInIdentity, setSignInIdentity] = useState("");
   const [signUpEmail, setSignUpEmail] = useState("");
   const [signUpHandle, setSignUpHandle] = useState("");
-  const [signUpDisplayName, setSignUpDisplayName] = useState("");
   const [authFeedback, setAuthFeedback] = useState("");
   const [isAuthSubmitting, setIsAuthSubmitting] = useState(false);
 
@@ -217,7 +218,6 @@ export default function LandingPage({ initialAuthMode = null }) {
     event.preventDefault();
     const email = signUpEmail.trim().toLowerCase();
     const handle = signUpHandle.trim().toLowerCase();
-    const displayName = signUpDisplayName.trim();
 
     if (!email || !handle) {
       setAuthFeedback("Email and handle are required.");
@@ -276,173 +276,133 @@ export default function LandingPage({ initialAuthMode = null }) {
 
   return (
     <div className="min-h-screen bg-[#f3f4f6] text-[#111827]">
-      <div className="relative overflow-hidden border-b border-[#e5e7eb] bg-white">
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,_rgba(6,182,212,0.16),transparent_45%),radial-gradient(circle_at_20%_10%,_rgba(17,24,39,0.08),transparent_35%)]" />
-        <header className="relative z-10 border-b border-[#e5e7eb]">
-          <div className="mx-auto flex h-[64px] w-full max-w-6xl items-center justify-between px-4 sm:px-6">
-            <a href="/" className="flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-sm-ds bg-[#06B6D4] text-white shadow-sm">
-                <Layers size={20} />
-              </div>
-              <span className="text-lg font-bold tracking-tight">FeatureRequest</span>
+      <header className="sticky top-0 z-50 border-b border-[#e5e7eb] bg-white h-[56px] flex items-center px-4 md:px-8">
+        <div className="mx-auto flex h-full w-full max-w-7xl items-center justify-between">
+          <a href="/" className="flex items-center gap-2">
+            <div className="h-8 w-8 rounded-sm-ds bg-[#06B6D4] flex items-center justify-center text-white shadow-sm">
+              <Layers size={18} />
+            </div>
+            <span className="text-lg font-bold tracking-tight">FeatureRequest</span>
+          </a>
+
+          <nav className="hidden items-center gap-8 md:flex">
+            <a href="#features" className="text-sm font-medium text-[#6b7280] hover:text-[#111827] transition-colors">
+              Features
             </a>
+            <a href="#projects" className="text-sm font-medium text-[#6b7280] hover:text-[#111827] transition-colors">
+              Public Boards
+            </a>
+            <a href="#pricing" className="text-sm font-medium text-[#6b7280] hover:text-[#111827] transition-colors">
+              Pricing
+            </a>
+          </nav>
 
-            <nav className="hidden items-center gap-6 text-sm font-medium text-[#6b7280] md:flex">
-              <a href="#overview" className="hover:text-[#111827]">
-                Overview
-              </a>
-              <a href="#sample" className="hover:text-[#111827]">
-                Sample Dashboard
-              </a>
-              <a href="#featured" className="hover:text-[#111827]">
-                Featured Boards
-              </a>
-            </nav>
-
-            {isAuthenticated ? (
-              <a
-                href={`/${currentUserHandle}/`}
-                className="rounded-sm-ds bg-[#111827] px-4 py-2 text-xs font-bold uppercase tracking-wide text-white transition-colors hover:bg-black"
-              >
-                Go to Dashboard
-              </a>
-            ) : (
-              <div className="flex items-center gap-2">
+          <div className="flex items-center gap-4">
+            {!isAuthenticated ? (
+              <>
                 <button
                   type="button"
                   onClick={() => openAuth("signIn")}
-                  className="rounded-sm-ds px-3 py-2 text-xs font-bold uppercase tracking-wide text-[#6b7280] transition-colors hover:text-[#111827]"
+                  className="text-sm font-bold text-[#6b7280] transition-colors hover:text-[#111827] px-2"
                 >
-                  Sign In
+                  Sign in
                 </button>
                 <button
                   type="button"
                   onClick={() => openAuth("signUp")}
-                  className="rounded-sm-ds bg-[#111827] px-4 py-2 text-xs font-bold uppercase tracking-wide text-white transition-colors hover:bg-black"
+                  className="px-4 py-2 bg-[#111827] text-xs font-bold uppercase tracking-wide text-white rounded-sm-ds shadow-sm hover:bg-black transition-all"
                 >
-                  Sign Up
+                  Get Started
                 </button>
-              </div>
+              </>
+            ) : (
+              <a
+                href={`/${currentUserHandle}/`}
+                className="px-4 py-2 bg-[#111827] text-xs font-bold uppercase tracking-wide text-white rounded-sm-ds shadow-sm hover:bg-black transition-all"
+              >
+                Open My Workspace
+              </a>
             )}
           </div>
-        </header>
+        </div>
+      </header>
 
-        <section id="overview" className="relative z-10 mx-auto max-w-6xl px-4 pb-16 pt-16 sm:px-6 md:pt-20">
-          <div className="grid gap-10 md:grid-cols-[1fr_360px] md:items-center">
-            <div className="space-y-6">
-              <p className="inline-flex items-center gap-2 rounded-full border border-cyan-100 bg-cyan-50 px-3 py-1 text-[10px] font-mono font-bold uppercase tracking-wider text-[#06B6D4]">
-                <Sparkles size={12} />
-                Built for Indie Hackers
-              </p>
-              <h1 className="text-4xl font-bold tracking-tight sm:text-5xl">
-                Listen to users closely and ship the right thing faster.
-              </h1>
-              <p className="max-w-2xl text-base text-[#6b7280] sm:text-lg">
-                FeatureRequest gives indie makers one public board for feature ideas, bugs, and real user context.
-                Stay in close contact through comments and let people discover your other projects from the same
-                profile.
-              </p>
-              <p className="text-sm text-[#6b7280]">
-                Open source on{" "}
-                <a
-                  href="https://github.com/onurmatik/feature-request"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="font-semibold text-[#111827] underline decoration-cyan-300 underline-offset-4 hover:text-[#06B6D4]"
-                >
-                  GitHub
-                </a>
-                .
-              </p>
-              <div className="flex flex-col gap-3 sm:flex-row">
-                {!isAuthenticated ? (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => openAuth("signUp")}
-                      className="rounded-sm-ds bg-[#06B6D4] px-6 py-3 text-xs font-bold uppercase tracking-wide text-white transition-colors hover:bg-cyan-600"
-                    >
-                      Start My Board
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => openAuth("signIn")}
-                      className="rounded-sm-ds border border-[#d1d5db] bg-white px-6 py-3 text-xs font-bold uppercase tracking-wide text-[#111827] transition-colors hover:bg-[#f9fafb]"
-                    >
-                      Continue My Account
-                    </button>
-                  </>
-                ) : (
-                  <a
-                    href={`/${currentUserHandle}/`}
-                    className="inline-flex w-fit items-center rounded-sm-ds bg-[#06B6D4] px-6 py-3 text-xs font-bold uppercase tracking-wide text-white transition-colors hover:bg-cyan-600"
-                  >
-                    Open My Profile
-                  </a>
-                )}
-              </div>
-            </div>
-
-            <div className="rounded-md-ds border border-[#e5e7eb] bg-white p-5 shadow-ds">
-              <p className="mb-3 text-[10px] font-mono font-bold uppercase tracking-widest text-[#9ca3af]">
-                Why indie makers use FeatureRequest
-              </p>
-              <div className="space-y-4 text-sm text-[#6b7280]">
-                <div className="flex items-start gap-3">
-                  <ArrowBigUpDash className="mt-0.5 text-[#06B6D4]" size={18} />
-                  <p>Hear what users really want using upvotes instead of scattered DMs and notes.</p>
-                </div>
-                <div className="flex items-start gap-3">
-                  <MessageCircle className="mt-0.5 text-[#06B6D4]" size={18} />
-                  <p>Keep close contact in each request thread and share quick public status updates.</p>
-                </div>
-                <div className="flex items-start gap-3">
-                  <FolderOpen className="mt-0.5 text-[#06B6D4]" size={18} />
-                  <p>Show all your projects under one handle so supporters can follow everything you build.</p>
-                </div>
-              </div>
+      <main className="flex-1 overflow-y-auto relative">
+        <section className="pt-16 pb-20 md:pt-24 md:pb-32 px-4 border-b border-[#e5e7eb] bg-white">
+          <div className="mx-auto max-w-4xl text-center space-y-8">
+            <p className="inline-flex items-center gap-2 px-3 py-1 bg-cyan-50 border border-cyan-100 rounded-full mx-auto">
+              <span className="h-2 w-2 rounded-full bg-[#06B6D4]" />
+              <span className="text-[10px] font-mono font-bold text-[#06B6D4] uppercase tracking-wider">
+                Open Beta Now Live
+              </span>
+            </p>
+            <h1 className="text-4xl md:text-6xl font-bold tracking-tight text-[#111827]">
+              Ship the features your <span className="text-[#06B6D4]">users actually want</span>
+            </h1>
+            <p className="text-lg md:text-xl text-[#6b7280] max-w-2xl mx-auto leading-relaxed">
+              The simplest way to manage feature requests, bug reports, and product feedback. Public boards, upvoting,
+              and focused discussions in one place.
+            </p>
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+              <button
+                type="button"
+                onClick={() => openAuth("signUp")}
+                className="w-full sm:w-auto px-8 py-3 bg-[#06B6D4] text-white text-sm font-bold rounded-sm-ds hover:bg-cyan-600 transition-all uppercase tracking-wide"
+              >
+                Create your Board
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const demo = document.getElementById("demo");
+                  if (demo) {
+                    demo.scrollIntoView({ behavior: "smooth" });
+                  }
+                }}
+                className="w-full sm:w-auto px-8 py-3 bg-white border border-[#e5e7eb] text-[#111827] text-sm font-bold rounded-sm-ds hover:bg-[#f3f4f6] transition-all uppercase tracking-wide"
+              >
+                View live demo
+              </button>
             </div>
           </div>
         </section>
-      </div>
 
-      <main className="mx-auto max-w-6xl space-y-14 px-4 py-14 sm:px-6">
-        <section id="sample" className="rounded-md-ds border border-[#e5e7eb] bg-white shadow-ds">
-          <div className="flex items-center gap-2 border-b border-[#e5e7eb] px-4 py-3">
-            <span className="h-2.5 w-2.5 rounded-full bg-[#d1d5db]" />
-            <span className="h-2.5 w-2.5 rounded-full bg-[#d1d5db]" />
-            <span className="h-2.5 w-2.5 rounded-full bg-[#d1d5db]" />
-            <div className="ml-3 rounded-sm-ds border border-[#e5e7eb] bg-[#f9fafb] px-2 py-1 text-[10px] font-mono text-[#9ca3af]">
-              featurerequest.io/onurmatik/mini-feedback
-            </div>
-          </div>
-
-          <div className="grid min-h-[420px] gap-0 lg:grid-cols-[260px_1fr]">
-            <aside className="border-r border-[#e5e7eb] bg-[#f9fafb] p-4">
-              <p className="mb-3 text-[10px] font-mono font-bold uppercase tracking-widest text-[#9ca3af]">
-                Projects
-              </p>
-              <div className="space-y-2">
-                <div className="rounded-sm-ds bg-cyan-50 px-3 py-2 text-sm font-semibold text-[#06B6D4]">All Projects</div>
-                <div className="rounded-sm-ds bg-white px-3 py-2 text-sm text-[#6b7280]">Mobile App</div>
-                <div className="rounded-sm-ds bg-white px-3 py-2 text-sm text-[#6b7280]">Web Console</div>
+        <section id="demo" className="-mt-12 md:-mt-20 px-4">
+          <div className="mx-auto max-w-5xl bg-white border border-[#e5e7eb] rounded-md-ds shadow-2xl overflow-hidden">
+            <div className="h-10 bg-[#f9fafb] border-b border-[#e5e7eb] flex items-center px-4 gap-2">
+              <div className="flex gap-1.5">
+                <span className="h-2.5 w-2.5 rounded-full bg-[#e5e7eb]" />
+                <span className="h-2.5 w-2.5 rounded-full bg-[#e5e7eb]" />
+                <span className="h-2.5 w-2.5 rounded-full bg-[#e5e7eb]" />
               </div>
-            </aside>
-
-            <div className="grid lg:grid-cols-[370px_1fr]">
-              <div className="border-r border-[#e5e7eb]">
-                <div className="space-y-2 border-b border-[#e5e7eb] p-4">
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs font-bold uppercase tracking-widest text-[#6b7280]">Requests</p>
-                    <span className="rounded-sm-ds bg-[#06B6D4] px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-white">
+              <div className="flex-1 flex justify-center">
+                <div className="w-1/2 h-5 bg-white border border-[#e5e7eb] rounded text-[10px] font-mono text-[#9ca3af] flex items-center px-2">
+                  featurerequest.com/onurmatik/mini-feedback
+                </div>
+              </div>
+            </div>
+            <div className="flex h-[400px] md:h-[600px] opacity-90 grayscale-[0.2]">
+              <aside className="hidden sm:block w-48 border-r border-[#e5e7eb] p-3 bg-white">
+                <div className="space-y-4">
+                  <div className="space-y-1">
+                    <div className="h-4 w-16 bg-[#f3f4f6] rounded mb-4" />
+                    <div className="h-8 w-full bg-cyan-50 rounded" />
+                    <div className="h-8 w-full bg-[#f9fafb] rounded" />
+                    <div className="h-8 w-full bg-[#f9fafb] rounded" />
+                    <div className="h-8 w-full bg-[#f9fafb] rounded" />
+                  </div>
+                </div>
+              </aside>
+              <div className="w-full sm:w-80 border-r border-[#e5e7eb] bg-white">
+                <div className="space-y-4 border-b border-[#e5e7eb] p-4">
+                  <div className="flex justify-between items-center">
+                    <div className="h-4 w-20 bg-[#f3f4f6] rounded" />
+                    <span className="h-6 w-20 rounded bg-[#06B6D4] text-[10px] font-bold uppercase tracking-wide text-white flex items-center justify-center">
                       New
                     </span>
                   </div>
-                  <div className="rounded-sm-ds border border-[#e5e7eb] bg-[#f9fafb] px-3 py-2 text-xs text-[#9ca3af]">
-                    Filter issues...
-                  </div>
+                  <div className="h-8 w-full bg-[#f3f4f6] rounded" />
                 </div>
-
                 <div className="divide-y divide-[#e5e7eb]">
                   {SAMPLE_REQUESTS.map((request, index) => (
                     <div
@@ -465,60 +425,54 @@ export default function LandingPage({ initialAuthMode = null }) {
                   ))}
                 </div>
               </div>
-
-              <div className="hidden bg-white p-6 lg:block">
-                <div className="mb-5 flex items-center justify-between border-b border-[#e5e7eb] pb-4">
-                  <h3 className="text-lg font-bold text-[#111827]">{SAMPLE_REQUESTS[0].title}</h3>
-                  <span className="rounded-sm-ds border border-[#e5e7eb] px-2 py-1 text-xs font-semibold text-[#111827]">
-                    Upvote (76)
-                  </span>
-                </div>
-                <p className="mb-8 text-sm text-[#6b7280]">
-                  Users need full offline workflow support while traveling. Suggested scope includes local cache,
-                  write queue, and conflict prompts.
-                </p>
-                <p className="mb-3 text-[10px] font-mono font-bold uppercase tracking-widest text-[#9ca3af]">
-                  Activity & Comments
-                </p>
-                <div className="rounded-md-ds border border-[#e5e7eb] bg-[#f9fafb] p-4 text-sm text-[#6b7280]">
-                  Reply directly to early users, clarify scope together, and notify followers when status changes.
+              <div className="hidden md:block flex-1 bg-white p-8">
+                <div className="max-w-2xl space-y-6">
+                  <div className="flex justify-between border-b border-[#e5e7eb] pb-4">
+                    <div className="h-8 w-48 bg-[#f3f4f6] rounded" />
+                    <div className="h-8 w-32 bg-[#f3f4f6] rounded" />
+                  </div>
+                  <div className="space-y-3">
+                    <div className="h-4 w-full bg-[#f3f4f6] rounded" />
+                    <div className="h-4 w-full bg-[#f3f4f6] rounded" />
+                    <div className="h-4 w-3/4 bg-[#f3f4f6] rounded" />
+                  </div>
+                  <div className="pt-8 space-y-4">
+                    <div className="h-4 w-40 bg-[#f3f4f6] rounded mb-6" />
+                    <div className="flex gap-3">
+                      <div className="w-8 h-8 rounded-full bg-cyan-50 shrink-0" />
+                      <div className="flex-1 h-16 bg-[#f9fafb] border border-[#e5e7eb] rounded" />
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
         </section>
 
-        <section id="featured">
-          <div className="mb-6 flex items-end justify-between gap-4">
-            <div>
-              <p className="text-[10px] font-mono font-bold uppercase tracking-[0.2em] text-[#06B6D4]">
-                Featured Indie Projects
-              </p>
-              <h2 className="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">Discover active indie boards</h2>
-            </div>
-            {isFeaturedLoading ? <p className="text-xs text-[#9ca3af]">Loading projects...</p> : null}
+        <section id="projects" className="py-20 px-4 max-w-7xl mx-auto">
+          <div className="text-center mb-12">
+            <p className="text-[10px] font-mono font-bold text-[#06B6D4] uppercase tracking-[0.2em]">Featured Public Boards</p>
+            <h2 className="text-3xl font-bold text-[#111827] mt-4">Community Projects</h2>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-3">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {projectsToShow.map((project) => (
               <a
                 key={project.id}
                 href={projectPath(project)}
-                className="group rounded-md-ds border border-[#e5e7eb] bg-white p-5 shadow-sm transition-all hover:-translate-y-0.5 hover:border-[#06B6D4] hover:shadow-ds"
+                className="group rounded-md-ds border border-[#e5e7eb] bg-white p-6 hover:border-[#06B6D4] transition-all hover:shadow-ds"
               >
-                <div className="mb-4 flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-sm-ds bg-cyan-50 text-[#06B6D4]">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="h-10 w-10 rounded-sm-ds bg-cyan-50 text-[#06B6D4] flex items-center justify-center">
                     <FolderOpen size={20} />
                   </div>
                   <div>
-                    <p className="font-semibold text-[#111827] group-hover:text-[#06B6D4]">{project.name}</p>
-                    <p className="text-[10px] font-mono text-[#6b7280]">
-                      /{project.owner_handle}/{project.slug}
-                    </p>
+                    <p className="font-bold text-[#111827] group-hover:text-[#06B6D4]">{project.name}</p>
+                    <p className="text-[10px] font-mono text-[#6b7280]">/{project.owner_handle}/{project.slug}</p>
                   </div>
                 </div>
-                <p className="mb-5 min-h-[40px] text-sm text-[#6b7280]">
-                  {project.tagline || "Public board for solo roadmap, bug triage, and close user feedback loops."}
+                <p className="text-sm text-[#6b7280] mb-6">
+                  {project.tagline || "Public request board for roadmap planning and bug triage."}
                 </p>
                 <div className="flex items-center justify-between text-[10px] font-mono font-bold uppercase tracking-wide">
                   <span className="text-[#6b7280]">{toReadableCount(project.issues_count)} Requests</span>
@@ -528,7 +482,89 @@ export default function LandingPage({ initialAuthMode = null }) {
             ))}
           </div>
         </section>
+
+        <section id="features" className="py-20 bg-white border-y border-[#e5e7eb]">
+          <div className="max-w-7xl mx-auto px-4 grid grid-cols-1 md:grid-cols-3 gap-12">
+            <div className="space-y-4">
+              <div className="w-12 h-12 bg-[#f3f4f6] rounded-sm-ds flex items-center justify-center text-[#111827]">
+                <ArrowBigUpDash size={22} />
+              </div>
+              <h3 className="font-bold text-lg">Community Prioritization</h3>
+              <p className="text-sm text-[#6b7280] leading-relaxed">
+                Let your users vote on features. Sort requests by popularity and move the roadmap with confidence.
+              </p>
+            </div>
+            <div className="space-y-4">
+              <div className="w-12 h-12 bg-[#f3f4f6] rounded-sm-ds flex items-center justify-center text-[#111827]">
+                <MessageSquare size={22} />
+              </div>
+              <h3 className="font-bold text-lg">Native Discussion</h3>
+              <p className="text-sm text-[#6b7280] leading-relaxed">
+                Discuss requirements and implementation details directly per request instead of scattered threads.
+              </p>
+            </div>
+            <div className="space-y-4">
+              <div className="w-12 h-12 bg-[#f3f4f6] rounded-sm-ds flex items-center justify-center text-[#111827]">
+                <Lock size={22} />
+              </div>
+              <h3 className="font-bold text-lg">Public or Private</h3>
+              <p className="text-sm text-[#6b7280] leading-relaxed">
+                Build in public with open boards or keep sensitive feedback private with board-level control.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section id="pricing" className="py-20 px-4">
+          <div className="mx-auto max-w-3xl bg-[#111827] rounded-md-ds p-12 text-center text-white space-y-8 shadow-2xl">
+            <h2 className="text-3xl font-bold">Ready to listen to your users?</h2>
+            <p className="text-[#9ca3af] max-w-md mx-auto">
+              Bring your feedback loop to one place and let your community shape your roadmap.
+            </p>
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4">
+              <button
+                type="button"
+                onClick={() => openAuth("signUp")}
+                className="w-full sm:w-auto px-8 py-3 bg-[#06B6D4] text-white text-sm font-bold rounded-sm-ds hover:bg-cyan-600 transition-all uppercase tracking-wide"
+              >
+                Start for free
+              </button>
+              <span className="text-[#6b7280] font-mono text-[10px] uppercase tracking-widest">No credit card required</span>
+            </div>
+          </div>
+        </section>
       </main>
+
+      <footer className="bg-white border-t border-[#e5e7eb] py-8 px-4">
+        <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 bg-[#06B6D4] rounded-sm-ds flex items-center justify-center text-white">
+              <Layers size={14} />
+            </div>
+            <span className="text-sm font-bold tracking-tight">FeatureRequest</span>
+            <span className="text-[10px] font-mono text-[#9ca3af] ml-2">© 2026</span>
+          </div>
+          <div className="flex items-center gap-6">
+            <a href="#" className="text-xs font-medium text-[#6b7280] hover:text-[#111827]">
+              Privacy
+            </a>
+            <a href="#" className="text-xs font-medium text-[#6b7280] hover:text-[#111827]">
+              Terms
+            </a>
+            <a href="#" className="text-xs font-medium text-[#6b7280] hover:text-[#111827]">
+              Contact
+            </a>
+            <div className="flex items-center gap-3 ml-4">
+              <a href="#" className="text-[#6b7280] hover:text-[#111827]">
+                <Sparkles size={14} />
+              </a>
+              <a href="#" className="text-[#6b7280] hover:text-[#111827]">
+                <Palette size={14} />
+              </a>
+            </div>
+          </div>
+        </div>
+      </footer>
 
       {authMode ? (
         <div
@@ -627,18 +663,6 @@ export default function LandingPage({ initialAuthMode = null }) {
                       onChange={(event) => setSignUpEmail(event.target.value)}
                       className="w-full rounded-sm-ds border border-[#e5e7eb] px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-[#06B6D4]"
                       placeholder="you@indie.dev"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-mono font-bold uppercase tracking-wider text-[#6b7280]">
-                      Display Name (optional)
-                    </label>
-                    <input
-                      type="text"
-                      value={signUpDisplayName}
-                      onChange={(event) => setSignUpDisplayName(event.target.value)}
-                      className="w-full rounded-sm-ds border border-[#e5e7eb] px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-[#06B6D4]"
-                      placeholder="Onur Matik"
                     />
                   </div>
                   {authFeedback ? <p className="text-xs text-[#6b7280]">{authFeedback}</p> : null}
