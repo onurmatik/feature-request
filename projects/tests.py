@@ -3,7 +3,6 @@ import json
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError
 from django.test import TestCase
-from django.urls import reverse
 
 from .models import Issue, IssueComment, IssueUpvote, Project
 
@@ -271,7 +270,7 @@ class IssueApiTest(TestCase):
         self.assertEqual(len(owner_all.json()), 3)
 
 
-class ProjectBackendUiTest(TestCase):
+class ProjectApiTest(TestCase):
     def setUp(self):
         user_model = get_user_model()
         self.owner = user_model.objects.create_user(
@@ -284,70 +283,75 @@ class ProjectBackendUiTest(TestCase):
             handle="other_ui",
             password="test-pass-123",
         )
+        self.project = Project.objects.create(
+            owner=self.owner,
+            name="Secret Board",
+            slug="secret-board",
+            visibility=Project.Visibility.PRIVATE,
+        )
 
-    def test_list_requires_auth(self):
-        response = self.client.get(reverse("projects:backend-project-list"))
-        self.assertEqual(response.status_code, 302)
-        self.assertIn("/admin/login/", response.headers["Location"])
+    def test_list_my_projects_requires_auth(self):
+        response = self.client.get("/api/projects")
+        self.assertEqual(response.status_code, 401)
 
-    def test_owner_can_create_edit_and_delete_project(self):
+    def test_owner_can_create_update_and_delete_project(self):
         self.client.force_login(self.owner)
 
         create_response = self.client.post(
-            reverse("projects:backend-project-create"),
-            data={
-                "name": "Platform Revamp",
-                "slug": "",
-                "tagline": "Major overhaul",
-                "description": "New architecture and workflows.",
-                "visibility": Project.Visibility.PRIVATE,
-            },
+            "/api/projects",
+            data=json.dumps(
+                {
+                    "name": "Platform Revamp",
+                    "slug": "",
+                    "tagline": "Major overhaul",
+                    "description": "New architecture and workflows.",
+                    "visibility": Project.Visibility.PRIVATE,
+                }
+            ),
+            content_type="application/json",
         )
-        self.assertEqual(create_response.status_code, 302)
+        self.assertEqual(create_response.status_code, 201)
+        created = create_response.json()
+        self.assertEqual(created["slug"], "platform-revamp")
 
-        project = Project.objects.get(owner=self.owner)
-        self.assertEqual(project.slug, "platform-revamp")
+        list_response = self.client.get("/api/projects")
+        self.assertEqual(list_response.status_code, 200)
+        self.assertEqual(len(list_response.json()), 2)
 
-        edit_response = self.client.post(
-            reverse("projects:backend-project-edit", args=[project.pk]),
-            data={
-                "name": "Platform Revamp V2",
-                "slug": "platform-v2",
-                "tagline": "Updated scope",
-                "description": "Updated description.",
-                "visibility": Project.Visibility.PUBLIC,
-            },
+        edit_response = self.client.patch(
+            f"/api/projects/{created['id']}",
+            data=json.dumps(
+                {
+                    "name": "Platform Revamp V2",
+                    "slug": "platform-v2",
+                    "tagline": "Updated scope",
+                    "description": "Updated description.",
+                    "visibility": Project.Visibility.PUBLIC,
+                }
+            ),
+            content_type="application/json",
         )
-        self.assertEqual(edit_response.status_code, 302)
+        self.assertEqual(edit_response.status_code, 200)
+        project = Project.objects.get(id=created["id"])
         project.refresh_from_db()
         self.assertEqual(project.name, "Platform Revamp V2")
         self.assertEqual(project.slug, "platform-v2")
         self.assertEqual(project.visibility, Project.Visibility.PUBLIC)
 
-        delete_response = self.client.post(
-            reverse("projects:backend-project-delete", args=[project.pk])
-        )
-        self.assertEqual(delete_response.status_code, 302)
+        delete_response = self.client.delete(f"/api/projects/{created['id']}")
+        self.assertEqual(delete_response.status_code, 204)
         self.assertFalse(Project.objects.filter(pk=project.pk).exists())
 
-    def test_non_owner_cannot_access_edit_or_delete(self):
-        project = Project.objects.create(
-            owner=self.owner,
-            name="Secret Board",
-            slug="secret-board",
-        )
-
+    def test_non_owner_cannot_update_or_delete_project(self):
         self.client.force_login(self.other_user)
-
-        edit_response = self.client.get(
-            reverse("projects:backend-project-edit", args=[project.pk])
+        edit_response = self.client.patch(
+            f"/api/projects/{self.project.pk}",
+            data=json.dumps({"name": "Updated"}),
+            content_type="application/json",
         )
-        delete_response = self.client.get(
-            reverse("projects:backend-project-delete", args=[project.pk])
-        )
-
-        self.assertEqual(edit_response.status_code, 404)
-        self.assertEqual(delete_response.status_code, 404)
+        delete_response = self.client.delete(f"/api/projects/{self.project.pk}")
+        self.assertEqual(edit_response.status_code, 403)
+        self.assertEqual(delete_response.status_code, 403)
 
 
 class PublicBoardViewTest(TestCase):
@@ -379,12 +383,14 @@ class PublicBoardViewTest(TestCase):
     def test_owner_board_is_publicly_accessible(self):
         response = self.client.get(f"/{self.owner.handle}/")
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "All Projects")
+        self.assertContains(response, f'ownerHandle: "{self.owner.handle}"')
+        self.assertContains(response, 'initialProjectSlug: ""')
 
     def test_public_project_board_is_publicly_accessible(self):
         response = self.client.get(f"/{self.owner.handle}/{self.public_project.slug}/")
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, f"Contact @{self.owner.handle}")
+        self.assertContains(response, f'ownerHandle: "{self.owner.handle}"')
+        self.assertContains(response, f'initialProjectSlug: "{self.public_project.slug}"')
 
     def test_private_project_board_is_hidden_from_visitors(self):
         response = self.client.get(f"/{self.owner.handle}/{self.private_project.slug}/")

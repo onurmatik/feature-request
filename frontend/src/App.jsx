@@ -185,10 +185,25 @@ export default function App() {
 
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [deleteSlugConfirm, setDeleteSlugConfirm] = useState("");
+  const [projectNameDraft, setProjectNameDraft] = useState("");
+  const [projectSlugDraft, setProjectSlugDraft] = useState("");
+  const [projectTaglineDraft, setProjectTaglineDraft] = useState("");
+  const [projectDescriptionDraft, setProjectDescriptionDraft] = useState("");
+  const [projectVisibilityDraft, setProjectVisibilityDraft] = useState("public");
+  const [projectFeedback, setProjectFeedback] = useState("");
+  const [projectFeedbackTone, setProjectFeedbackTone] = useState("");
+  const [isProjectSaving, setIsProjectSaving] = useState(false);
+  const [isProjectDeleting, setIsProjectDeleting] = useState(false);
 
   const selectedProject = useMemo(
     () => projects.find((project) => project.slug === selectedProjectSlug) || null,
     [projects, selectedProjectSlug],
+  );
+  const isOwnerViewer = useMemo(
+    () =>
+      bootstrap.isAuthenticated &&
+      String(bootstrap.currentUserHandle || "").toLowerCase() === bootstrap.ownerHandle,
+    [bootstrap.currentUserHandle, bootstrap.isAuthenticated, bootstrap.ownerHandle],
   );
 
   const filteredIssues = useMemo(() => {
@@ -353,7 +368,23 @@ export default function App() {
   useEffect(() => {
     if (!selectedProject) {
       setDeleteSlugConfirm("");
+      setProjectNameDraft("");
+      setProjectSlugDraft("");
+      setProjectTaglineDraft("");
+      setProjectDescriptionDraft("");
+      setProjectVisibilityDraft("public");
+      setProjectFeedback("");
+      setProjectFeedbackTone("");
+      return;
     }
+
+    setProjectNameDraft(selectedProject.name || "");
+    setProjectSlugDraft(selectedProject.slug || "");
+    setProjectTaglineDraft(selectedProject.tagline || "");
+    setProjectDescriptionDraft(selectedProject.description || "");
+    setProjectVisibilityDraft(selectedProject.visibility || "public");
+    setProjectFeedback("");
+    setProjectFeedbackTone("");
   }, [selectedProject]);
 
   function setProjectSlugAndHistory(nextSlug) {
@@ -625,17 +656,75 @@ export default function App() {
     }
   }
 
-  function goToProjectSettings() {
+  async function handleSaveProjectSettings() {
     if (!selectedProject) {
       setStatus("Select a project first.", true);
       return;
     }
 
-    window.location.href = `/backend/projects/${selectedProject.id}/edit/`;
+    if (!isOwnerViewer) {
+      setStatus("Only the project owner can update settings.", true);
+      return;
+    }
+
+    const payload = {
+      name: projectNameDraft,
+      slug: projectSlugDraft,
+      tagline: projectTaglineDraft,
+      description: projectDescriptionDraft,
+      visibility: projectVisibilityDraft,
+    };
+
+    setIsProjectSaving(true);
+    setProjectFeedback("Saving...");
+    setProjectFeedbackTone("");
+
+    try {
+      const response = await fetch(`/api/projects/${selectedProject.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": csrfTokenFromCookie(),
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        const detail = typeof data.detail === "string" ? data.detail : "Project update failed.";
+        setProjectFeedback(detail);
+        setProjectFeedbackTone("error");
+        return;
+      }
+
+      const previousSlug = selectedProject.slug;
+      setProjects((previous) =>
+        previous.map((project) => (project.id === data.id ? data : project)),
+      );
+      if (previousSlug !== data.slug) {
+        setSelectedProjectSlug(data.slug);
+        const nextUrl = boardUrl(data.slug);
+        if (window.location.pathname !== nextUrl) {
+          window.history.replaceState({ slug: data.slug }, "", nextUrl);
+        }
+      }
+
+      setProjectFeedback("Project updated.");
+      setProjectFeedbackTone("success");
+      setStatus("Project updated.");
+    } finally {
+      setIsProjectSaving(false);
+    }
   }
 
-  function goToProjectDelete() {
+  async function handleDeleteProject() {
     if (!selectedProject) {
+      return;
+    }
+
+    if (!isOwnerViewer) {
+      setStatus("Only the project owner can delete projects.", true);
       return;
     }
 
@@ -643,7 +732,36 @@ export default function App() {
       return;
     }
 
-    window.location.href = `/backend/projects/${selectedProject.id}/delete/`;
+    setIsProjectDeleting(true);
+    try {
+      const response = await fetch(`/api/projects/${selectedProject.id}`, {
+        method: "DELETE",
+        headers: {
+          "X-CSRFToken": csrfTokenFromCookie(),
+        },
+      });
+
+      if (!response.ok) {
+        setStatus("Project delete failed.", true);
+        return;
+      }
+
+      const deletedSlug = selectedProject.slug;
+      setProjects((previous) => previous.filter((project) => project.id !== selectedProject.id));
+      if (selectedProjectSlug === deletedSlug) {
+        setSelectedProjectSlug("");
+        const url = boardUrl("");
+        if (window.location.pathname !== url) {
+          window.history.replaceState({ slug: "" }, "", url);
+        }
+      }
+      setDeleteSlugConfirm("");
+      setIsDeleteModalOpen(false);
+      setView("issues");
+      setStatus("Project deleted.");
+    } finally {
+      setIsProjectDeleting(false);
+    }
   }
 
   const projectButtons = (
@@ -1047,6 +1165,11 @@ export default function App() {
                   <div className="pb-4 border-b border-[#e5e7eb]">
                     <h3 className="text-sm font-bold uppercase tracking-widest text-[#6b7280]">General Information</h3>
                   </div>
+                  {!isOwnerViewer ? (
+                    <p className="text-xs text-[#6b7280]">
+                      You are viewing this board as a visitor. Only @{bootstrap.ownerHandle} can edit project settings.
+                    </p>
+                  ) : null}
 
                   {selectedProject ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -1056,9 +1179,13 @@ export default function App() {
                         </label>
                         <input
                           type="text"
-                          value={selectedProject.name}
-                          readOnly
-                          className="w-full px-3 py-2 border border-[#e5e7eb] rounded-sm-ds text-sm bg-[#f9fafb]"
+                          value={projectNameDraft}
+                          onChange={(event) => setProjectNameDraft(event.target.value)}
+                          disabled={!isOwnerViewer || isProjectSaving}
+                          className={cls(
+                            "w-full px-3 py-2 border border-[#e5e7eb] rounded-sm-ds text-sm",
+                            isOwnerViewer ? "bg-white" : "bg-[#f9fafb]",
+                          )}
                         />
                       </div>
                       <div className="space-y-1.5">
@@ -1067,29 +1194,56 @@ export default function App() {
                         </label>
                         <input
                           type="text"
-                          value={selectedProject.slug}
-                          readOnly
-                          className="w-full px-3 py-2 border border-[#e5e7eb] rounded-sm-ds text-sm bg-[#f3f4f6] text-[#6b7280]"
+                          value={projectSlugDraft}
+                          onChange={(event) => setProjectSlugDraft(event.target.value)}
+                          disabled={!isOwnerViewer || isProjectSaving}
+                          className={cls(
+                            "w-full px-3 py-2 border border-[#e5e7eb] rounded-sm-ds text-sm",
+                            isOwnerViewer ? "bg-white" : "bg-[#f3f4f6] text-[#6b7280]",
+                          )}
                         />
                       </div>
                       <div className="md:col-span-2 space-y-1.5">
                         <label className="text-[10px] font-mono font-bold text-[#6b7280] uppercase">Tagline</label>
                         <input
                           type="text"
-                          value={selectedProject.tagline || ""}
-                          readOnly
-                          className="w-full px-3 py-2 border border-[#e5e7eb] rounded-sm-ds text-sm bg-[#f9fafb]"
+                          value={projectTaglineDraft}
+                          onChange={(event) => setProjectTaglineDraft(event.target.value)}
+                          disabled={!isOwnerViewer || isProjectSaving}
+                          className={cls(
+                            "w-full px-3 py-2 border border-[#e5e7eb] rounded-sm-ds text-sm",
+                            isOwnerViewer ? "bg-white" : "bg-[#f9fafb]",
+                          )}
+                        />
+                      </div>
+                      <div className="md:col-span-2 space-y-1.5">
+                        <label className="text-[10px] font-mono font-bold text-[#6b7280] uppercase">
+                          Description
+                        </label>
+                        <textarea
+                          rows={4}
+                          value={projectDescriptionDraft}
+                          onChange={(event) => setProjectDescriptionDraft(event.target.value)}
+                          disabled={!isOwnerViewer || isProjectSaving}
+                          className={cls(
+                            "w-full px-3 py-2 border border-[#e5e7eb] rounded-sm-ds text-sm resize-none",
+                            isOwnerViewer ? "bg-white" : "bg-[#f9fafb]",
+                          )}
                         />
                       </div>
                       <div className="md:col-span-2 space-y-1.5">
                         <label className="text-[10px] font-mono font-bold text-[#6b7280] uppercase">Visibility</label>
                         <div className="flex flex-col md:flex-row gap-4">
-                          <div
+                          <button
+                            type="button"
+                            disabled={!isOwnerViewer || isProjectSaving}
+                            onClick={() => setProjectVisibilityDraft("public")}
                             className={cls(
-                              "flex-1 flex items-center gap-3 p-3 border rounded-sm-ds transition-all",
-                              selectedProject.visibility === "public"
+                              "flex-1 flex items-center gap-3 p-3 border rounded-sm-ds transition-all text-left",
+                              projectVisibilityDraft === "public"
                                 ? "border-[#06B6D4] bg-cyan-50"
-                                : "border-[#e5e7eb]",
+                                : "border-[#e5e7eb] hover:border-[#06B6D4]/50",
+                              (!isOwnerViewer || isProjectSaving) && "cursor-not-allowed opacity-70",
                             )}
                           >
                             <Globe className="text-[#6b7280]" size={18} />
@@ -1097,13 +1251,17 @@ export default function App() {
                               <p className="text-xs font-bold">Public</p>
                               <p className="text-[10px] text-[#6b7280]">Visible to anyone with the link.</p>
                             </div>
-                          </div>
-                          <div
+                          </button>
+                          <button
+                            type="button"
+                            disabled={!isOwnerViewer || isProjectSaving}
+                            onClick={() => setProjectVisibilityDraft("private")}
                             className={cls(
-                              "flex-1 flex items-center gap-3 p-3 border rounded-sm-ds transition-all",
-                              selectedProject.visibility === "private"
+                              "flex-1 flex items-center gap-3 p-3 border rounded-sm-ds transition-all text-left",
+                              projectVisibilityDraft === "private"
                                 ? "border-[#06B6D4] bg-cyan-50"
-                                : "border-[#e5e7eb]",
+                                : "border-[#e5e7eb] hover:border-[#06B6D4]/50",
+                              (!isOwnerViewer || isProjectSaving) && "cursor-not-allowed opacity-70",
                             )}
                           >
                             <Lock className="text-[#6b7280]" size={18} />
@@ -1111,7 +1269,7 @@ export default function App() {
                               <p className="text-xs font-bold">Private</p>
                               <p className="text-[10px] text-[#6b7280]">Only you can see this project.</p>
                             </div>
-                          </div>
+                          </button>
                         </div>
                       </div>
                     </div>
@@ -1119,13 +1277,29 @@ export default function App() {
                     <p className="text-sm text-[#6b7280]">Select a project from sidebar and open settings.</p>
                   )}
 
+                  {projectFeedback ? (
+                    <p
+                      className={cls(
+                        "text-xs",
+                        projectFeedbackTone === "error"
+                          ? "text-[#dc2626]"
+                          : projectFeedbackTone === "success"
+                            ? "text-[#16a34a]"
+                            : "text-[#6b7280]",
+                      )}
+                    >
+                      {projectFeedback}
+                    </p>
+                  ) : null}
+
                   <div className="flex justify-end">
                     <button
                       type="button"
-                      onClick={goToProjectSettings}
-                      className="px-6 py-2 bg-[#06B6D4] text-white text-sm font-bold rounded-sm-ds hover:bg-cyan-600 shadow-sm transition-all"
+                      onClick={handleSaveProjectSettings}
+                      disabled={!selectedProject || !isOwnerViewer || isProjectSaving}
+                      className="px-6 py-2 bg-[#06B6D4] text-white text-sm font-bold rounded-sm-ds hover:bg-cyan-600 shadow-sm transition-all disabled:opacity-45"
                     >
-                      Open Django Form
+                      {isProjectSaving ? "Saving..." : "Save Changes"}
                     </button>
                   </div>
                 </section>
@@ -1146,7 +1320,7 @@ export default function App() {
                       type="button"
                       onClick={() => setIsDeleteModalOpen(true)}
                       className="px-4 py-2 bg-[#dc2626] text-white text-xs font-bold rounded-sm-ds hover:bg-red-700 transition-all shadow-sm"
-                      disabled={!selectedProject}
+                      disabled={!selectedProject || !isOwnerViewer || isProjectDeleting}
                     >
                       Delete Project
                     </button>
@@ -1294,11 +1468,16 @@ export default function App() {
               </button>
               <button
                 type="button"
-                onClick={goToProjectDelete}
-                disabled={!selectedProject || deleteSlugConfirm.trim() !== selectedProject.slug}
+                onClick={handleDeleteProject}
+                disabled={
+                  !selectedProject ||
+                  !isOwnerViewer ||
+                  isProjectDeleting ||
+                  deleteSlugConfirm.trim() !== selectedProject.slug
+                }
                 className="px-4 py-2 bg-[#dc2626] text-white text-sm font-bold rounded-sm-ds hover:bg-red-700 transition-all disabled:opacity-45"
               >
-                Confirm Delete
+                {isProjectDeleting ? "Deleting..." : "Confirm Delete"}
               </button>
             </div>
           </div>

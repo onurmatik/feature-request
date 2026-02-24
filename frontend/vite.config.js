@@ -15,11 +15,6 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
       },
-      "/backend": {
-        target: djangoDevOrigin,
-        changeOrigin: true,
-        secure: false,
-      },
       "/auth": {
         target: djangoDevOrigin,
         changeOrigin: true,

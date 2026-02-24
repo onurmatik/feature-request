@@ -3,6 +3,7 @@ from typing import Optional
 from django.contrib.auth import get_user_model
 from django.db.models import Count
 from django.shortcuts import get_object_or_404
+from django.utils.text import slugify
 from ninja import Router, Schema
 from ninja.errors import HttpError
 
@@ -29,6 +30,22 @@ class ProjectOut(Schema):
     visibility: str
     created_at: str
     updated_at: str
+
+
+class ProjectCreateIn(Schema):
+    name: str
+    slug: str = ""
+    tagline: str = ""
+    description: str = ""
+    visibility: str = Project.Visibility.PUBLIC
+
+
+class ProjectUpdateIn(Schema):
+    name: Optional[str] = None
+    slug: Optional[str] = None
+    tagline: Optional[str] = None
+    description: Optional[str] = None
+    visibility: Optional[str] = None
 
 
 class IssueUpdateIn(Schema):
@@ -98,8 +115,18 @@ def _validate_priority(priority: int):
         raise HttpError(400, "Invalid priority.")
 
 
+def _validate_project_visibility(visibility: str):
+    allowed = {value for value, _ in Project.Visibility.choices}
+    if visibility not in allowed:
+        raise HttpError(400, "Invalid visibility.")
+
+
 def _can_manage_issue(user, issue: Issue):
     return user.id == issue.project.owner_id or user.id == issue.author_id
+
+
+def _can_manage_project(user, project: Project):
+    return user.id == project.owner_id
 
 
 def _clean_non_empty(value: str, field_name: str):
@@ -107,6 +134,14 @@ def _clean_non_empty(value: str, field_name: str):
     if not cleaned:
         raise HttpError(400, f"{field_name} cannot be empty.")
     return cleaned
+
+
+def _normalize_project_slug(name: str, slug_value: str):
+    raw_slug = slug_value.strip()
+    candidate = slugify(raw_slug) if raw_slug else slugify(name)
+    if not candidate:
+        raise HttpError(400, "Project slug cannot be empty.")
+    return candidate
 
 
 def _issue_to_dict(issue: Issue):
@@ -189,6 +224,102 @@ def _get_visible_projects_for_owner(request, owner_handle: str):
     if request.user.is_authenticated and request.user.id == owner.id:
         return owner, projects
     return owner, projects.filter(visibility=Project.Visibility.PUBLIC)
+
+
+@router.get("/projects", response=list[ProjectOut])
+def list_my_projects(request):
+    user = _require_auth_user(request)
+    projects = Project.objects.select_related("owner").filter(owner=user)
+    return [_project_to_dict(project) for project in projects]
+
+
+@router.post("/projects", response={201: ProjectOut})
+def create_project(request, payload: ProjectCreateIn):
+    user = _require_auth_user(request)
+    name = _clean_non_empty(payload.name, "Project name")
+    _validate_project_visibility(payload.visibility)
+    slug = _normalize_project_slug(name, payload.slug)
+
+    if Project.objects.filter(owner=user, slug=slug).exists():
+        raise HttpError(400, "This slug is already used for this owner.")
+
+    project = Project.objects.create(
+        owner=user,
+        name=name,
+        slug=slug,
+        tagline=payload.tagline.strip(),
+        description=payload.description.strip(),
+        visibility=payload.visibility,
+    )
+    project = Project.objects.select_related("owner").get(id=project.id)
+    return 201, _project_to_dict(project)
+
+
+@router.get("/projects/{project_id}", response=ProjectOut)
+def get_my_project(request, project_id: int):
+    user = _require_auth_user(request)
+    project = get_object_or_404(
+        Project.objects.select_related("owner"),
+        id=project_id,
+        owner=user,
+    )
+    return _project_to_dict(project)
+
+
+@router.patch("/projects/{project_id}", response=ProjectOut)
+def update_project(request, project_id: int, payload: ProjectUpdateIn):
+    user = _require_auth_user(request)
+    project = get_object_or_404(
+        Project.objects.select_related("owner"),
+        id=project_id,
+    )
+    if not _can_manage_project(user, project):
+        raise HttpError(403, "Not allowed to update this project.")
+
+    updated_fields = []
+
+    if payload.name is not None:
+        project.name = _clean_non_empty(payload.name, "Project name")
+        updated_fields.append("name")
+
+    if payload.slug is not None:
+        slug_candidate = _normalize_project_slug(project.name, payload.slug)
+        duplicate_qs = Project.objects.filter(owner=project.owner, slug=slug_candidate).exclude(
+            id=project.id
+        )
+        if duplicate_qs.exists():
+            raise HttpError(400, "This slug is already used for this owner.")
+        project.slug = slug_candidate
+        updated_fields.append("slug")
+
+    if payload.tagline is not None:
+        project.tagline = payload.tagline.strip()
+        updated_fields.append("tagline")
+
+    if payload.description is not None:
+        project.description = payload.description.strip()
+        updated_fields.append("description")
+
+    if payload.visibility is not None:
+        _validate_project_visibility(payload.visibility)
+        project.visibility = payload.visibility
+        updated_fields.append("visibility")
+
+    if updated_fields:
+        updated_fields.append("updated_at")
+        project.save(update_fields=updated_fields)
+
+    return _project_to_dict(project)
+
+
+@router.delete("/projects/{project_id}", response={204: None})
+def delete_project(request, project_id: int):
+    user = _require_auth_user(request)
+    project = get_object_or_404(Project, id=project_id)
+    if not _can_manage_project(user, project):
+        raise HttpError(403, "Not allowed to delete this project.")
+    project.delete()
+    return 204, None
 
 
 @router.get("/owners/{owner_handle}/projects", response=list[ProjectOut])
