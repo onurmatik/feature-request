@@ -195,10 +195,13 @@ export default function App() {
   const [isProjectDeleting, setIsProjectDeleting] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(bootstrap.isAuthenticated);
   const [currentUserHandle, setCurrentUserHandle] = useState(bootstrap.currentUserHandle);
-  const [isSignInOpen, setIsSignInOpen] = useState(false);
   const [signInIdentity, setSignInIdentity] = useState("");
-  const [signInFeedback, setSignInFeedback] = useState("");
-  const [isSignInSubmitting, setIsSignInSubmitting] = useState(false);
+  const [signUpEmail, setSignUpEmail] = useState("");
+  const [signUpHandle, setSignUpHandle] = useState("");
+  const [signUpDisplayName, setSignUpDisplayName] = useState("");
+  const [authMode, setAuthMode] = useState(null);
+  const [authFeedback, setAuthFeedback] = useState("");
+  const [isAuthSubmitting, setIsAuthSubmitting] = useState(false);
 
   const selectedProject = useMemo(
     () => projects.find((project) => project.slug === selectedProjectSlug) || null,
@@ -272,16 +275,15 @@ export default function App() {
     await fetch("/auth/me");
   }
 
-  function openSignInModal() {
-    setSignInFeedback("");
-    setIsSignInOpen(true);
+  function openAuth(mode) {
+    setAuthMode(mode);
+    setAuthFeedback("");
   }
 
-  function closeSignInModal() {
-    setSignInIdentity("");
-    setSignInFeedback("");
-    setIsSignInSubmitting(false);
-    setIsSignInOpen(false);
+  function closeAuth() {
+    setAuthMode(null);
+    setAuthFeedback("");
+    setIsAuthSubmitting(false);
   }
 
   async function onSignInSubmit(event) {
@@ -289,12 +291,12 @@ export default function App() {
     const identity = signInIdentity.trim();
 
     if (!identity) {
-      setSignInFeedback("Email or handle is required.");
+      setAuthFeedback("Email or handle is required.");
       return;
     }
 
-    setIsSignInSubmitting(true);
-    setSignInFeedback("Signing in...");
+    setIsAuthSubmitting(true);
+    setAuthFeedback("Signing in...");
 
     try {
       await ensureCsrfCookie();
@@ -310,18 +312,74 @@ export default function App() {
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
         const detail = typeof payload.detail === "string" ? payload.detail : "Sign in failed.";
-        setSignInFeedback(detail);
+        setAuthFeedback(detail);
         return;
       }
 
       const handle = String(payload.current_user_handle || "").trim();
+      if (!handle) {
+        setAuthFeedback("Session started but no handle was returned.");
+        return;
+      }
       setIsAuthenticated(true);
       setCurrentUserHandle(handle);
-      closeSignInModal();
+      closeAuth();
     } catch {
-      setSignInFeedback("Sign in failed. Please try again.");
+      setAuthFeedback("Sign in failed. Please try again.");
     } finally {
-      setIsSignInSubmitting(false);
+      setIsAuthSubmitting(false);
+    }
+  }
+
+  async function onSignUpSubmit(event) {
+    event.preventDefault();
+    const email = signUpEmail.trim().toLowerCase();
+    const handle = signUpHandle.trim().toLowerCase();
+    const displayName = signUpDisplayName.trim();
+
+    if (!email || !handle) {
+      setAuthFeedback("Email and handle are required.");
+      return;
+    }
+
+    setIsAuthSubmitting(true);
+    setAuthFeedback("Creating account...");
+
+    try {
+      await ensureCsrfCookie();
+      const response = await fetch("/auth/sign-up", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": csrfTokenFromCookie(),
+        },
+        body: JSON.stringify({
+          email,
+          handle,
+          display_name: displayName,
+        }),
+      });
+
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const detail = typeof payload.detail === "string" ? payload.detail : "Sign up failed.";
+        setAuthFeedback(detail);
+        return;
+      }
+
+      const nextHandle = String(payload.current_user_handle || "").trim();
+      if (!nextHandle) {
+        setAuthFeedback("Account created but handle was missing.");
+        return;
+      }
+
+      setIsAuthenticated(true);
+      setCurrentUserHandle(nextHandle);
+      closeAuth();
+    } catch {
+      setAuthFeedback("Sign up failed. Please try again.");
+    } finally {
+      setIsAuthSubmitting(false);
     }
   }
 
@@ -686,7 +744,7 @@ export default function App() {
     }
 
     if (!isAuthenticated) {
-      openSignInModal();
+      openAuth("signIn");
       return;
     }
 
@@ -951,13 +1009,22 @@ export default function App() {
               </div>
             </>
           ) : (
-            <button
-              type="button"
-              onClick={openSignInModal}
-              className="rounded-sm-ds px-3 py-2 text-xs font-bold uppercase tracking-wide text-[#6b7280] transition-colors hover:text-[#111827]"
-            >
-              sign-in
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => openAuth("signIn")}
+                className="rounded-sm-ds px-3 py-2 text-xs font-bold uppercase tracking-wide text-[#6b7280] transition-colors hover:text-[#111827]"
+              >
+                Sign In
+              </button>
+              <button
+                type="button"
+                onClick={() => openAuth("signUp")}
+                className="rounded-sm-ds bg-[#111827] px-4 py-2 text-xs font-bold uppercase tracking-wide text-white transition-colors hover:bg-black"
+              >
+                Sign Up
+              </button>
+            </div>
           )}
         </div>
       </header>
@@ -1474,60 +1541,136 @@ export default function App() {
         </div>
       ) : null}
 
-      {isSignInOpen ? (
+      {authMode ? (
         <div
-          className="fixed inset-0 bg-[#111827]/60 backdrop-blur-[2px] z-[120] flex items-center justify-center p-4"
+          className="fixed inset-0 z-[120] flex items-center justify-center bg-[#111827]/60 p-4"
           onClick={(event) => {
             if (event.target === event.currentTarget) {
-              closeSignInModal();
+              closeAuth();
             }
           }}
         >
-          <div className="bg-white rounded-md-ds shadow-2xl max-w-md w-full overflow-hidden">
-            <div className="p-6">
-              <h3 className="text-lg font-bold text-[#111827] mb-2">Sign In</h3>
-              <p className="text-sm text-[#6b7280] mb-6">Enter your email or handle to continue.</p>
-              <form className="space-y-4" onSubmit={onSignInSubmit}>
-                <div>
-                  <label className="text-[10px] font-mono font-bold text-[#6b7280] uppercase">
-                    Email or handle
-                  </label>
-                  <input
-                    type="text"
-                    value={signInIdentity}
-                    onChange={(event) => setSignInIdentity(event.target.value)}
-                    autoFocus
-                    placeholder="you@example.com or your_handle"
-                    className="mt-1 w-full px-3 py-2 border border-[#e5e7eb] rounded-sm-ds text-sm focus:ring-1 focus:ring-[#06B6D4] outline-none"
-                  />
-                </div>
-                {signInFeedback ? (
-                  <p
-                    className={cls(
-                      "text-xs",
-                      signInFeedback === "Signing in..." ? "text-[#6b7280]" : "text-[#dc2626]",
-                    )}
-                  >
-                    {signInFeedback}
-                  </p>
-                ) : null}
-                <div className="flex justify-end gap-3 pt-2">
-                  <button
-                    type="button"
-                    onClick={closeSignInModal}
-                    className="px-4 py-2 text-sm font-bold text-[#6b7280] hover:text-[#111827]"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={isSignInSubmitting}
-                    className="px-4 py-2 rounded-sm-ds bg-[#111827] text-white text-xs font-bold uppercase tracking-wide hover:bg-black disabled:opacity-50"
-                  >
-                    {isSignInSubmitting ? "Signing in..." : "Sign in"}
-                  </button>
-                </div>
-              </form>
+          <div className="w-full max-w-md overflow-hidden rounded-md-ds border border-[#e5e7eb] bg-white shadow-2xl">
+            <div className="border-b border-[#e5e7eb] bg-[#f9fafb] p-3">
+              <div className="grid grid-cols-2 gap-2 rounded-sm-ds bg-white p-1">
+                <button
+                  type="button"
+                  onClick={() => openAuth("signIn")}
+                  className={cls(
+                    "rounded-sm-ds px-3 py-2 text-xs font-bold uppercase tracking-wide",
+                    authMode === "signIn" ? "bg-[#111827] text-white" : "text-[#6b7280] hover:text-[#111827]",
+                  )}
+                >
+                  Sign In
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openAuth("signUp")}
+                  className={cls(
+                    "rounded-sm-ds px-3 py-2 text-xs font-bold uppercase tracking-wide",
+                    authMode === "signUp" ? "bg-[#111827] text-white" : "text-[#6b7280] hover:text-[#111827]",
+                  )}
+                >
+                  Sign Up
+                </button>
+              </div>
+            </div>
+
+            <div className="min-h-[374px] p-6">
+              {authMode === "signIn" ? (
+                <form className="space-y-4" onSubmit={onSignInSubmit}>
+                  <h3 className="text-lg font-bold text-[#111827]">Welcome back</h3>
+                  <p className="text-sm text-[#6b7280]">Use your email or handle to continue.</p>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-mono font-bold uppercase tracking-wider text-[#6b7280]">
+                      Email or Handle
+                    </label>
+                    <input
+                      type="text"
+                      value={signInIdentity}
+                      onChange={(event) => setSignInIdentity(event.target.value)}
+                      className="w-full rounded-sm-ds border border-[#e5e7eb] px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-[#06B6D4]"
+                      autoFocus
+                    />
+                  </div>
+                  {authFeedback ? <p className="text-xs text-[#6b7280]">{authFeedback}</p> : null}
+                  <div className="flex justify-end gap-3">
+                    <button
+                      type="button"
+                      onClick={closeAuth}
+                      className="px-4 py-2 text-sm font-bold text-[#6b7280] hover:text-[#111827]"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isAuthSubmitting}
+                      className="rounded-sm-ds bg-[#06B6D4] px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-cyan-600 disabled:opacity-50"
+                    >
+                      Continue
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <form className="space-y-4" onSubmit={onSignUpSubmit}>
+                  <h3 className="text-lg font-bold text-[#111827]">Create your account</h3>
+                  <p className="text-sm text-[#6b7280]">Set a public handle, then publish your first board.</p>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-mono font-bold uppercase tracking-wider text-[#6b7280]">
+                      Handle
+                    </label>
+                    <input
+                      type="text"
+                      value={signUpHandle}
+                      onChange={(event) => setSignUpHandle(event.target.value)}
+                      className="w-full rounded-sm-ds border border-[#e5e7eb] px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-[#06B6D4]"
+                      placeholder="your_team"
+                      autoFocus
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-mono font-bold uppercase tracking-wider text-[#6b7280]">
+                      Email
+                    </label>
+                    <input
+                      type="email"
+                      value={signUpEmail}
+                      onChange={(event) => setSignUpEmail(event.target.value)}
+                      className="w-full rounded-sm-ds border border-[#e5e7eb] px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-[#06B6D4]"
+                      placeholder="you@company.com"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-mono font-bold uppercase tracking-wider text-[#6b7280]">
+                      Display Name (optional)
+                    </label>
+                    <input
+                      type="text"
+                      value={signUpDisplayName}
+                      onChange={(event) => setSignUpDisplayName(event.target.value)}
+                      className="w-full rounded-sm-ds border border-[#e5e7eb] px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-[#06B6D4]"
+                      placeholder="Product Team"
+                    />
+                  </div>
+                  {authFeedback ? <p className="text-xs text-[#6b7280]">{authFeedback}</p> : null}
+                  <div className="flex justify-end gap-3">
+                    <button
+                      type="button"
+                      onClick={closeAuth}
+                      className="px-4 py-2 text-sm font-bold text-[#6b7280] hover:text-[#111827]"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isAuthSubmitting}
+                      className="rounded-sm-ds bg-[#111827] px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-black disabled:opacity-50"
+                    >
+                      Create Account
+                    </button>
+                  </div>
+                </form>
+              )}
             </div>
           </div>
         </div>

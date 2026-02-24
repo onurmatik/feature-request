@@ -552,7 +552,7 @@ export default function LandingPage({ initialAuthMode = null }) {
               </div>
             </div>
 
-            <div className="p-6">
+            <div className="min-h-[374px] p-6">
               {authMode === "signIn" ? (
                 <form className="space-y-4" onSubmit={onSignInSubmit}>
                   <h3 className="text-lg font-bold text-[#111827]">Welcome back</h3>
