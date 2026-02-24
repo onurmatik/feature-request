@@ -84,10 +84,6 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 
-FRONTEND_DEV_SERVER_URL = os.getenv(
-    "FRONTEND_DEV_SERVER_URL", "http://127.0.0.1:5173"
-).rstrip("/")
-
 CSRF_TRUSTED_ORIGINS = [
     "http://127.0.0.1:5173",
     "http://localhost:5173",

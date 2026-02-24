@@ -1,6 +1,6 @@
 # FeatureRequest Frontend (Vite + React)
 
-## Dev setup (Django + Vite proxy/HMR)
+## Dev setup (Django API + Vite frontend)
 
 1. Run Django:
    ```bash
@@ -10,13 +10,10 @@
    ```bash
    npm run dev
    ```
-3. Open Django page: `http://127.0.0.1:8000/<owner_handle>/`
-
-Django page always loads `@vite/client` and `src/main.jsx` from the Vite server, so HMR works automatically.
+3. Open Vite app: `http://127.0.0.1:5173/<owner_handle>/`
 
 ## Environment flags
 
-- `FRONTEND_DEV_SERVER_URL=http://127.0.0.1:5173` overrides Vite URL used by Django template.
 - `DJANGO_DEV_ORIGIN=http://127.0.0.1:8000` (optional) changes Vite proxy target.
 
 ## Build

@@ -43,9 +43,12 @@ function cls(...values) {
 
 function parseBootstrap() {
   const value = window.__FR_BOOTSTRAP__ || {};
+  const pathParts = window.location.pathname.split("/").filter(Boolean);
+  const ownerFromPath = pathParts[0] || "";
+  const slugFromPath = pathParts[1] || "";
   return {
-    ownerHandle: String(value.ownerHandle || "").toLowerCase(),
-    initialProjectSlug: String(value.initialProjectSlug || ""),
+    ownerHandle: String(value.ownerHandle || ownerFromPath).toLowerCase(),
+    initialProjectSlug: String(value.initialProjectSlug || slugFromPath),
     isAuthenticated: Boolean(value.isAuthenticated),
     currentUserHandle: String(value.currentUserHandle || "").trim(),
   };
@@ -194,6 +197,8 @@ export default function App() {
   const [projectFeedbackTone, setProjectFeedbackTone] = useState("");
   const [isProjectSaving, setIsProjectSaving] = useState(false);
   const [isProjectDeleting, setIsProjectDeleting] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(bootstrap.isAuthenticated);
+  const [currentUserHandle, setCurrentUserHandle] = useState(bootstrap.currentUserHandle);
 
   const selectedProject = useMemo(
     () => projects.find((project) => project.slug === selectedProjectSlug) || null,
@@ -201,9 +206,9 @@ export default function App() {
   );
   const isOwnerViewer = useMemo(
     () =>
-      bootstrap.isAuthenticated &&
-      String(bootstrap.currentUserHandle || "").toLowerCase() === bootstrap.ownerHandle,
-    [bootstrap.currentUserHandle, bootstrap.isAuthenticated, bootstrap.ownerHandle],
+      isAuthenticated &&
+      String(currentUserHandle || "").toLowerCase() === bootstrap.ownerHandle,
+    [currentUserHandle, isAuthenticated, bootstrap.ownerHandle],
   );
 
   const filteredIssues = useMemo(() => {
@@ -236,7 +241,12 @@ export default function App() {
   }, [filteredIssues, selectedIssueId]);
 
   const boardUrl = useCallback(
-    (slug) => (slug ? `/${bootstrap.ownerHandle}/${slug}/` : `/${bootstrap.ownerHandle}/`),
+    (slug) => {
+      if (!bootstrap.ownerHandle) {
+        return "/";
+      }
+      return slug ? `/${bootstrap.ownerHandle}/${slug}/` : `/${bootstrap.ownerHandle}/`;
+    },
     [bootstrap.ownerHandle],
   );
 
@@ -245,7 +255,24 @@ export default function App() {
     setStatusError(isError);
   }, []);
 
+  const refreshSession = useCallback(async () => {
+    const response = await fetch("/auth/me");
+    if (!response.ok) {
+      setIsAuthenticated(false);
+      setCurrentUserHandle("");
+      return;
+    }
+
+    const data = await response.json();
+    setIsAuthenticated(Boolean(data.is_authenticated));
+    setCurrentUserHandle(String(data.current_user_handle || ""));
+  }, []);
+
   const refreshProjects = useCallback(async () => {
+    if (!bootstrap.ownerHandle) {
+      throw new Error("Owner handle is missing in URL.");
+    }
+
     const response = await fetch(`/api/owners/${encodeURIComponent(bootstrap.ownerHandle)}/projects`);
     if (!response.ok) {
       throw new Error("Projects could not be loaded.");
@@ -263,6 +290,12 @@ export default function App() {
   }, [bootstrap.ownerHandle]);
 
   const refreshIssues = useCallback(async () => {
+    if (!bootstrap.ownerHandle) {
+      setIssues([]);
+      setStatus("Owner handle is missing in URL.", true);
+      return;
+    }
+
     const params = new URLSearchParams();
 
     if (selectedProjectSlug) {
@@ -311,6 +344,13 @@ export default function App() {
     const data = await response.json();
     setComments(data);
   }, []);
+
+  useEffect(() => {
+    refreshSession().catch(() => {
+      setIsAuthenticated(false);
+      setCurrentUserHandle("");
+    });
+  }, [refreshSession]);
 
   useEffect(() => {
     let cancelled = false;
@@ -398,7 +438,7 @@ export default function App() {
   }
 
   async function handleIssuePatch(payload) {
-    if (!bootstrap.isAuthenticated) {
+    if (!isAuthenticated) {
       setStatus("Authentication required for this action.", true);
       return;
     }
@@ -433,7 +473,7 @@ export default function App() {
   }
 
   async function handleUpvote() {
-    if (!bootstrap.isAuthenticated) {
+    if (!isAuthenticated) {
       setStatus("Login required for upvote.", true);
       return;
     }
@@ -471,7 +511,7 @@ export default function App() {
   }
 
   async function handlePostComment() {
-    if (!bootstrap.isAuthenticated) {
+    if (!isAuthenticated) {
       setStatus("Login required for commenting.", true);
       return;
     }
@@ -534,7 +574,7 @@ export default function App() {
       payload.project_slug = selectedProjectSlug;
     }
 
-    if (!bootstrap.isAuthenticated) {
+    if (!isAuthenticated) {
       const trimmedName = contactSenderName.trim();
       const trimmedEmail = contactSenderEmail.trim();
 
@@ -592,7 +632,7 @@ export default function App() {
       return;
     }
 
-    if (!bootstrap.isAuthenticated) {
+    if (!isAuthenticated) {
       setStatus("Login required for creating requests.", true);
       return;
     }
@@ -849,10 +889,10 @@ export default function App() {
             <Settings size={18} />
           </button>
           <span className="text-xs font-mono text-[#6b7280]">
-            @{bootstrap.currentUserHandle || (bootstrap.isAuthenticated ? "user" : "guest")}
+            @{currentUserHandle || (isAuthenticated ? "user" : "guest")}
           </span>
           <div className="w-8 h-8 rounded-full bg-cyan-50 flex items-center justify-center text-[#06B6D4] font-bold text-xs border border-cyan-100">
-            {(bootstrap.currentUserHandle || "GU").slice(0, 2).toUpperCase()}
+            {(currentUserHandle || "GU").slice(0, 2).toUpperCase()}
           </div>
         </div>
       </header>
@@ -1050,7 +1090,7 @@ export default function App() {
                           <label className="text-[10px] font-mono text-[#6b7280] uppercase">Status</label>
                           <select
                             value={selectedIssue.status}
-                            disabled={!bootstrap.isAuthenticated || isIssueUpdating}
+                            disabled={!isAuthenticated || isIssueUpdating}
                             onChange={(event) => handleIssuePatch({ status: event.target.value })}
                             className="text-xs font-bold text-[#16a34a] bg-transparent outline-none cursor-pointer disabled:cursor-not-allowed"
                           >
@@ -1066,7 +1106,7 @@ export default function App() {
                           <label className="text-[10px] font-mono text-[#6b7280] uppercase">Priority</label>
                           <select
                             value={String(selectedIssue.priority)}
-                            disabled={!bootstrap.isAuthenticated || isIssueUpdating}
+                            disabled={!isAuthenticated || isIssueUpdating}
                             onChange={(event) => handleIssuePatch({ priority: Number(event.target.value) })}
                             className="text-xs font-bold text-[#f59e0b] bg-transparent outline-none cursor-pointer disabled:cursor-not-allowed"
                           >
@@ -1128,15 +1168,15 @@ export default function App() {
                             value={commentDraft}
                             onChange={(event) => setCommentDraft(event.target.value)}
                             className="w-full bg-white border border-[#e5e7eb] rounded-sm-ds p-3 text-sm focus:ring-1 focus:ring-[#06B6D4] outline-none resize-none mb-3"
-                            placeholder={bootstrap.isAuthenticated ? "Type your comment..." : "Login to post a comment."}
-                            disabled={!bootstrap.isAuthenticated || isCommentSubmitting}
+                            placeholder={isAuthenticated ? "Type your comment..." : "Login to post a comment."}
+                            disabled={!isAuthenticated || isCommentSubmitting}
                           />
                           <div className="flex items-center justify-between">
                             <span className="text-[10px] font-mono text-[#d1d5db]">Markdown supported</span>
                             <button
                               type="button"
                               onClick={handlePostComment}
-                              disabled={!bootstrap.isAuthenticated || isCommentSubmitting || !commentDraft.trim()}
+                              disabled={!isAuthenticated || isCommentSubmitting || !commentDraft.trim()}
                               className="px-4 py-1.5 bg-[#111827] text-white text-xs font-bold rounded-sm-ds hover:bg-black transition-colors disabled:opacity-45 disabled:cursor-not-allowed"
                             >
                               Post Comment
@@ -1350,7 +1390,7 @@ export default function App() {
                 Have a question or feedback? Send a direct message to the project maintainer.
               </p>
 
-              {!bootstrap.isAuthenticated ? (
+              {!isAuthenticated ? (
                 <div className="space-y-3 mb-4">
                   <div>
                     <label className="text-[10px] font-mono font-bold text-[#6b7280] uppercase">Name</label>
