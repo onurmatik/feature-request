@@ -10,27 +10,27 @@ import {
 const DEFAULT_FEATURED_PROJECTS = [
   {
     id: "sample-a",
-    owner_handle: "tailwindlabs",
-    name: "Tailwind UI Kit",
-    slug: "ui-kit",
-    tagline: "Community-requested utilities and components.",
-    issues_count: 124,
+    owner_handle: "onurmatik",
+    name: "Mini Feedback",
+    slug: "mini-feedback",
+    tagline: "Solo founder board where users vote on what ships next.",
+    issues_count: 86,
   },
   {
     id: "sample-b",
-    owner_handle: "lucide",
-    name: "Lucide Icons",
-    slug: "icons",
-    tagline: "Vote on the next icons and naming conventions.",
-    issues_count: 3120,
+    owner_handle: "buildwithada",
+    name: "ShipLog",
+    slug: "shiplog",
+    tagline: "Public changelog + request inbox for one-person products.",
+    issues_count: 142,
   },
   {
     id: "sample-c",
-    owner_handle: "vite",
-    name: "Vite Core",
-    slug: "core",
-    tagline: "Track build tooling priorities and plugin needs.",
-    issues_count: 580,
+    owner_handle: "makercem",
+    name: "Tiny CRM",
+    slug: "tiny-crm",
+    tagline: "Keep users close and let them discover your other projects.",
+    issues_count: 57,
   },
 ];
 
@@ -332,14 +332,27 @@ export default function LandingPage({ initialAuthMode = null }) {
             <div className="space-y-6">
               <p className="inline-flex items-center gap-2 rounded-full border border-cyan-100 bg-cyan-50 px-3 py-1 text-[10px] font-mono font-bold uppercase tracking-wider text-[#06B6D4]">
                 <Sparkles size={12} />
-                Public Feedback Boards
+                Built for Indie Hackers
               </p>
               <h1 className="text-4xl font-bold tracking-tight sm:text-5xl">
-                Ship what matters with requests, votes, and comments in one place.
+                Listen to users closely and ship the right thing faster.
               </h1>
               <p className="max-w-2xl text-base text-[#6b7280] sm:text-lg">
-                FeatureRequest helps teams collect feature ideas, bug reports, and customer context from public
-                boards. Prioritize by real demand and keep the discussion attached to each request.
+                FeatureRequest gives indie makers one public board for feature ideas, bugs, and real user context.
+                Stay in close contact through comments and let people discover your other projects from the same
+                profile.
+              </p>
+              <p className="text-sm text-[#6b7280]">
+                Open source on{" "}
+                <a
+                  href="https://github.com/onurmatik/feature-request"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-semibold text-[#111827] underline decoration-cyan-300 underline-offset-4 hover:text-[#06B6D4]"
+                >
+                  GitHub
+                </a>
+                .
               </p>
               <div className="flex flex-col gap-3 sm:flex-row">
                 {!isAuthenticated ? (
@@ -349,14 +362,14 @@ export default function LandingPage({ initialAuthMode = null }) {
                       onClick={() => openAuth("signUp")}
                       className="rounded-sm-ds bg-[#06B6D4] px-6 py-3 text-xs font-bold uppercase tracking-wide text-white transition-colors hover:bg-cyan-600"
                     >
-                      Create Board
+                      Start My Board
                     </button>
                     <button
                       type="button"
                       onClick={() => openAuth("signIn")}
                       className="rounded-sm-ds border border-[#d1d5db] bg-white px-6 py-3 text-xs font-bold uppercase tracking-wide text-[#111827] transition-colors hover:bg-[#f9fafb]"
                     >
-                      Continue Existing Account
+                      Continue My Account
                     </button>
                   </>
                 ) : (
@@ -364,7 +377,7 @@ export default function LandingPage({ initialAuthMode = null }) {
                     href={`/${currentUserHandle}/`}
                     className="inline-flex w-fit items-center rounded-sm-ds bg-[#06B6D4] px-6 py-3 text-xs font-bold uppercase tracking-wide text-white transition-colors hover:bg-cyan-600"
                   >
-                    Open My Workspace
+                    Open My Profile
                   </a>
                 )}
               </div>
@@ -372,20 +385,20 @@ export default function LandingPage({ initialAuthMode = null }) {
 
             <div className="rounded-md-ds border border-[#e5e7eb] bg-white p-5 shadow-ds">
               <p className="mb-3 text-[10px] font-mono font-bold uppercase tracking-widest text-[#9ca3af]">
-                Why teams use FeatureRequest
+                Why indie makers use FeatureRequest
               </p>
               <div className="space-y-4 text-sm text-[#6b7280]">
                 <div className="flex items-start gap-3">
                   <ArrowBigUpDash className="mt-0.5 text-[#06B6D4]" size={18} />
-                  <p>Prioritize using upvotes instead of scattered inbox threads.</p>
+                  <p>Hear what users really want using upvotes instead of scattered DMs and notes.</p>
                 </div>
                 <div className="flex items-start gap-3">
                   <MessageCircle className="mt-0.5 text-[#06B6D4]" size={18} />
-                  <p>Keep request-level discussion and updates transparent.</p>
+                  <p>Keep close contact in each request thread and share quick public status updates.</p>
                 </div>
                 <div className="flex items-start gap-3">
                   <FolderOpen className="mt-0.5 text-[#06B6D4]" size={18} />
-                  <p>Launch public project boards instantly and share one URL for feedback.</p>
+                  <p>Show all your projects under one handle so supporters can follow everything you build.</p>
                 </div>
               </div>
             </div>
@@ -400,7 +413,7 @@ export default function LandingPage({ initialAuthMode = null }) {
             <span className="h-2.5 w-2.5 rounded-full bg-[#d1d5db]" />
             <span className="h-2.5 w-2.5 rounded-full bg-[#d1d5db]" />
             <div className="ml-3 rounded-sm-ds border border-[#e5e7eb] bg-[#f9fafb] px-2 py-1 text-[10px] font-mono text-[#9ca3af]">
-              featurerequest.io/acme/mobile-app
+              featurerequest.io/onurmatik/mini-feedback
             </div>
           </div>
 
@@ -468,7 +481,7 @@ export default function LandingPage({ initialAuthMode = null }) {
                   Activity & Comments
                 </p>
                 <div className="rounded-md-ds border border-[#e5e7eb] bg-[#f9fafb] p-4 text-sm text-[#6b7280]">
-                  Discuss implementation details with stakeholders and notify subscribers when status changes.
+                  Reply directly to early users, clarify scope together, and notify followers when status changes.
                 </div>
               </div>
             </div>
@@ -479,9 +492,9 @@ export default function LandingPage({ initialAuthMode = null }) {
           <div className="mb-6 flex items-end justify-between gap-4">
             <div>
               <p className="text-[10px] font-mono font-bold uppercase tracking-[0.2em] text-[#06B6D4]">
-                Featured Public Projects
+                Featured Indie Projects
               </p>
-              <h2 className="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">Explore active request boards</h2>
+              <h2 className="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">Discover active indie boards</h2>
             </div>
             {isFeaturedLoading ? <p className="text-xs text-[#9ca3af]">Loading projects...</p> : null}
           </div>
@@ -505,7 +518,7 @@ export default function LandingPage({ initialAuthMode = null }) {
                   </div>
                 </div>
                 <p className="mb-5 min-h-[40px] text-sm text-[#6b7280]">
-                  {project.tagline || "Open request board for roadmap planning and bug triage."}
+                  {project.tagline || "Public board for solo roadmap, bug triage, and close user feedback loops."}
                 </p>
                 <div className="flex items-center justify-between text-[10px] font-mono font-bold uppercase tracking-wide">
                   <span className="text-[#6b7280]">{toReadableCount(project.issues_count)} Requests</span>
@@ -600,7 +613,7 @@ export default function LandingPage({ initialAuthMode = null }) {
                       value={signUpHandle}
                       onChange={(event) => setSignUpHandle(event.target.value)}
                       className="w-full rounded-sm-ds border border-[#e5e7eb] px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-[#06B6D4]"
-                      placeholder="your_team"
+                      placeholder="yourhandle"
                       autoFocus
                     />
                   </div>
@@ -613,7 +626,7 @@ export default function LandingPage({ initialAuthMode = null }) {
                       value={signUpEmail}
                       onChange={(event) => setSignUpEmail(event.target.value)}
                       className="w-full rounded-sm-ds border border-[#e5e7eb] px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-[#06B6D4]"
-                      placeholder="you@company.com"
+                      placeholder="you@indie.dev"
                     />
                   </div>
                   <div className="space-y-1.5">
@@ -625,7 +638,7 @@ export default function LandingPage({ initialAuthMode = null }) {
                       value={signUpDisplayName}
                       onChange={(event) => setSignUpDisplayName(event.target.value)}
                       className="w-full rounded-sm-ds border border-[#e5e7eb] px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-[#06B6D4]"
-                      placeholder="Product Team"
+                      placeholder="Onur Matik"
                     />
                   </div>
                   {authFeedback ? <p className="text-xs text-[#6b7280]">{authFeedback}</p> : null}
