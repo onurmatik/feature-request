@@ -2,6 +2,12 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 const djangoDevOrigin =
   globalThis.process?.env?.DJANGO_DEV_ORIGIN || "http://127.0.0.1:8000";
+const allowedHosts =
+  (globalThis.process?.env?.VITE_ALLOWED_HOSTS ||
+    "featurerequest.io,www.featurerequest.io,localhost,127.0.0.1")
+    .split(",")
+    .map((host) => host.trim())
+    .filter(Boolean);
 
 export default defineConfig({
   plugins: [react()],
@@ -9,6 +15,7 @@ export default defineConfig({
     host: "127.0.0.1",
     port: 5173,
     strictPort: true,
+    allowedHosts,
     proxy: {
       "/api": {
         target: djangoDevOrigin,
@@ -26,5 +33,8 @@ export default defineConfig({
         secure: false,
       },
     },
+  },
+  preview: {
+    allowedHosts,
   },
 });
