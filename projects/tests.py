@@ -83,11 +83,10 @@ class IssueApiTest(TestCase):
             name="Public Board",
             slug="public-board",
         )
-        self.private_project = Project.objects.create(
+        self.secondary_project = Project.objects.create(
             owner=self.owner,
-            name="Private Board",
-            slug="private-board",
-            visibility=Project.Visibility.PRIVATE,
+            name="Secondary Board",
+            slug="secondary-board",
         )
         self.issue = Issue.objects.create(
             project=self.project,
@@ -97,12 +96,12 @@ class IssueApiTest(TestCase):
             description="Allow users to vote on roadmap items.",
             priority=Issue.Priority.MEDIUM,
         )
-        self.private_issue = Issue.objects.create(
-            project=self.private_project,
+        self.secondary_issue = Issue.objects.create(
+            project=self.secondary_project,
             author=self.owner,
             issue_type=Issue.Type.BUG,
-            title="Internal incident",
-            description="Internal only",
+            title="Secondary project issue",
+            description="Visible issue",
             priority=Issue.Priority.HIGH,
         )
 
@@ -165,21 +164,14 @@ class IssueApiTest(TestCase):
         self.assertEqual(list_response.status_code, 200)
         self.assertEqual(len(list_response.json()), 1)
 
-    def test_private_project_access_is_restricted(self):
-        self.client.force_login(self.other_user)
-        forbidden_list = self.client.get(
-            f"/api/projects/{self.owner.handle}/{self.private_project.slug}/issues"
+    def test_all_projects_are_readable(self):
+        list_response = self.client.get(
+            f"/api/projects/{self.owner.handle}/{self.secondary_project.slug}/issues"
         )
-        self.assertEqual(forbidden_list.status_code, 404)
+        self.assertEqual(list_response.status_code, 200)
 
-        forbidden_detail = self.client.get(f"/api/issues/{self.private_issue.id}")
-        self.assertEqual(forbidden_detail.status_code, 404)
-
-        self.client.force_login(self.owner)
-        owner_list = self.client.get(
-            f"/api/projects/{self.owner.handle}/{self.private_project.slug}/issues"
-        )
-        self.assertEqual(owner_list.status_code, 200)
+        detail_response = self.client.get(f"/api/issues/{self.secondary_issue.id}")
+        self.assertEqual(detail_response.status_code, 200)
 
     def test_issue_update_permissions_and_priority(self):
         self.client.force_login(self.other_user)
@@ -227,18 +219,46 @@ class IssueApiTest(TestCase):
         self.assertEqual(len(comments), 1)
         self.assertEqual(comments[0]["author_handle"], self.other_user.handle)
 
-    def test_list_owner_projects_respects_visibility(self):
+    def test_list_owner_projects_returns_all_projects(self):
         public_response = self.client.get(f"/api/owners/{self.owner.handle}/projects")
         self.assertEqual(public_response.status_code, 200)
         public_payload = public_response.json()
-        self.assertEqual(len(public_payload), 1)
-        self.assertEqual(public_payload[0]["slug"], self.project.slug)
+        self.assertEqual(len(public_payload), 2)
+        self.assertIn(self.project.slug, [item["slug"] for item in public_payload])
+        self.assertIn(self.secondary_project.slug, [item["slug"] for item in public_payload])
 
         self.client.force_login(self.owner)
         owner_response = self.client.get(f"/api/owners/{self.owner.handle}/projects")
         self.assertEqual(owner_response.status_code, 200)
         owner_payload = owner_response.json()
         self.assertEqual(len(owner_payload), 2)
+
+    def test_featured_projects_lists_all_projects(self):
+        second_public = Project.objects.create(
+            owner=self.owner,
+            name="Popular Roadmap",
+            slug="popular-roadmap",
+        )
+        Issue.objects.create(
+            project=second_public,
+            author=self.owner,
+            title="Top request one",
+        )
+        Issue.objects.create(
+            project=second_public,
+            author=self.other_user,
+            title="Top request two",
+        )
+
+        response = self.client.get("/api/public/featured-projects", {"limit": 3})
+        self.assertEqual(response.status_code, 200)
+
+        payload = response.json()
+        self.assertEqual(len(payload), 3)
+        self.assertEqual(payload[0]["slug"], second_public.slug)
+        self.assertEqual(payload[0]["owner_handle"], self.owner.handle)
+        self.assertEqual(payload[0]["issues_count"], 2)
+        self.assertIn(self.secondary_project.slug, [item["slug"] for item in payload])
 
     def test_list_owner_issues_supports_project_filter(self):
         Issue.objects.create(
@@ -249,7 +269,7 @@ class IssueApiTest(TestCase):
 
         public_all = self.client.get(f"/api/owners/{self.owner.handle}/issues")
         self.assertEqual(public_all.status_code, 200)
-        self.assertEqual(len(public_all.json()), 2)
+        self.assertEqual(len(public_all.json()), 3)
 
         public_specific = self.client.get(
             f"/api/owners/{self.owner.handle}/issues",
@@ -258,11 +278,12 @@ class IssueApiTest(TestCase):
         self.assertEqual(public_specific.status_code, 200)
         self.assertEqual(len(public_specific.json()), 2)
 
-        public_private = self.client.get(
+        public_secondary = self.client.get(
             f"/api/owners/{self.owner.handle}/issues",
-            {"project_slug": self.private_project.slug},
+            {"project_slug": self.secondary_project.slug},
         )
-        self.assertEqual(public_private.status_code, 404)
+        self.assertEqual(public_secondary.status_code, 200)
+        self.assertEqual(len(public_secondary.json()), 1)
 
         self.client.force_login(self.owner)
         owner_all = self.client.get(f"/api/owners/{self.owner.handle}/issues")
@@ -287,7 +308,6 @@ class ProjectApiTest(TestCase):
             owner=self.owner,
             name="Secret Board",
             slug="secret-board",
-            visibility=Project.Visibility.PRIVATE,
         )
 
     def test_list_my_projects_requires_auth(self):
@@ -302,10 +322,8 @@ class ProjectApiTest(TestCase):
             data=json.dumps(
                 {
                     "name": "Platform Revamp",
-                    "slug": "",
                     "tagline": "Major overhaul",
-                    "description": "New architecture and workflows.",
-                    "visibility": Project.Visibility.PRIVATE,
+                    "url": "https://example.com/platform",
                 }
             ),
             content_type="application/json",
@@ -313,6 +331,7 @@ class ProjectApiTest(TestCase):
         self.assertEqual(create_response.status_code, 201)
         created = create_response.json()
         self.assertEqual(created["slug"], "platform-revamp")
+        self.assertEqual(created["url"], "https://example.com/platform")
 
         list_response = self.client.get("/api/projects")
         self.assertEqual(list_response.status_code, 200)
@@ -323,10 +342,8 @@ class ProjectApiTest(TestCase):
             data=json.dumps(
                 {
                     "name": "Platform Revamp V2",
-                    "slug": "platform-v2",
                     "tagline": "Updated scope",
-                    "description": "Updated description.",
-                    "visibility": Project.Visibility.PUBLIC,
+                    "url": "https://example.com/platform-v2",
                 }
             ),
             content_type="application/json",
@@ -335,12 +352,31 @@ class ProjectApiTest(TestCase):
         project = Project.objects.get(id=created["id"])
         project.refresh_from_db()
         self.assertEqual(project.name, "Platform Revamp V2")
-        self.assertEqual(project.slug, "platform-v2")
-        self.assertEqual(project.visibility, Project.Visibility.PUBLIC)
+        self.assertEqual(project.slug, "platform-revamp-v2")
+        self.assertEqual(project.url, "https://example.com/platform-v2")
 
         delete_response = self.client.delete(f"/api/projects/{created['id']}")
         self.assertEqual(delete_response.status_code, 204)
         self.assertFalse(Project.objects.filter(pk=project.pk).exists())
+
+    def test_auto_slug_is_unique_per_owner(self):
+        self.client.force_login(self.owner)
+
+        first = self.client.post(
+            "/api/projects",
+            data=json.dumps({"name": "Roadmap", "tagline": "One"}),
+            content_type="application/json",
+        )
+        second = self.client.post(
+            "/api/projects",
+            data=json.dumps({"name": "Roadmap", "tagline": "Two"}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(second.status_code, 201)
+        self.assertEqual(first.json()["slug"], "roadmap")
+        self.assertEqual(second.json()["slug"], "roadmap-2")
 
     def test_non_owner_cannot_update_or_delete_project(self):
         self.client.force_login(self.other_user)

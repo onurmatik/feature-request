@@ -1,12 +1,9 @@
 from django.conf import settings
 from django.db import models
+from slugify import slugify
 
 
 class Project(models.Model):
-    class Visibility(models.TextChoices):
-        PUBLIC = "public", "Public"
-        PRIVATE = "private", "Private"
-
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         related_name="projects",
@@ -15,12 +12,7 @@ class Project(models.Model):
     name = models.CharField(max_length=120)
     slug = models.SlugField(max_length=140)
     tagline = models.CharField(max_length=160, blank=True)
-    description = models.TextField(blank=True)
-    visibility = models.CharField(
-        max_length=16,
-        choices=Visibility.choices,
-        default=Visibility.PUBLIC,
-    )
+    url = models.URLField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -35,6 +27,32 @@ class Project(models.Model):
 
     def __str__(self):
         return f"{self.owner.handle}/{self.slug}"
+
+    def _build_slug(self):
+        slug_field = self._meta.get_field("slug")
+        max_length = slug_field.max_length
+        base_slug = slugify(self.name or "").strip("-")[:max_length] or "project"
+
+        if not self.owner_id:
+            return base_slug
+
+        existing = Project.objects.filter(owner_id=self.owner_id)
+        if self.pk:
+            existing = existing.exclude(pk=self.pk)
+
+        candidate = base_slug
+        counter = 2
+        while existing.filter(slug=candidate).exists():
+            suffix = f"-{counter}"
+            truncated_base = base_slug[: max_length - len(suffix)].rstrip("-")
+            candidate = f"{truncated_base}{suffix}" if truncated_base else f"project{suffix}"
+            counter += 1
+
+        return candidate
+
+    def save(self, *args, **kwargs):
+        self.slug = self._build_slug()
+        super().save(*args, **kwargs)
 
 
 class Issue(models.Model):

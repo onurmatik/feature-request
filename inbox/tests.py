@@ -25,13 +25,11 @@ class OwnerMessageApiTest(TestCase):
             owner=self.owner,
             name="Public board",
             slug="public-board",
-            visibility=Project.Visibility.PUBLIC,
         )
-        self.private_project = Project.objects.create(
+        self.secondary_project = Project.objects.create(
             owner=self.owner,
-            name="Private board",
-            slug="private-board",
-            visibility=Project.Visibility.PRIVATE,
+            name="Secondary board",
+            slug="secondary-board",
         )
 
     def test_anonymous_message_requires_sender_fields(self):
@@ -85,21 +83,21 @@ class OwnerMessageApiTest(TestCase):
         self.assertEqual(payload["sender_name"], self.visitor.handle)
         self.assertEqual(payload["sender_email"], self.visitor.email)
 
-    def test_private_project_message_is_hidden_for_visitors(self):
+    def test_message_can_target_any_owner_project(self):
         response = self.client.post(
             f"/api/owners/{self.owner.handle}/messages",
             data=json.dumps(
                 {
-                    "project_slug": self.private_project.slug,
+                    "project_slug": self.secondary_project.slug,
                     "sender_name": "Guest User",
                     "sender_email": "guest@example.com",
-                    "body": "Private feedback",
+                    "body": "Feedback for another project",
                 }
             ),
             content_type="application/json",
         )
 
-        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.status_code, 201)
 
     def test_list_my_messages(self):
         OwnerMessage.objects.create(

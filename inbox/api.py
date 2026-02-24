@@ -63,21 +63,15 @@ def _message_to_dict(message: OwnerMessage):
     }
 
 
-def _resolve_project(request, owner, project_slug: Optional[str]):
+def _resolve_project(owner, project_slug: Optional[str]):
     if not project_slug:
         return None
 
-    project = get_object_or_404(
+    return get_object_or_404(
         Project.objects.select_related("owner"),
         owner=owner,
         slug=project_slug,
     )
-    if project.visibility == Project.Visibility.PRIVATE:
-        user = request.user
-        if not user.is_authenticated or user.id != owner.id:
-            raise HttpError(404, "Project not found.")
-
-    return project
 
 
 @router.post("/owners/{owner_handle}/messages", response={201: OwnerMessageOut})
@@ -102,7 +96,7 @@ def create_owner_message(request, owner_handle: str, payload: OwnerMessageCreate
         sender_name = _clean_non_empty(sender_name, "sender_name")
         sender_email = _clean_non_empty(sender_email, "sender_email")
 
-    project = _resolve_project(request, owner, payload.project_slug)
+    project = _resolve_project(owner, payload.project_slug)
 
     message = OwnerMessage.objects.create(
         recipient=owner,

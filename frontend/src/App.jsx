@@ -3,10 +3,8 @@ import {
   AlertTriangle,
   ArrowBigUpDash,
   Folder,
-  Globe,
   LayoutGrid,
   Layers,
-  Lock,
   Mail,
   Search,
   Settings,
@@ -189,16 +187,18 @@ export default function App() {
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [deleteSlugConfirm, setDeleteSlugConfirm] = useState("");
   const [projectNameDraft, setProjectNameDraft] = useState("");
-  const [projectSlugDraft, setProjectSlugDraft] = useState("");
   const [projectTaglineDraft, setProjectTaglineDraft] = useState("");
-  const [projectDescriptionDraft, setProjectDescriptionDraft] = useState("");
-  const [projectVisibilityDraft, setProjectVisibilityDraft] = useState("public");
+  const [projectUrlDraft, setProjectUrlDraft] = useState("");
   const [projectFeedback, setProjectFeedback] = useState("");
   const [projectFeedbackTone, setProjectFeedbackTone] = useState("");
   const [isProjectSaving, setIsProjectSaving] = useState(false);
   const [isProjectDeleting, setIsProjectDeleting] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(bootstrap.isAuthenticated);
   const [currentUserHandle, setCurrentUserHandle] = useState(bootstrap.currentUserHandle);
+  const [isSignInOpen, setIsSignInOpen] = useState(false);
+  const [signInIdentity, setSignInIdentity] = useState("");
+  const [signInFeedback, setSignInFeedback] = useState("");
+  const [isSignInSubmitting, setIsSignInSubmitting] = useState(false);
 
   const selectedProject = useMemo(
     () => projects.find((project) => project.slug === selectedProjectSlug) || null,
@@ -267,6 +267,63 @@ export default function App() {
     setIsAuthenticated(Boolean(data.is_authenticated));
     setCurrentUserHandle(String(data.current_user_handle || ""));
   }, []);
+
+  async function ensureCsrfCookie() {
+    await fetch("/auth/me");
+  }
+
+  function openSignInModal() {
+    setSignInFeedback("");
+    setIsSignInOpen(true);
+  }
+
+  function closeSignInModal() {
+    setSignInIdentity("");
+    setSignInFeedback("");
+    setIsSignInSubmitting(false);
+    setIsSignInOpen(false);
+  }
+
+  async function onSignInSubmit(event) {
+    event.preventDefault();
+    const identity = signInIdentity.trim();
+
+    if (!identity) {
+      setSignInFeedback("Email or handle is required.");
+      return;
+    }
+
+    setIsSignInSubmitting(true);
+    setSignInFeedback("Signing in...");
+
+    try {
+      await ensureCsrfCookie();
+      const response = await fetch("/auth/sign-in", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": csrfTokenFromCookie(),
+        },
+        body: JSON.stringify({ email_or_handle: identity }),
+      });
+
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const detail = typeof payload.detail === "string" ? payload.detail : "Sign in failed.";
+        setSignInFeedback(detail);
+        return;
+      }
+
+      const handle = String(payload.current_user_handle || "").trim();
+      setIsAuthenticated(true);
+      setCurrentUserHandle(handle);
+      closeSignInModal();
+    } catch {
+      setSignInFeedback("Sign in failed. Please try again.");
+    } finally {
+      setIsSignInSubmitting(false);
+    }
+  }
 
   const refreshProjects = useCallback(async () => {
     if (!bootstrap.ownerHandle) {
@@ -409,20 +466,16 @@ export default function App() {
     if (!selectedProject) {
       setDeleteSlugConfirm("");
       setProjectNameDraft("");
-      setProjectSlugDraft("");
       setProjectTaglineDraft("");
-      setProjectDescriptionDraft("");
-      setProjectVisibilityDraft("public");
+      setProjectUrlDraft("");
       setProjectFeedback("");
       setProjectFeedbackTone("");
       return;
     }
 
     setProjectNameDraft(selectedProject.name || "");
-    setProjectSlugDraft(selectedProject.slug || "");
     setProjectTaglineDraft(selectedProject.tagline || "");
-    setProjectDescriptionDraft(selectedProject.description || "");
-    setProjectVisibilityDraft(selectedProject.visibility || "public");
+    setProjectUrlDraft(selectedProject.url || "");
     setProjectFeedback("");
     setProjectFeedbackTone("");
   }, [selectedProject]);
@@ -633,7 +686,7 @@ export default function App() {
     }
 
     if (!isAuthenticated) {
-      setStatus("Login required for creating requests.", true);
+      openSignInModal();
       return;
     }
 
@@ -709,10 +762,8 @@ export default function App() {
 
     const payload = {
       name: projectNameDraft,
-      slug: projectSlugDraft,
       tagline: projectTaglineDraft,
-      description: projectDescriptionDraft,
-      visibility: projectVisibilityDraft,
+      url: projectUrlDraft,
     };
 
     setIsProjectSaving(true);
@@ -862,38 +913,52 @@ export default function App() {
             <span className="text-[#111827] font-semibold truncate">
               {selectedProject ? selectedProject.name : "All Projects"}
             </span>
+            {isOwnerViewer ? (
+              <button
+                type="button"
+                onClick={() => setView((current) => (current === "issues" ? "settings" : "issues"))}
+                className={cls(
+                  "ml-2 p-1 rounded text-[#6b7280] hover:text-[#111827] transition-colors flex items-center",
+                  view === "settings" ? "bg-cyan-50 text-[#06B6D4]" : "hover:bg-[#f3f4f6]",
+                )}
+                title="Project Settings"
+              >
+                <Settings size={18} />
+              </button>
+            ) : null}
+          </nav>
+        </div>
+
+        <div className="flex items-center gap-3">
+          {isOwnerViewer ? (
             <button
               type="button"
               onClick={() => setView((current) => (current === "issues" ? "settings" : "issues"))}
               className={cls(
-                "ml-2 p-1 rounded text-[#6b7280] hover:text-[#111827] transition-colors flex items-center",
+                "md:hidden p-1 rounded text-[#6b7280] hover:text-[#111827] transition-colors flex items-center",
                 view === "settings" ? "bg-cyan-50 text-[#06B6D4]" : "hover:bg-[#f3f4f6]",
               )}
               title="Project Settings"
             >
               <Settings size={18} />
             </button>
-          </nav>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={() => setView((current) => (current === "issues" ? "settings" : "issues"))}
-            className={cls(
-              "md:hidden p-1 rounded text-[#6b7280] hover:text-[#111827] transition-colors flex items-center",
-              view === "settings" ? "bg-cyan-50 text-[#06B6D4]" : "hover:bg-[#f3f4f6]",
-            )}
-            title="Project Settings"
-          >
-            <Settings size={18} />
-          </button>
-          <span className="text-xs font-mono text-[#6b7280]">
-            @{currentUserHandle || (isAuthenticated ? "user" : "guest")}
-          </span>
-          <div className="w-8 h-8 rounded-full bg-cyan-50 flex items-center justify-center text-[#06B6D4] font-bold text-xs border border-cyan-100">
-            {(currentUserHandle || "GU").slice(0, 2).toUpperCase()}
-          </div>
+          ) : null}
+          {isAuthenticated ? (
+            <>
+              <span className="text-xs font-mono text-[#6b7280]">{currentUserHandle || "user"}</span>
+              <div className="w-8 h-8 rounded-full bg-cyan-50 flex items-center justify-center text-[#06B6D4] font-bold text-xs border border-cyan-100">
+                {(currentUserHandle || "US").slice(0, 2).toUpperCase()}
+              </div>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={openSignInModal}
+              className="rounded-sm-ds px-3 py-2 text-xs font-bold uppercase tracking-wide text-[#6b7280] transition-colors hover:text-[#111827]"
+            >
+              sign-in
+            </button>
+          )}
         </div>
       </header>
 
@@ -1197,7 +1262,7 @@ export default function App() {
                 <div>
                   <h2 className="text-2xl font-bold text-[#111827] mb-2">Project Settings</h2>
                   <p className="text-sm text-[#6b7280]">
-                    Manage your project metadata, visibility, and administrative controls.
+                    Manage your project metadata and administrative controls.
                   </p>
                 </div>
 
@@ -1229,21 +1294,6 @@ export default function App() {
                         />
                       </div>
                       <div className="space-y-1.5">
-                        <label className="text-[10px] font-mono font-bold text-[#6b7280] uppercase">
-                          Project Slug
-                        </label>
-                        <input
-                          type="text"
-                          value={projectSlugDraft}
-                          onChange={(event) => setProjectSlugDraft(event.target.value)}
-                          disabled={!isOwnerViewer || isProjectSaving}
-                          className={cls(
-                            "w-full px-3 py-2 border border-[#e5e7eb] rounded-sm-ds text-sm",
-                            isOwnerViewer ? "bg-white" : "bg-[#f3f4f6] text-[#6b7280]",
-                          )}
-                        />
-                      </div>
-                      <div className="md:col-span-2 space-y-1.5">
                         <label className="text-[10px] font-mono font-bold text-[#6b7280] uppercase">Tagline</label>
                         <input
                           type="text"
@@ -1258,59 +1308,19 @@ export default function App() {
                       </div>
                       <div className="md:col-span-2 space-y-1.5">
                         <label className="text-[10px] font-mono font-bold text-[#6b7280] uppercase">
-                          Description
+                          Project URL
                         </label>
-                        <textarea
-                          rows={4}
-                          value={projectDescriptionDraft}
-                          onChange={(event) => setProjectDescriptionDraft(event.target.value)}
+                        <input
+                          type="url"
+                          value={projectUrlDraft}
+                          onChange={(event) => setProjectUrlDraft(event.target.value)}
                           disabled={!isOwnerViewer || isProjectSaving}
+                          placeholder="https://example.com"
                           className={cls(
-                            "w-full px-3 py-2 border border-[#e5e7eb] rounded-sm-ds text-sm resize-none",
+                            "w-full px-3 py-2 border border-[#e5e7eb] rounded-sm-ds text-sm",
                             isOwnerViewer ? "bg-white" : "bg-[#f9fafb]",
                           )}
                         />
-                      </div>
-                      <div className="md:col-span-2 space-y-1.5">
-                        <label className="text-[10px] font-mono font-bold text-[#6b7280] uppercase">Visibility</label>
-                        <div className="flex flex-col md:flex-row gap-4">
-                          <button
-                            type="button"
-                            disabled={!isOwnerViewer || isProjectSaving}
-                            onClick={() => setProjectVisibilityDraft("public")}
-                            className={cls(
-                              "flex-1 flex items-center gap-3 p-3 border rounded-sm-ds transition-all text-left",
-                              projectVisibilityDraft === "public"
-                                ? "border-[#06B6D4] bg-cyan-50"
-                                : "border-[#e5e7eb] hover:border-[#06B6D4]/50",
-                              (!isOwnerViewer || isProjectSaving) && "cursor-not-allowed opacity-70",
-                            )}
-                          >
-                            <Globe className="text-[#6b7280]" size={18} />
-                            <div>
-                              <p className="text-xs font-bold">Public</p>
-                              <p className="text-[10px] text-[#6b7280]">Visible to anyone with the link.</p>
-                            </div>
-                          </button>
-                          <button
-                            type="button"
-                            disabled={!isOwnerViewer || isProjectSaving}
-                            onClick={() => setProjectVisibilityDraft("private")}
-                            className={cls(
-                              "flex-1 flex items-center gap-3 p-3 border rounded-sm-ds transition-all text-left",
-                              projectVisibilityDraft === "private"
-                                ? "border-[#06B6D4] bg-cyan-50"
-                                : "border-[#e5e7eb] hover:border-[#06B6D4]/50",
-                              (!isOwnerViewer || isProjectSaving) && "cursor-not-allowed opacity-70",
-                            )}
-                          >
-                            <Lock className="text-[#6b7280]" size={18} />
-                            <div>
-                              <p className="text-xs font-bold">Private</p>
-                              <p className="text-[10px] text-[#6b7280]">Only you can see this project.</p>
-                            </div>
-                          </button>
-                        </div>
                       </div>
                     </div>
                   ) : (
@@ -1459,6 +1469,65 @@ export default function App() {
               >
                 Send Message
               </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {isSignInOpen ? (
+        <div
+          className="fixed inset-0 bg-[#111827]/60 backdrop-blur-[2px] z-[120] flex items-center justify-center p-4"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) {
+              closeSignInModal();
+            }
+          }}
+        >
+          <div className="bg-white rounded-md-ds shadow-2xl max-w-md w-full overflow-hidden">
+            <div className="p-6">
+              <h3 className="text-lg font-bold text-[#111827] mb-2">Sign In</h3>
+              <p className="text-sm text-[#6b7280] mb-6">Enter your email or handle to continue.</p>
+              <form className="space-y-4" onSubmit={onSignInSubmit}>
+                <div>
+                  <label className="text-[10px] font-mono font-bold text-[#6b7280] uppercase">
+                    Email or handle
+                  </label>
+                  <input
+                    type="text"
+                    value={signInIdentity}
+                    onChange={(event) => setSignInIdentity(event.target.value)}
+                    autoFocus
+                    placeholder="you@example.com or your_handle"
+                    className="mt-1 w-full px-3 py-2 border border-[#e5e7eb] rounded-sm-ds text-sm focus:ring-1 focus:ring-[#06B6D4] outline-none"
+                  />
+                </div>
+                {signInFeedback ? (
+                  <p
+                    className={cls(
+                      "text-xs",
+                      signInFeedback === "Signing in..." ? "text-[#6b7280]" : "text-[#dc2626]",
+                    )}
+                  >
+                    {signInFeedback}
+                  </p>
+                ) : null}
+                <div className="flex justify-end gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={closeSignInModal}
+                    className="px-4 py-2 text-sm font-bold text-[#6b7280] hover:text-[#111827]"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSignInSubmitting}
+                    className="px-4 py-2 rounded-sm-ds bg-[#111827] text-white text-xs font-bold uppercase tracking-wide hover:bg-black disabled:opacity-50"
+                  >
+                    {isSignInSubmitting ? "Signing in..." : "Sign in"}
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         </div>

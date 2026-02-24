@@ -2,6 +2,7 @@ Django
 django-ninja
 django-sesame
 python-dotenv
+python-slugify
 
 fabric
 PyJWT[crypto]
