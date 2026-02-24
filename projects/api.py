@@ -1,5 +1,6 @@
 from typing import Optional
 
+from django.contrib.auth import get_user_model
 from django.db.models import Count
 from django.shortcuts import get_object_or_404
 from ninja import Router, Schema
@@ -15,6 +16,19 @@ class IssueCreateIn(Schema):
     title: str
     description: str = ""
     priority: int = Issue.Priority.MEDIUM
+
+
+class ProjectOut(Schema):
+    id: int
+    owner_id: int
+    owner_handle: str
+    name: str
+    slug: str
+    tagline: str
+    description: str
+    visibility: str
+    created_at: str
+    updated_at: str
 
 
 class IssueUpdateIn(Schema):
@@ -114,6 +128,21 @@ def _issue_to_dict(issue: Issue):
     }
 
 
+def _project_to_dict(project: Project):
+    return {
+        "id": project.id,
+        "owner_id": project.owner_id,
+        "owner_handle": project.owner.handle,
+        "name": project.name,
+        "slug": project.slug,
+        "tagline": project.tagline,
+        "description": project.description,
+        "visibility": project.visibility,
+        "created_at": project.created_at.isoformat(),
+        "updated_at": project.updated_at.isoformat(),
+    }
+
+
 def _comment_to_dict(comment: IssueComment):
     return {
         "id": comment.id,
@@ -134,6 +163,11 @@ def _get_project(owner_handle: str, project_slug: str):
     )
 
 
+def _get_owner(owner_handle: str):
+    User = get_user_model()
+    return get_object_or_404(User, handle=owner_handle.lower())
+
+
 def _get_annotated_issue_queryset():
     return Issue.objects.select_related("project", "author").annotate(
         upvotes_count=Count("upvotes", distinct=True),
@@ -147,6 +181,50 @@ def _ensure_project_read_access(request, project: Project):
     user = request.user
     if not user.is_authenticated or user.id != project.owner_id:
         raise HttpError(404, "Project not found.")
+
+
+def _get_visible_projects_for_owner(request, owner_handle: str):
+    owner = _get_owner(owner_handle)
+    projects = Project.objects.select_related("owner").filter(owner=owner)
+    if request.user.is_authenticated and request.user.id == owner.id:
+        return owner, projects
+    return owner, projects.filter(visibility=Project.Visibility.PUBLIC)
+
+
+@router.get("/owners/{owner_handle}/projects", response=list[ProjectOut])
+def list_owner_projects(request, owner_handle: str):
+    _, projects = _get_visible_projects_for_owner(request, owner_handle)
+    return [_project_to_dict(project) for project in projects]
+
+
+@router.get("/owners/{owner_handle}/issues", response=list[IssueOut])
+def list_owner_issues(
+    request,
+    owner_handle: str,
+    project_slug: Optional[str] = None,
+    issue_type: Optional[str] = None,
+    status: Optional[str] = None,
+    priority: Optional[int] = None,
+):
+    _, visible_projects = _get_visible_projects_for_owner(request, owner_handle)
+    if project_slug:
+        visible_projects = visible_projects.filter(slug=project_slug)
+        if not visible_projects.exists():
+            raise HttpError(404, "Project not found.")
+
+    queryset = _get_annotated_issue_queryset().filter(project__in=visible_projects)
+
+    if issue_type:
+        _validate_issue_type(issue_type)
+        queryset = queryset.filter(issue_type=issue_type)
+    if status:
+        _validate_status(status)
+        queryset = queryset.filter(status=status)
+    if priority is not None:
+        _validate_priority(priority)
+        queryset = queryset.filter(priority=priority)
+
+    return [_issue_to_dict(issue) for issue in queryset]
 
 
 @router.get(

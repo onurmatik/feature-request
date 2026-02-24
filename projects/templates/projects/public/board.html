@@ -1,0 +1,30 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>FeatureRequest Board</title>
+    {% if not frontend_use_dev_server %}
+        <link rel="stylesheet" href="{% static 'frontend/board.css' %}">
+    {% endif %}
+</head>
+<body>
+<div id="root"></div>
+
+<script>
+    window.__FR_BOOTSTRAP__ = {
+        ownerHandle: "{{ owner_handle|escapejs }}",
+        initialProjectSlug: "{{ initial_project_slug|escapejs }}",
+        isAuthenticated: {{ request.user.is_authenticated|yesno:"true,false" }},
+        currentUserHandle: "{% if request.user.is_authenticated %}{{ request.user.handle|escapejs }}{% endif %}"
+    };
+</script>
+{% if frontend_use_dev_server %}
+    <script type="module" src="{{ frontend_dev_server_url }}/@vite/client"></script>
+    <script type="module" src="{{ frontend_dev_server_url }}/src/main.jsx"></script>
+{% else %}
+    <script type="module" src="{% static 'frontend/board.js' %}"></script>
+{% endif %}
+</body>
+</html>

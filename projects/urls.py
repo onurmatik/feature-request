@@ -5,6 +5,7 @@ from .views import (
     ProjectDeleteView,
     ProjectListView,
     ProjectUpdateView,
+    PublicBoardView,
 )
 
 app_name = "projects"
@@ -25,5 +26,15 @@ urlpatterns = [
         "backend/projects/<int:pk>/delete/",
         ProjectDeleteView.as_view(),
         name="backend-project-delete",
+    ),
+    path(
+        "<str:owner_handle>/<slug:project_slug>/",
+        PublicBoardView.as_view(),
+        name="public-project-board",
+    ),
+    path(
+        "<str:owner_handle>/",
+        PublicBoardView.as_view(),
+        name="public-owner-board",
     ),
 ]

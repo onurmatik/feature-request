@@ -5,8 +5,8 @@ from sesame.views import LoginView
 from config.api import api
 
 urlpatterns = [
-    path("admin/", admin.site.urls),
-    path("", include("projects.urls")),
+    path("admin-qweasd123/", admin.site.urls),
     path("api/", api.urls),
     path("auth/magic-link/", LoginView.as_view(), name="magic-link-login"),
+    path("", include("projects.urls")),
 ]

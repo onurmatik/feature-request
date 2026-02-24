@@ -228,6 +228,48 @@ class IssueApiTest(TestCase):
         self.assertEqual(len(comments), 1)
         self.assertEqual(comments[0]["author_handle"], self.other_user.handle)
 
+    def test_list_owner_projects_respects_visibility(self):
+        public_response = self.client.get(f"/api/owners/{self.owner.handle}/projects")
+        self.assertEqual(public_response.status_code, 200)
+        public_payload = public_response.json()
+        self.assertEqual(len(public_payload), 1)
+        self.assertEqual(public_payload[0]["slug"], self.project.slug)
+
+        self.client.force_login(self.owner)
+        owner_response = self.client.get(f"/api/owners/{self.owner.handle}/projects")
+        self.assertEqual(owner_response.status_code, 200)
+        owner_payload = owner_response.json()
+        self.assertEqual(len(owner_payload), 2)
+
+    def test_list_owner_issues_supports_project_filter(self):
+        Issue.objects.create(
+            project=self.project,
+            author=self.other_user,
+            title="Another public issue",
+        )
+
+        public_all = self.client.get(f"/api/owners/{self.owner.handle}/issues")
+        self.assertEqual(public_all.status_code, 200)
+        self.assertEqual(len(public_all.json()), 2)
+
+        public_specific = self.client.get(
+            f"/api/owners/{self.owner.handle}/issues",
+            {"project_slug": self.project.slug},
+        )
+        self.assertEqual(public_specific.status_code, 200)
+        self.assertEqual(len(public_specific.json()), 2)
+
+        public_private = self.client.get(
+            f"/api/owners/{self.owner.handle}/issues",
+            {"project_slug": self.private_project.slug},
+        )
+        self.assertEqual(public_private.status_code, 404)
+
+        self.client.force_login(self.owner)
+        owner_all = self.client.get(f"/api/owners/{self.owner.handle}/issues")
+        self.assertEqual(owner_all.status_code, 200)
+        self.assertEqual(len(owner_all.json()), 3)
+
 
 class ProjectBackendUiTest(TestCase):
     def setUp(self):
@@ -306,3 +348,49 @@ class ProjectBackendUiTest(TestCase):
 
         self.assertEqual(edit_response.status_code, 404)
         self.assertEqual(delete_response.status_code, 404)
+
+
+class PublicBoardViewTest(TestCase):
+    def setUp(self):
+        user_model = get_user_model()
+        self.owner = user_model.objects.create_user(
+            email="owner-public@example.com",
+            handle="owner_public",
+            password="test-pass-123",
+        )
+        self.other_user = user_model.objects.create_user(
+            email="other-public@example.com",
+            handle="other_public",
+            password="test-pass-123",
+        )
+        self.public_project = Project.objects.create(
+            owner=self.owner,
+            name="Gezgin",
+            slug="gezgin",
+            visibility=Project.Visibility.PUBLIC,
+        )
+        self.private_project = Project.objects.create(
+            owner=self.owner,
+            name="Secret Roadmap",
+            slug="secret-roadmap",
+            visibility=Project.Visibility.PRIVATE,
+        )
+
+    def test_owner_board_is_publicly_accessible(self):
+        response = self.client.get(f"/{self.owner.handle}/")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "All Projects")
+
+    def test_public_project_board_is_publicly_accessible(self):
+        response = self.client.get(f"/{self.owner.handle}/{self.public_project.slug}/")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, f"Contact @{self.owner.handle}")
+
+    def test_private_project_board_is_hidden_from_visitors(self):
+        response = self.client.get(f"/{self.owner.handle}/{self.private_project.slug}/")
+        self.assertEqual(response.status_code, 404)
+
+    def test_private_project_board_is_visible_to_owner(self):
+        self.client.force_login(self.owner)
+        response = self.client.get(f"/{self.owner.handle}/{self.private_project.slug}/")
+        self.assertEqual(response.status_code, 200)
