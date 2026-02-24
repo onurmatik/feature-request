@@ -601,25 +601,27 @@ export default function LandingPage({ initialAuthMode = null }) {
               </div>
             </div>
 
-            <div className="min-h-[374px] p-6">
+            <div className="flex min-h-[374px] flex-col">
               {authMode === "signIn" ? (
-                <form className="space-y-4" onSubmit={onSignInSubmit}>
-                  <h3 className="text-lg font-bold text-[#111827]">Welcome back</h3>
-                  <p className="text-sm text-[#6b7280]">Use your email or handle to continue.</p>
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-mono font-bold uppercase tracking-wider text-[#6b7280]">
-                      Email or Handle
-                    </label>
-                    <input
-                      type="text"
-                      value={signInIdentity}
-                      onChange={(event) => setSignInIdentity(event.target.value)}
-                      className="w-full rounded-sm-ds border border-[#e5e7eb] px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-[#06B6D4]"
-                      autoFocus
-                    />
+                <form className="flex flex-1 flex-col" onSubmit={onSignInSubmit}>
+                  <div className="flex-1 space-y-4 p-6">
+                    <h3 className="text-lg font-bold text-[#111827]">Welcome back</h3>
+                    <p className="text-sm text-[#6b7280]">Use your email or handle to continue.</p>
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-mono font-bold uppercase tracking-wider text-[#6b7280]">
+                        Email or Handle
+                      </label>
+                      <input
+                        type="text"
+                        value={signInIdentity}
+                        onChange={(event) => setSignInIdentity(event.target.value)}
+                        className="w-full rounded-sm-ds border border-[#e5e7eb] px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-[#06B6D4]"
+                        autoFocus
+                      />
+                    </div>
+                    {authFeedback ? <p className="text-xs text-[#6b7280]">{authFeedback}</p> : null}
                   </div>
-                  {authFeedback ? <p className="text-xs text-[#6b7280]">{authFeedback}</p> : null}
-                  <div className="flex justify-end gap-3">
+                  <div className="flex justify-end gap-3 bg-[#f9fafb] border-t border-[#e5e7eb] p-3">
                     <button
                       type="button"
                       onClick={closeAuth}
@@ -637,36 +639,38 @@ export default function LandingPage({ initialAuthMode = null }) {
                   </div>
                 </form>
               ) : (
-                <form className="space-y-4" onSubmit={onSignUpSubmit}>
-                  <h3 className="text-lg font-bold text-[#111827]">Create your account</h3>
-                  <p className="text-sm text-[#6b7280]">Set a public handle, then publish your first board.</p>
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-mono font-bold uppercase tracking-wider text-[#6b7280]">
-                      Handle
-                    </label>
-                    <input
-                      type="text"
-                      value={signUpHandle}
-                      onChange={(event) => setSignUpHandle(event.target.value)}
-                      className="w-full rounded-sm-ds border border-[#e5e7eb] px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-[#06B6D4]"
-                      placeholder="yourhandle"
-                      autoFocus
-                    />
+                <form className="flex flex-1 flex-col" onSubmit={onSignUpSubmit}>
+                  <div className="flex-1 space-y-4 p-6">
+                    <h3 className="text-lg font-bold text-[#111827]">Create your account</h3>
+                    <p className="text-sm text-[#6b7280]">Set a public handle, then publish your first board.</p>
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-mono font-bold uppercase tracking-wider text-[#6b7280]">
+                        Handle
+                      </label>
+                      <input
+                        type="text"
+                        value={signUpHandle}
+                        onChange={(event) => setSignUpHandle(event.target.value)}
+                        className="w-full rounded-sm-ds border border-[#e5e7eb] px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-[#06B6D4]"
+                        placeholder="yourhandle"
+                        autoFocus
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-mono font-bold uppercase tracking-wider text-[#6b7280]">
+                        Email
+                      </label>
+                      <input
+                        type="email"
+                        value={signUpEmail}
+                        onChange={(event) => setSignUpEmail(event.target.value)}
+                        className="w-full rounded-sm-ds border border-[#e5e7eb] px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-[#06B6D4]"
+                        placeholder="you@indie.dev"
+                      />
+                    </div>
+                    {authFeedback ? <p className="text-xs text-[#6b7280]">{authFeedback}</p> : null}
                   </div>
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-mono font-bold uppercase tracking-wider text-[#6b7280]">
-                      Email
-                    </label>
-                    <input
-                      type="email"
-                      value={signUpEmail}
-                      onChange={(event) => setSignUpEmail(event.target.value)}
-                      className="w-full rounded-sm-ds border border-[#e5e7eb] px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-[#06B6D4]"
-                      placeholder="you@indie.dev"
-                    />
-                  </div>
-                  {authFeedback ? <p className="text-xs text-[#6b7280]">{authFeedback}</p> : null}
-                  <div className="flex justify-end gap-3">
+                  <div className="flex justify-end gap-3 bg-[#f9fafb] border-t border-[#e5e7eb] p-3">
                     <button
                       type="button"
                       onClick={closeAuth}
