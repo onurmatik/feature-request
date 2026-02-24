@@ -99,6 +99,5 @@ class PublicBoardView(TemplateView):
         context = super().get_context_data(**kwargs)
         context["owner_handle"] = self.owner.handle
         context["initial_project_slug"] = self.project_slug or ""
-        context["frontend_use_dev_server"] = settings.FRONTEND_USE_DEV_SERVER
         context["frontend_dev_server_url"] = settings.FRONTEND_DEV_SERVER_URL
         return context

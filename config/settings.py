@@ -87,9 +87,6 @@ STATIC_URL = "static/"
 FRONTEND_DEV_SERVER_URL = os.getenv(
     "FRONTEND_DEV_SERVER_URL", "http://127.0.0.1:5173"
 ).rstrip("/")
-FRONTEND_USE_DEV_SERVER = (
-    os.getenv("FRONTEND_USE_DEV_SERVER", "1" if DEBUG else "0") == "1"
-)
 
 CSRF_TRUSTED_ORIGINS = [
     "http://127.0.0.1:5173",
