@@ -138,6 +138,16 @@ class IssueApiTest(TestCase):
         )
         self.assertEqual(response.status_code, 400)
 
+    def test_create_comment_requires_auth(self):
+        response = self.client.post(
+            f"/api/issues/{self.issue.id}/comments",
+            data=json.dumps({"body": "Please prioritize this for next sprint."}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(IssueComment.objects.count(), 0)
+
     def test_create_and_list_issue(self):
         self.client.force_login(self.other_user)
         create_response = self.client.post(

@@ -743,7 +743,7 @@ export default function App() {
 
   async function handlePostComment() {
     if (!isAuthenticated) {
-      setStatus("Login required for commenting.", true);
+      setCommentFeedback("Please log in to post a comment.");
       return;
     }
 
@@ -1043,6 +1043,11 @@ export default function App() {
   }
 
   async function handleSubmitNewIssue() {
+    if (!isAuthenticated) {
+      setNewIssueFeedback("Please log in to create a request.");
+      return;
+    }
+
     if (!selectedProjectSlug) {
       return;
     }
