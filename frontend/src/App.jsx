@@ -7,6 +7,7 @@ import {
   Layers,
   Mail,
   LogOut,
+  ExternalLink,
   Plus,
   Search,
   ChevronDown,
@@ -1432,21 +1433,55 @@ export default function App() {
           Projects
         </h3>
         {projects.map((project) => (
-          <button
-            key={project.id}
-            type="button"
-            data-project={project.slug}
-            onClick={() => setProjectSlugAndHistory(project.slug)}
-            className={cls(
-              "sidebar-project-btn w-full flex items-center gap-3 px-3 py-2 rounded-sm-ds font-medium text-sm transition-colors",
-              selectedProjectSlug === project.slug
-                ? "bg-cyan-50 text-[#06B6D4]"
-                : "text-[#6b7280] hover:bg-[#f3f4f6]",
-            )}
-          >
-            <Folder size={18} />
-            {project.name}
-          </button>
+          <div key={project.id} className="relative">
+            <button
+              type="button"
+              data-project={project.slug}
+              onClick={() => setProjectSlugAndHistory(project.slug)}
+              className={cls(
+                "sidebar-project-btn w-full flex items-start gap-3 px-3 py-2 pr-16 rounded-sm-ds font-medium text-sm transition-colors",
+                selectedProjectSlug === project.slug
+                  ? "bg-cyan-50 text-[#06B6D4]"
+                  : "text-[#6b7280] hover:bg-[#f3f4f6]",
+              )}
+            >
+              <Folder size={18} />
+              <span className="flex-1 min-w-0 text-left">
+                <span className="block font-medium leading-tight">{project.name}</span>
+                {project.tagline ? <span className="block text-[11px] leading-tight text-[#6b7280]">{project.tagline}</span> : null}
+              </span>
+            </button>
+            <span className="absolute top-2 right-2 flex items-center gap-1">
+              {isOwnerViewer ? (
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setProjectSlugAndHistory(project.slug);
+                    setView((current) => (current === "issues" ? "settings" : "issues"));
+                  }}
+                  className="text-[#9ca3af] hover:text-[#111827] p-1 rounded-sm-ds transition-colors"
+                  title="Project Settings"
+                  aria-label={`Project settings for ${project.name}`}
+                >
+                  <Settings size={16} />
+                </button>
+              ) : null}
+              {project.url ? (
+                <a
+                  href={project.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={(event) => event.stopPropagation()}
+                  className="text-[#9ca3af] hover:text-[#111827] p-1 rounded-sm-ds transition-colors"
+                  aria-label={`Open ${project.name} website`}
+                  title="Open project site"
+                >
+                  <ExternalLink size={16} />
+                </a>
+              ) : null}
+            </span>
+          </div>
         ))}
       </div>
     </>
@@ -1477,26 +1512,6 @@ export default function App() {
               {selectedProject ? selectedProject.name : "All Projects"}
             </span>
             {isOwnerViewer ? (
-              <button
-                type="button"
-                onClick={() => setView((current) => (current === "issues" ? "settings" : "issues"))}
-                disabled={!selectedProjectSlug}
-                className={cls(
-                  "ml-2 p-1 rounded text-[#6b7280] transition-colors flex items-center",
-                  selectedProjectSlug
-                    ? view === "settings"
-                      ? "bg-cyan-50 text-[#06B6D4] hover:text-[#111827] hover:bg-[#f3f4f6]"
-                      : "hover:text-[#111827] hover:bg-[#f3f4f6]"
-                    : "cursor-not-allowed opacity-45",
-                  view === "settings" ? "bg-cyan-50 text-[#06B6D4]" : "",
-                )}
-                title="Project Settings"
-                aria-label="Project Settings"
-              >
-                <Settings size={18} />
-              </button>
-            ) : null}
-            {isOwnerViewer ? (
               <a
                 href={projectFormUrl}
                 onClick={handleProjectFormNavigation}
@@ -1511,25 +1526,6 @@ export default function App() {
         </div>
 
         <div className="flex items-center gap-3">
-          {isOwnerViewer ? (
-            <button
-              type="button"
-              onClick={() => setView((current) => (current === "issues" ? "settings" : "issues"))}
-              disabled={!selectedProjectSlug}
-              className={cls(
-                "md:hidden p-1 rounded text-[#6b7280] transition-colors flex items-center",
-                selectedProjectSlug
-                  ? view === "settings"
-                    ? "bg-cyan-50 text-[#06B6D4] hover:text-[#111827] hover:bg-[#f3f4f6]"
-                    : "hover:text-[#111827] hover:bg-[#f3f4f6]"
-                  : "cursor-not-allowed opacity-45",
-              )}
-              title="Project Settings"
-              aria-label="Project Settings"
-            >
-              <Settings size={18} />
-            </button>
-          ) : null}
           {isOwnerViewer ? (
             <a
               href={projectFormUrl}
@@ -1967,6 +1963,10 @@ export default function App() {
                                 }`}
                               >
                                 {commentFeedback}
+                              </span>
+                            ) : String(selectedIssue?.status || "").toLowerCase() === "closed" ? (
+                              <span className="text-[10px] font-mono text-[#b45309]">
+                                This item is closed. You can still post here but I suggest creating a new request.
                               </span>
                             ) : (
                               <span className="text-[10px] font-mono text-[#d1d5db]">Markdown supported</span>
