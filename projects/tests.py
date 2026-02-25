@@ -1,8 +1,9 @@
 import json
+from unittest.mock import Mock, patch
 
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from .models import Issue, IssueComment, IssueUpvote, Project
 
@@ -163,6 +164,52 @@ class IssueApiTest(TestCase):
         )
         self.assertEqual(list_response.status_code, 200)
         self.assertEqual(len(list_response.json()), 1)
+
+    @override_settings(OPENAI_API_KEY="test-openai-key")
+    def test_create_issue_rejects_irrelevant_content_with_moderation(self):
+        self.client.force_login(self.other_user)
+        mocked_client = Mock()
+        mocked_client.responses.create.return_value = Mock(output_text="REJECT: spam content")
+
+        with patch("projects.api.OpenAI", return_value=mocked_client):
+            response = self.client.post(
+                f"/api/projects/{self.owner.handle}/{self.project.slug}/issues",
+                data=json.dumps(
+                    {
+                        "issue_type": "feature",
+                        "title": "Buy followers now",
+                        "description": "Click this random link and join my channel",
+                        "priority": 2,
+                    }
+                ),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"], "Issue rejected by moderation: spam content")
+        self.assertFalse(Issue.objects.filter(title="Buy followers now").exists())
+
+    @override_settings(OPENAI_API_KEY="test-openai-key")
+    def test_create_issue_accepts_valid_content_with_moderation(self):
+        self.client.force_login(self.other_user)
+        mocked_client = Mock()
+        mocked_client.responses.create.return_value = Mock(output_text="ALLOW")
+
+        with patch("projects.api.OpenAI", return_value=mocked_client):
+            response = self.client.post(
+                f"/api/projects/{self.owner.handle}/{self.project.slug}/issues",
+                data=json.dumps(
+                    {
+                        "issue_type": "bug",
+                        "title": "Signup fails on Safari",
+                        "description": "The signup form returns 500 only on Safari 18.",
+                        "priority": 3,
+                    }
+                ),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 201)
 
     def test_all_projects_are_readable(self):
         list_response = self.client.get(

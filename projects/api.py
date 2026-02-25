@@ -1,14 +1,18 @@
+import logging
 from typing import Optional
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db.models import Count
 from django.shortcuts import get_object_or_404
 from ninja import Router, Schema
 from ninja.errors import HttpError
+from openai import OpenAI
 
 from .models import Issue, IssueComment, IssueUpvote, Project
 
 router = Router(tags=["issues"])
+logger = logging.getLogger(__name__)
 
 
 class IssueCreateIn(Schema):
@@ -132,6 +136,61 @@ def _clean_non_empty(value: str, field_name: str):
     if not cleaned:
         raise HttpError(400, f"{field_name} cannot be empty.")
     return cleaned
+
+
+def _moderate_issue_submission(issue_type: str, title: str, description: str):
+    api_key = settings.OPENAI_API_KEY.strip()
+    if not api_key:
+        return
+
+    client = OpenAI(api_key=api_key)
+    instructions = (
+        "You moderate issue submissions for a public product board. "
+        "Allow only meaningful feature requests or bug reports. "
+        "Reject empty, nonsensical, spam, abusive, or unrelated posts. "
+        "Respond with exactly one line. "
+        "If valid: ALLOW. "
+        "If invalid: REJECT: <short reason>."
+    )
+    user_input = (
+        f"issue_type: {issue_type}\n"
+        f"title: {title}\n"
+        f"description: {description or '(empty)'}"
+    )
+
+    try:
+        response = client.responses.create(
+            model="gpt-5-nano",
+            reasoning={"effort": "minimal"},
+            max_output_tokens=80,
+            input=[
+                {
+                    "role": "system",
+                    "content": [{"type": "input_text", "text": instructions}],
+                },
+                {
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": user_input}],
+                },
+            ],
+        )
+    except Exception:
+        logger.exception("Issue moderation call failed.")
+        raise HttpError(503, "Issue moderation is temporarily unavailable.")
+
+    verdict = (getattr(response, "output_text", "") or "").strip()
+    if not verdict:
+        raise HttpError(503, "Issue moderation is temporarily unavailable.")
+
+    if verdict.lower().startswith("allow"):
+        return
+
+    reason = "Content is not a valid feature request or bug report."
+    if ":" in verdict:
+        parsed_reason = verdict.split(":", 1)[1].strip()
+        if parsed_reason:
+            reason = parsed_reason
+    raise HttpError(400, f"Issue rejected by moderation: {reason}")
 
 
 def _issue_to_dict(issue: Issue):
@@ -378,12 +437,15 @@ def create_issue(request, owner_handle: str, project_slug: str, payload: IssueCr
     _validate_priority(payload.priority)
 
     project = _get_project(owner_handle, project_slug)
+    title = _clean_non_empty(payload.title, "Issue title")
+    description = payload.description.strip()
+    _moderate_issue_submission(payload.issue_type, title, description)
     issue = Issue.objects.create(
         project=project,
         author=user,
         issue_type=payload.issue_type,
-        title=_clean_non_empty(payload.title, "Issue title"),
-        description=payload.description.strip(),
+        title=title,
+        description=description,
         priority=payload.priority,
     )
     return 201, _issue_to_dict(issue)

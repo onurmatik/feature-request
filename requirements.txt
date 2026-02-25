@@ -3,6 +3,7 @@ django-ninja
 django-sesame
 stripe
 python-dotenv
+openai
 python-slugify
 
 fabric

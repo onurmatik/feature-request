@@ -1613,7 +1613,17 @@ export default function App() {
                       </div>
                     </div>
 
-                    {newIssueFeedback ? <p className="text-xs text-[#6b7280]">{newIssueFeedback}</p> : null}
+                    {newIssueFeedback ? (
+                      <p
+                        className={
+                          newIssueFeedback.toLowerCase().includes("rejected by moderation")
+                            ? "text-xs text-[#b91c1c]"
+                            : "text-xs text-[#6b7280]"
+                        }
+                      >
+                        {newIssueFeedback}
+                      </p>
+                    ) : null}
 
                     <div className="flex justify-end gap-3">
                       <button
