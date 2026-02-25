@@ -5,9 +5,11 @@ from typing import Optional
 from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin, urlparse
 from urllib.request import Request, urlopen
+from html import escape
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.core.mail import send_mail
 from django.db.models import Count
 from django.shortcuts import get_object_or_404
 from ninja import Router, Schema
@@ -504,6 +506,113 @@ def _comment_to_dict(comment: IssueComment):
     }
 
 
+def _owner_display_name(user):
+    return (user.display_name or user.handle).strip() or user.email
+
+
+def _issue_board_url(request, issue):
+    return request.build_absolute_uri(f"/{issue.project.owner.handle}/{issue.project.slug}/")
+
+
+def _notify_owner_on_new_issue(request, issue: Issue, actor):
+    if actor.id == issue.project.owner_id:
+        return
+
+    subject = f"New request on {issue.project.owner.handle}/{issue.project.slug}: {issue.title}"
+    board_url = _issue_board_url(request, issue)
+    plain_text = (
+        f"{_owner_display_name(actor)} ({actor.email}) posted a new request for @{issue.project.owner.handle}.\n\n"
+        f"Title: {issue.title}\n"
+        f"Type: {issue.get_issue_type_display()}\n"
+        f"Priority: {issue.get_priority_display()}\n"
+        f"Description:\n{issue.description or '(No description)'}\n\n"
+        f"Open the board: {board_url}\n"
+    )
+    html_body = f"""<!DOCTYPE html>
+<html>
+  <body style="margin: 0; padding: 0; background: #f8fafc;">
+    <div style="padding: 24px 16px;">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width: 640px; margin: 0 auto; background: #ffffff; border: 1px solid #e5e7eb; border-radius: 12px;">
+        <tr>
+          <td style="padding: 20px 24px 8px 24px; font-family: Arial, sans-serif; color: #111827;">
+            <h1 style="margin: 0; font-size: 20px;">New request for your board</h1>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding: 0 24px 16px 24px; font-family: Arial, sans-serif; color: #374151; line-height: 1.6;">
+            <p style="margin: 0 0 12px 0;">
+              {_owner_display_name(actor)} has posted a new request on {escape(issue.project.owner.handle)}.
+            </p>
+            <p style="margin: 0 0 12px 0;"><strong>Title:</strong> {escape(issue.title)}</p>
+            <p style="margin: 0 0 12px 0;"><strong>Type:</strong> {issue.get_issue_type_display()}</p>
+            <p style="margin: 0 0 12px 0;"><strong>Priority:</strong> {issue.get_priority_display()}</p>
+            <p style="margin: 0 0 16px 0;"><strong>Description:</strong><br>{escape(issue.description or "(No description)")}</p>
+            <a href="{escape(board_url)}" style="display: inline-block; background: #4f46e5; color: #ffffff; text-decoration: none; padding: 10px 16px; border-radius: 8px;">Open board</a>
+          </td>
+        </tr>
+      </table>
+    </div>
+  </body>
+</html>"""
+
+    send_mail(
+        subject,
+        plain_text,
+        settings.DEFAULT_FROM_EMAIL,
+        [issue.project.owner.email],
+        html_message=html_body,
+        fail_silently=True,
+    )
+
+
+def _notify_owner_on_new_comment(request, comment: IssueComment):
+    if comment.author_id == comment.issue.project.owner_id:
+        return
+
+    owner = comment.issue.project.owner
+    subject = f"New comment on request #{comment.issue_id} for @{owner.handle}"
+    board_url = _issue_board_url(request, comment.issue)
+    plain_text = (
+        f"{_owner_display_name(comment.author)} ({comment.author.email}) commented on issue #{comment.issue_id}.\n\n"
+        f"Issue title: {comment.issue.title}\n"
+        f"Comment:\n{comment.body}\n\n"
+        f"Open the board: {board_url}\n"
+    )
+    html_body = f"""<!DOCTYPE html>
+<html>
+  <body style="margin: 0; padding: 0; background: #f8fafc;">
+    <div style="padding: 24px 16px;">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width: 640px; margin: 0 auto; background: #ffffff; border: 1px solid #e5e7eb; border-radius: 12px;">
+        <tr>
+          <td style="padding: 20px 24px 8px 24px; font-family: Arial, sans-serif; color: #111827;">
+            <h1 style="margin: 0; font-size: 20px;">New comment on your request</h1>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding: 0 24px 16px 24px; font-family: Arial, sans-serif; color: #374151; line-height: 1.6;">
+            <p style="margin: 0 0 12px 0;">
+              {_owner_display_name(comment.author)} commented on issue #{comment.issue_id}.
+            </p>
+            <p style="margin: 0 0 12px 0;"><strong>Issue:</strong> {escape(comment.issue.title)}</p>
+            <p style="margin: 0 0 16px 0;"><strong>Comment:</strong><br>{escape(comment.body)}</p>
+            <a href="{escape(board_url)}" style="display: inline-block; background: #4f46e5; color: #ffffff; text-decoration: none; padding: 10px 16px; border-radius: 8px;">Open board</a>
+          </td>
+        </tr>
+      </table>
+    </div>
+  </body>
+</html>"""
+
+    send_mail(
+        subject,
+        plain_text,
+        settings.DEFAULT_FROM_EMAIL,
+        [owner.email],
+        html_message=html_body,
+        fail_silently=True,
+    )
+
+
 def _get_project(owner_handle: str, project_slug: str):
     return get_object_or_404(
         Project.objects.select_related("owner"),
@@ -730,6 +839,7 @@ def create_issue(request, owner_handle: str, project_slug: str, payload: IssueCr
         description=description,
         priority=payload.priority,
     )
+    _notify_owner_on_new_issue(request, issue, user)
     return 201, _issue_to_dict(issue)
 
 
@@ -811,5 +921,6 @@ def create_issue_comment(request, issue_id: int, payload: CommentCreateIn):
         author=user,
         body=body,
     )
-    comment = IssueComment.objects.select_related("author").get(id=comment.id)
+    comment = IssueComment.objects.select_related("author", "issue__project__owner").get(id=comment.id)
+    _notify_owner_on_new_comment(request, comment)
     return 201, _comment_to_dict(comment)
