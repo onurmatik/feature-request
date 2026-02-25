@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ArrowBigUpDash,
   FolderOpen,
-  Layers,
+  ListTodo,
   Lock,
   MessageSquare,
   Palette,
@@ -373,7 +373,7 @@ export default function LandingPage({ initialAuthMode = null }) {
         <div className="mx-auto flex h-full w-full max-w-7xl items-center justify-between">
           <a href="/" className="flex items-center gap-2">
             <div className="h-8 w-8 rounded-sm-ds bg-[#06B6D4] flex items-center justify-center text-white shadow-sm">
-              <Layers size={18} />
+              <ListTodo size={18} />
             </div>
             <span className="text-lg font-bold tracking-tight">FeatureRequest</span>
           </a>
@@ -647,7 +647,7 @@ export default function LandingPage({ initialAuthMode = null }) {
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
           <div className="flex items-center gap-2">
             <div className="w-6 h-6 bg-[#06B6D4] rounded-sm-ds flex items-center justify-center text-white">
-              <Layers size={14} />
+              <ListTodo size={14} />
             </div>
             <span className="text-sm font-bold tracking-tight">FeatureRequest</span>
             <span className="text-[10px] font-mono text-[#9ca3af] ml-2">© 2026</span>

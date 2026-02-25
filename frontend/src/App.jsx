@@ -4,7 +4,7 @@ import {
   ArrowBigUpDash,
   Folder,
   LayoutGrid,
-  Layers,
+  ListTodo,
   Mail,
   LogOut,
   ExternalLink,
@@ -1494,7 +1494,7 @@ export default function App() {
           <div className="flex items-center gap-2 shrink-0">
             <a href="/" className="flex items-center gap-2">
               <div className="w-8 h-8 bg-[#06B6D4] rounded-sm-ds flex items-center justify-center text-white shadow-sm">
-                <Layers size={20} />
+                <ListTodo size={20} />
               </div>
               <span className="font-bold text-lg tracking-tight">FeatureRequest</span>
             </a>
