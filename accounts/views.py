@@ -17,6 +17,7 @@ from django.urls import reverse
 import stripe
 from sesame.utils import get_query_string
 
+from .handles import is_reserved_handle
 from .models import User
 
 HANDLE_REGEX = re.compile(r"^[a-z0-9_]+$")
@@ -270,6 +271,11 @@ def sign_up_view(request):
             {
                 "detail": "Handle can only include lowercase letters, numbers, and underscore.",
             },
+            status=400,
+        )
+    if is_reserved_handle(handle):
+        return JsonResponse(
+            {"detail": "This handle is reserved. Please choose another handle."},
             status=400,
         )
 

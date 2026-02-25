@@ -7,6 +7,7 @@ const adminPathSegment =
     .trim()
     .replace(/^\/+|\/+$/g, "") || "admin";
 const adminUrl = `/${adminPathSegment}`;
+const adminPathWithTrailingSlash = `${adminUrl}/`;
 const allowedHosts =
   (globalThis.process?.env?.VITE_ALLOWED_HOSTS ||
     "featurerequest.io,www.featurerequest.io,localhost,127.0.0.1")
@@ -16,6 +17,9 @@ const allowedHosts =
 
 export default defineConfig({
   plugins: [react()],
+  define: {
+    __FR_ADMIN_PATH__: JSON.stringify(adminPathWithTrailingSlash),
+  },
   server: {
     host: "127.0.0.1",
     port: 5173,

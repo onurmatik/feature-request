@@ -1,3 +1,4 @@
+/* global __FR_ADMIN_PATH__ */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
@@ -59,12 +60,110 @@ function normalizeHandle(value) {
   return String(value || "").trim().toLowerCase();
 }
 
-function getMessagesRouteState(pathname = window.location.pathname) {
+const HANDLE_REGEX = /^[a-z0-9_]+$/;
+const NOT_FOUND_ERROR_CODE = "route_not_found";
+const ADMIN_PATH = (() => {
+  const raw = typeof __FR_ADMIN_PATH__ === "string" ? __FR_ADMIN_PATH__ : "/admin/";
+  const segment = String(raw || "").trim().replace(/^\/+|\/+$/g, "");
+  return segment ? `/${segment}/` : "/admin/";
+})();
+const ADMIN_PATH_PARTS = ADMIN_PATH.split("/").filter(Boolean).map((segment) => normalizeHandle(segment));
+const RESERVED_HANDLES = new Set(["messages", ADMIN_PATH_PARTS[0]].filter(Boolean));
+
+function isValidHandle(value) {
+  return HANDLE_REGEX.test(normalizeHandle(value));
+}
+
+function isReservedHandle(value) {
+  return RESERVED_HANDLES.has(normalizeHandle(value));
+}
+
+function isAdminRoute(pathname = window.location.pathname) {
+  const pathParts = String(pathname || "").split("/").filter(Boolean).map((part) => normalizeHandle(part));
+  if (!ADMIN_PATH_PARTS.length || pathParts.length < ADMIN_PATH_PARTS.length) {
+    return false;
+  }
+
+  return ADMIN_PATH_PARTS.every((segment, index) => pathParts[index] === segment);
+}
+
+function createNotFoundError(message = "Page not found.") {
+  const error = new Error(message);
+  error.code = NOT_FOUND_ERROR_CODE;
+  return error;
+}
+
+function isNotFoundError(error) {
+  return error instanceof Error && error.code === NOT_FOUND_ERROR_CODE;
+}
+
+function parseRoute(pathname = window.location.pathname) {
   const pathParts = String(pathname || "").split("/").filter(Boolean);
-  const isMessagesRoute = normalizeHandle(pathParts[0]) === "messages";
+  if (!pathParts.length) {
+    return { kind: "notFound" };
+  }
+
+  const first = normalizeHandle(pathParts[0]);
+  if (first === "messages") {
+    if (pathParts.length > 2) {
+      return { kind: "notFound" };
+    }
+
+    const selectedMessageHandle = normalizeHandle(pathParts[1] || "");
+    if (selectedMessageHandle && (!isValidHandle(selectedMessageHandle) || isReservedHandle(selectedMessageHandle))) {
+      return { kind: "notFound" };
+    }
+
+    return {
+      kind: "messages",
+      selectedMessageHandle,
+    };
+  }
+
+  if (isAdminRoute(pathname)) {
+    return { kind: "reserved" };
+  }
+
+  if (!isValidHandle(first) || isReservedHandle(first)) {
+    return { kind: "notFound" };
+  }
+
+  if (pathParts.length === 1) {
+    return {
+      kind: "board",
+      ownerHandle: first,
+      projectSlug: "",
+      isProjectFormRoute: false,
+    };
+  }
+
+  if (pathParts.length === 2) {
+    return {
+      kind: "board",
+      ownerHandle: first,
+      projectSlug: String(pathParts[1] || ""),
+      isProjectFormRoute: false,
+    };
+  }
+
+  if (pathParts.length === 3 && pathParts[1] === "projects" && pathParts[2] === "new") {
+    return {
+      kind: "board",
+      ownerHandle: first,
+      projectSlug: "",
+      isProjectFormRoute: true,
+    };
+  }
+
+  return { kind: "notFound" };
+}
+
+function getMessagesRouteState(pathname = window.location.pathname) {
+  const route = parseRoute(pathname);
+  const isMessagesRoute = route.kind === "messages";
   return {
     isMessagesRoute,
-    selectedMessageHandle: isMessagesRoute ? normalizeHandle(pathParts[1]) : "",
+    selectedMessageHandle: isMessagesRoute ? route.selectedMessageHandle : "",
   };
 }
 
@@ -83,22 +182,21 @@ function getHandleFromThreadId(threadId) {
 
 function parseBootstrap() {
   const value = window.__FR_BOOTSTRAP__ || {};
-  const pathParts = window.location.pathname.split("/").filter(Boolean);
-  const routeState = getMessagesRouteState();
-  const ownerFromPath = routeState.isMessagesRoute ? "" : normalizeHandle(pathParts[0] || "");
-  const slugFromPath = routeState.isMessagesRoute ? "" : String(pathParts[1] || "");
-  const isProjectFormRoute =
-    !routeState.isMessagesRoute &&
-    normalizeHandle(pathParts[0]) === ownerFromPath &&
-    pathParts[1] === "projects" &&
-    pathParts[2] === "new";
-  const initialProjectSlug = isProjectFormRoute ? "" : String(value.initialProjectSlug || slugFromPath);
+  const route = parseRoute();
+  const isMessagesRoute = route.kind === "messages";
+  const isBoardRoute = route.kind === "board";
+  const initialProjectSlug =
+    isBoardRoute && !route.isProjectFormRoute
+      ? String(value.initialProjectSlug || route.projectSlug || "")
+      : "";
+
   return {
-    ownerHandle: routeState.isMessagesRoute ? "" : normalizeHandle(value.ownerHandle || ownerFromPath),
+    ownerHandle: isBoardRoute ? normalizeHandle(value.ownerHandle || route.ownerHandle) : "",
     initialProjectSlug,
-    initialView: routeState.isMessagesRoute ? "messages" : isProjectFormRoute ? "newProject" : "issues",
-    initialMessageThreadId: messageThreadIdFromHandle(routeState.selectedMessageHandle),
-    isProjectFormRoute,
+    initialView: isMessagesRoute ? "messages" : isBoardRoute && route.isProjectFormRoute ? "newProject" : "issues",
+    initialMessageThreadId: messageThreadIdFromHandle(isMessagesRoute ? route.selectedMessageHandle : ""),
+    isProjectFormRoute: isBoardRoute ? route.isProjectFormRoute : false,
+    isNotFoundRoute: route.kind === "notFound" || route.kind === "reserved",
     isAuthenticated: Boolean(value.isAuthenticated),
     currentUserHandle: String(value.currentUserHandle || "").trim(),
     subscriptionTier: String(value.subscription_tier || "free").toLowerCase(),
@@ -512,18 +610,9 @@ function trimForPreview(value, maxLength = 100) {
   return `${text.slice(0, maxLength).trimEnd()}...`;
 }
 
-function getSlugFromPath(ownerHandle) {
-  const parts = window.location.pathname.split("/").filter(Boolean);
-  if (parts[0] !== ownerHandle) {
-    return "";
-  }
-
-  return parts[1] || "";
-}
-
 function isProjectFormPath(ownerHandle) {
-  const parts = window.location.pathname.split("/").filter(Boolean);
-  return parts[0] === ownerHandle && parts[1] === "projects" && parts[2] === "new";
+  const route = parseRoute();
+  return route.kind === "board" && route.ownerHandle === normalizeHandle(ownerHandle) && route.isProjectFormRoute;
 }
 
 export default function App() {
@@ -543,6 +632,7 @@ export default function App() {
   const [statusError, setStatusError] = useState(false);
 
   const [view, setView] = useState(bootstrap.initialView);
+  const [isRouteNotFound, setIsRouteNotFound] = useState(Boolean(bootstrap.isNotFoundRoute));
 
   const [comments, setComments] = useState([]);
   const [commentDraft, setCommentDraft] = useState("");
@@ -737,6 +827,10 @@ export default function App() {
   }, [selectedMessageThreadId]);
 
   const pageTitle = useMemo(() => {
+    if (isRouteNotFound) {
+      return `404 | ${APP_NAME}`;
+    }
+
     if (view === "messages") {
       return `Messages | ${APP_NAME}`;
     }
@@ -766,9 +860,13 @@ export default function App() {
     }
 
     return APP_NAME;
-  }, [bootstrap.ownerHandle, selectedIssue?.title, selectedProject?.name, selectedProjectSlug, view]);
+  }, [bootstrap.ownerHandle, isRouteNotFound, selectedIssue?.title, selectedProject?.name, selectedProjectSlug, view]);
 
   const pageDescription = useMemo(() => {
+    if (isRouteNotFound) {
+      return "The requested page could not be found.";
+    }
+
     if (view === "messages") {
       return "Review direct messages from people who contacted this board.";
     }
@@ -792,6 +890,7 @@ export default function App() {
     return APP_BASE_DESCRIPTION;
   }, [
     bootstrap.ownerHandle,
+    isRouteNotFound,
     selectedIssue?.title,
     selectedProject?.name,
     selectedProject?.tagline,
@@ -1055,11 +1154,25 @@ export default function App() {
     }
 
     const response = await fetch(`/api/owners/${encodeURIComponent(bootstrap.ownerHandle)}/projects`);
+    if (response.status === 404) {
+      throw createNotFoundError("Board could not be found.");
+    }
     if (!response.ok) {
       throw new Error("Projects could not be loaded.");
     }
 
     const data = await response.json();
+    const route = parseRoute();
+    if (
+      route.kind === "board" &&
+      route.ownerHandle === bootstrap.ownerHandle &&
+      route.projectSlug &&
+      !route.isProjectFormRoute &&
+      !data.some((project) => project.slug === route.projectSlug)
+    ) {
+      throw createNotFoundError("Project could not be found.");
+    }
+
     setProjects(data);
     setSelectedProjectSlug((previousSlug) => {
       if (!previousSlug) {
@@ -1098,6 +1211,12 @@ export default function App() {
       params.toString() ? `?${params.toString()}` : ""
     }`;
     const response = await fetch(url);
+
+    if (response.status === 404) {
+      setIssues([]);
+      setIsRouteNotFound(true);
+      return;
+    }
 
     if (!response.ok) {
       setIssues([]);
@@ -1156,15 +1275,21 @@ export default function App() {
     }
 
     let cancelled = false;
+    setIsRouteNotFound(false);
 
     async function boot() {
       try {
         await refreshProjects();
         if (!cancelled) {
           await refreshIssues();
+          setIsRouteNotFound(false);
         }
       } catch (error) {
         if (!cancelled) {
+          if (isNotFoundError(error)) {
+            setIsRouteNotFound(true);
+            return;
+          }
           setStatus(error instanceof Error ? error.message : "Board could not be loaded.", true);
         }
       }
@@ -1195,14 +1320,14 @@ export default function App() {
   }, [isProfileMenuOpen]);
 
   useEffect(() => {
-    if (!bootstrap.ownerHandle) {
+    if (isRouteNotFound || !bootstrap.ownerHandle) {
       return;
     }
 
     refreshIssues().catch(() => {
       setStatus("Requests could not be loaded.", true);
     });
-  }, [bootstrap.ownerHandle, refreshIssues, setStatus]);
+  }, [bootstrap.ownerHandle, isRouteNotFound, refreshIssues, setStatus]);
 
   useEffect(() => {
     if (!selectedIssue?.id) {
@@ -1218,17 +1343,27 @@ export default function App() {
 
   useEffect(() => {
     function onPopState() {
-      const routeState = getMessagesRouteState();
-      if (routeState.isMessagesRoute) {
+      const route = parseRoute();
+      if (route.kind === "messages") {
+        setIsRouteNotFound(false);
         setView("messages");
-        setSelectedMessageThreadId(messageThreadIdFromHandle(routeState.selectedMessageHandle));
+        setSelectedMessageThreadId(messageThreadIdFromHandle(route.selectedMessageHandle));
         return;
       }
 
-      const isProjectForm = isProjectFormPath(bootstrap.ownerHandle);
-      const slug = isProjectForm ? "" : getSlugFromPath(bootstrap.ownerHandle);
-      setView(isProjectForm ? "newProject" : "issues");
-      setSelectedProjectSlug(slug);
+      if (route.kind === "board" && route.ownerHandle === bootstrap.ownerHandle) {
+        setIsRouteNotFound(false);
+        setView(route.isProjectFormRoute ? "newProject" : "issues");
+        setSelectedProjectSlug(route.isProjectFormRoute ? "" : route.projectSlug || "");
+        return;
+      }
+
+      if (route.kind === "board" && route.ownerHandle !== bootstrap.ownerHandle) {
+        window.location.assign(`${window.location.pathname}${window.location.search}${window.location.hash}`);
+        return;
+      }
+
+      setIsRouteNotFound(true);
     }
 
     window.addEventListener("popstate", onPopState);
@@ -1253,7 +1388,7 @@ export default function App() {
     if (window.location.pathname !== url) {
       window.history.replaceState({ slug: "" }, "", url);
     }
-  }, [bootstrap.ownerHandle, boardUrl, shouldShowUpgradeForProjects]);
+  }, [bootstrap.ownerHandle, boardUrl, isRouteNotFound, shouldShowUpgradeForProjects]);
 
   useEffect(() => {
     if (!selectedProject) {
@@ -1911,6 +2046,26 @@ export default function App() {
     } finally {
       setIsProjectDeleting(false);
     }
+  }
+
+  if (isRouteNotFound) {
+    return (
+      <div className="min-h-screen bg-[#f3f4f6] text-[#111827] flex items-center justify-center px-4">
+        <div className="w-full max-w-lg rounded-md-ds border border-[#e5e7eb] bg-white p-8 shadow-sm">
+          <p className="text-[10px] font-mono font-bold uppercase tracking-widest text-[#6b7280]">404</p>
+          <h1 className="mt-3 text-3xl font-bold tracking-tight text-[#111827]">Page not found</h1>
+          <p className="mt-3 text-sm text-[#6b7280]">
+            The requested URL does not match a valid board or route.
+          </p>
+          <a
+            href="/"
+            className="mt-6 inline-flex items-center rounded-sm-ds bg-[#111827] px-4 py-2 text-xs font-bold uppercase tracking-wide text-white hover:bg-black"
+          >
+            Go Home
+          </a>
+        </div>
+      </div>
+    );
   }
 
   const projectButtons = (

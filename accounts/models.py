@@ -4,6 +4,8 @@ from django.core.validators import RegexValidator
 from django.db import models
 from django.utils import timezone
 
+from .handles import is_reserved_handle
+
 
 class UserManager(BaseUserManager):
     use_in_migrations = True
@@ -13,6 +15,8 @@ class UserManager(BaseUserManager):
             raise ValueError("Email must be set.")
         if not handle:
             raise ValueError("Handle must be set.")
+        if is_reserved_handle(handle):
+            raise ValueError("Handle is reserved and cannot be used.")
 
         email = self.normalize_email(email)
         user = self.model(email=email, handle=handle.lower(), **extra_fields)

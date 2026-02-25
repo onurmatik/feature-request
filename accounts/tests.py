@@ -1,6 +1,7 @@
 import json
 
 from django.contrib.auth import get_user_model
+from django.conf import settings
 from django.test import TestCase
 
 
@@ -116,6 +117,23 @@ class AuthEntryApiTest(TestCase):
         )
         self.assertEqual(invalid_handle.status_code, 400)
 
+    def test_sign_up_rejects_reserved_handles(self):
+        reserved_handles = ["messages", settings.ADMIN_URL.strip("/").split("/", 1)[0]]
+
+        for index, handle in enumerate(reserved_handles):
+            response = self.client.post(
+                "/auth/sign-up",
+                data=json.dumps(
+                    {
+                        "email": f"reserved-{index}@example.com",
+                        "handle": handle,
+                    }
+                ),
+                content_type="application/json",
+            )
+            self.assertEqual(response.status_code, 400)
+            self.assertIn("reserved", response.json().get("detail", "").lower())
+
     def test_sign_in_accepts_email_or_handle(self):
         by_email = self.client.post(
             "/auth/sign-in",
@@ -142,3 +160,10 @@ class AuthEntryApiTest(TestCase):
             content_type="application/json",
         )
         self.assertEqual(response.status_code, 404)
+
+    def test_create_user_rejects_reserved_handle(self):
+        with self.assertRaises(ValueError):
+            get_user_model().objects.create_user(
+                email="reserved-manager@example.com",
+                handle="messages",
+            )
