@@ -1583,7 +1583,7 @@ export default function App() {
             >
               <ProjectSidebarIcon faviconUrl={project.favicon_url} projectName={project.name} />
               <span className="flex-1 min-w-0 text-left">
-                <span className="block font-medium leading-tight pr-16">{project.name}</span>
+                <span className="block font-medium leading-tight pr-12 truncate">{project.name}</span>
                 {project.tagline ? <span className="block w-full text-[11px] leading-tight text-[#6b7280] pt-2">{project.tagline}</span> : null}
               </span>
             </button>
