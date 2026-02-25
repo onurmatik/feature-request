@@ -139,23 +139,40 @@ def _clean_non_empty(value: str, field_name: str):
 
 
 def _moderate_issue_submission(issue_type: str, title: str, description: str):
+    content = (
+        f"issue_type: {issue_type}\n"
+        f"title: {title}\n"
+        f"description: {description or '(empty)'}"
+    )
+    _moderate_board_content("Issue", content, issue_type="issue")
+
+
+def _moderate_comment_submission(body: str):
+    _moderate_board_content("Comment", body, issue_type=None)
+
+
+def _moderate_board_content(label: str, content: str, issue_type: str | None = None):
     api_key = settings.OPENAI_API_KEY.strip()
     if not api_key:
         return
 
     client = OpenAI(api_key=api_key)
-    instructions = (
-        "You moderate issue submissions for a public product board. "
+    policy = (
         "Allow only meaningful feature requests or bug reports. "
-        "Reject empty, nonsensical, spam, abusive, or unrelated posts. "
+        "Reject empty, nonsensical, spam, abusive, or unrelated posts."
+        if issue_type == "issue"
+        else (
+            "Allow only constructive, relevant comments related to the issue. "
+            "Reject empty, nonsensical, spam, abusive, promotional, or unrelated posts."
+        )
+    )
+
+    instructions = (
+        "You moderate content for a public product board. "
+        f"{policy} "
         "Respond with exactly one line. "
         "If valid: ALLOW. "
         "If invalid: REJECT: <short reason>."
-    )
-    user_input = (
-        f"issue_type: {issue_type}\n"
-        f"title: {title}\n"
-        f"description: {description or '(empty)'}"
     )
 
     try:
@@ -170,27 +187,27 @@ def _moderate_issue_submission(issue_type: str, title: str, description: str):
                 },
                 {
                     "role": "user",
-                    "content": [{"type": "input_text", "text": user_input}],
+                    "content": [{"type": "input_text", "text": content}],
                 },
             ],
         )
     except Exception:
-        logger.exception("Issue moderation call failed.")
-        raise HttpError(503, "Issue moderation is temporarily unavailable.")
+        logger.exception("Content moderation call failed.")
+        raise HttpError(503, "Content moderation is temporarily unavailable.")
 
     verdict = (getattr(response, "output_text", "") or "").strip()
     if not verdict:
-        raise HttpError(503, "Issue moderation is temporarily unavailable.")
+        raise HttpError(503, "Content moderation is temporarily unavailable.")
 
     if verdict.lower().startswith("allow"):
         return
 
-    reason = "Content is not a valid feature request or bug report."
+    reason = "Content is invalid."
     if ":" in verdict:
         parsed_reason = verdict.split(":", 1)[1].strip()
         if parsed_reason:
             reason = parsed_reason
-    raise HttpError(400, f"Issue rejected by moderation: {reason}")
+    raise HttpError(400, f"{label} rejected by moderation: {reason}")
 
 
 def _issue_to_dict(issue: Issue):
@@ -522,6 +539,7 @@ def create_issue_comment(request, issue_id: int, payload: CommentCreateIn):
     user = _require_auth_user(request)
     issue = get_object_or_404(Issue.objects.select_related("project"), id=issue_id)
     body = _clean_non_empty(payload.body, "Comment body")
+    _moderate_comment_submission(body)
 
     comment = IssueComment.objects.create(
         issue=issue,

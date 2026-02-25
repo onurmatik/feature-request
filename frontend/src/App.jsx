@@ -187,6 +187,7 @@ export default function App() {
 
   const [comments, setComments] = useState([]);
   const [commentDraft, setCommentDraft] = useState("");
+  const [commentFeedback, setCommentFeedback] = useState("");
   const [isCommentSubmitting, setIsCommentSubmitting] = useState(false);
   const [isIssueUpdating, setIsIssueUpdating] = useState(false);
 
@@ -602,6 +603,7 @@ export default function App() {
   useEffect(() => {
     if (!selectedIssue?.id) {
       setComments([]);
+      setCommentFeedback("");
       return;
     }
 
@@ -755,6 +757,7 @@ export default function App() {
     }
 
     setIsCommentSubmitting(true);
+    setCommentFeedback("");
 
     try {
       const response = await fetch(`/api/issues/${selectedIssue.id}/comments`, {
@@ -766,12 +769,18 @@ export default function App() {
         body: JSON.stringify({ body }),
       });
 
+      const responsePayload = await response.json().catch(() => ({}));
+
       if (!response.ok) {
-        setStatus("Comment could not be posted.", true);
+        const detail =
+          typeof responsePayload.detail === "string"
+            ? responsePayload.detail
+            : "Comment could not be posted.";
+        setCommentFeedback(detail);
         return;
       }
 
-      const created = await response.json();
+      const created = responsePayload;
       setCommentDraft("");
       setComments((previous) => [...previous, created]);
       setIssues((previous) =>
@@ -1752,6 +1761,17 @@ export default function App() {
                               Post Comment
                             </button>
                           </div>
+                          {commentFeedback ? (
+                            <p
+                              className={`mt-2 text-xs ${
+                                commentFeedback.toLowerCase().includes("rejected by moderation")
+                                  ? "text-[#b91c1c]"
+                                  : "text-[#6b7280]"
+                              }`}
+                            >
+                              {commentFeedback}
+                            </p>
+                          ) : null}
                         </div>
                       </div>
                     </div>
