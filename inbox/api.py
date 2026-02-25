@@ -1,15 +1,22 @@
+import logging
+from html import escape
+
 from typing import Optional
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.core.mail import send_mail
 from django.shortcuts import get_object_or_404
 from ninja import Router, Schema
 from ninja.errors import HttpError
+from openai import OpenAI
 
 from projects.models import Project
 
 from .models import OwnerMessage
 
 router = Router(tags=["inbox"])
+logger = logging.getLogger(__name__)
 
 
 class OwnerMessageCreateIn(Schema):
@@ -74,6 +81,102 @@ def _resolve_project(owner, project_slug: Optional[str]):
     )
 
 
+def _moderate_message_submission(body: str):
+    api_key = settings.OPENAI_API_KEY.strip()
+    if not api_key:
+        return
+
+    client = OpenAI(api_key=api_key)
+    instructions = (
+        "You moderate direct messages sent through a public feature board inbox. "
+        "Allow only constructive, relevant, and respectful messages addressed to the owner. "
+        "Reject empty, nonsensical, spam, abusive, promotional, or unrelated messages. "
+        "Respond with exactly one line. If valid: ALLOW. If invalid: REJECT: <short reason>."
+    )
+
+    try:
+        response = client.responses.create(
+            model="gpt-5-nano",
+            reasoning={"effort": "minimal"},
+            max_output_tokens=80,
+            input=[
+                {
+                    "role": "system",
+                    "content": [{"type": "input_text", "text": instructions}],
+                },
+                {
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": body}],
+                },
+            ],
+        )
+    except Exception:
+        logger.exception("Content moderation call failed.")
+        raise HttpError(503, "Content moderation is temporarily unavailable.")
+
+    verdict = (getattr(response, "output_text", "") or "").strip()
+    if not verdict:
+        raise HttpError(503, "Content moderation is temporarily unavailable.")
+
+    if verdict.lower().startswith("allow"):
+        return
+
+    reason = "Content is invalid."
+    if ":" in verdict:
+        parsed_reason = verdict.split(":", 1)[1].strip()
+        if parsed_reason:
+            reason = parsed_reason
+
+    raise HttpError(400, f"Message rejected by moderation: {reason}")
+
+
+def _notify_owner_on_new_message(request, message):
+    subject = f"New message for @{message.recipient.handle} from {message.sender_name}"
+    board_url = request.build_absolute_uri(f"/{message.recipient.handle}/")
+    if message.project:
+        board_url = request.build_absolute_uri(
+            f"/{message.recipient.handle}/{message.project.slug}/"
+        )
+
+    plain_text = (
+        f"{message.sender_name} ({message.sender_email}) sent you a message:\n\n"
+        f"{message.body}\n\n"
+        f"Open the board: {board_url}\n"
+    )
+    html_body = f"""<!DOCTYPE html>
+<html>
+  <body style="margin: 0; padding: 0; background: #f8fafc;">
+    <div style="padding: 24px 16px;">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width: 640px; margin: 0 auto; background: #ffffff; border: 1px solid #e5e7eb; border-radius: 12px;">
+        <tr>
+          <td style="padding: 20px 24px 8px 24px; font-family: Arial, sans-serif; color: #111827;">
+            <h1 style="margin: 0; font-size: 20px;">New message for your board</h1>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding: 0 24px 16px 24px; font-family: Arial, sans-serif; color: #374151; line-height: 1.6;">
+            <p style="margin: 0 0 12px 0;">
+              {escape(message.sender_name)} sent you a message.
+            </p>
+            <p style="margin: 0 0 16px 0;"><strong>Message:</strong><br>{escape(message.body)}</p>
+            <a href="{escape(board_url)}" style="display: inline-block; background: #4f46e5; color: #ffffff; text-decoration: none; padding: 10px 16px; border-radius: 8px;">Open board</a>
+          </td>
+        </tr>
+      </table>
+    </div>
+  </body>
+</html>"""
+
+    send_mail(
+        subject,
+        plain_text,
+        settings.DEFAULT_FROM_EMAIL,
+        [message.recipient.email],
+        html_message=html_body,
+        fail_silently=True,
+    )
+
+
 @router.post("/owners/{owner_handle}/messages", response={201: OwnerMessageOut})
 def create_owner_message(request, owner_handle: str, payload: OwnerMessageCreateIn):
     User = get_user_model()
@@ -96,6 +199,7 @@ def create_owner_message(request, owner_handle: str, payload: OwnerMessageCreate
         sender_name = _clean_non_empty(sender_name, "sender_name")
         sender_email = _clean_non_empty(sender_email, "sender_email")
 
+    _moderate_message_submission(body)
     project = _resolve_project(owner, payload.project_slug)
 
     message = OwnerMessage.objects.create(
@@ -106,6 +210,7 @@ def create_owner_message(request, owner_handle: str, payload: OwnerMessageCreate
         sender_email=sender_email,
         body=body,
     )
+    _notify_owner_on_new_message(request, message)
     message = OwnerMessage.objects.select_related(
         "recipient",
         "project",
