@@ -540,12 +540,21 @@ export default function LandingPage({ initialAuthMode = null }) {
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4">
               <button
                 type="button"
-                onClick={openPricingModal}
+                onClick={() => {
+                  if (isAuthenticated) {
+                    window.location.assign(
+                      currentUserHandle ? `/${currentUserHandle}/projects/new/` : "/projects/new/",
+                    );
+                    return;
+                  }
+
+                  openAuth("signUp");
+                }}
                 className="w-full sm:w-auto px-8 py-3 bg-[#06B6D4] text-white text-sm font-bold rounded-sm-ds hover:bg-cyan-600 transition-all uppercase tracking-wide"
               >
-                Choose your plan
+                Create your first board
               </button>
-              <span className="text-[#6b7280] font-mono text-[10px] uppercase tracking-widest">No credit card required</span>
+              <span className="text-[#6b7280] font-mono text-[10px] uppercase tracking-widest">It's free</span>
             </div>
           </div>
         </section>
