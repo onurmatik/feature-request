@@ -1,6 +1,7 @@
 import json
 import re
- 
+
+from html import escape
 
 from django.conf import settings
 from django.contrib.auth import get_user_model, login, logout
@@ -18,6 +19,80 @@ from sesame.utils import get_query_string
 from .models import User
 
 HANDLE_REGEX = re.compile(r"^[a-z0-9_]+$")
+
+
+def _magic_link_email(user, magic_link, action):
+    recipient_name = (user.display_name or f"@{user.handle}").strip()
+    subject = f"Your {action} link for FeatureRequest"
+    plain_text = (
+        f"Hi {recipient_name},\n\n"
+        f"Use the link below to {action} to your FeatureRequest account:\n"
+        f"{magic_link}\n\n"
+        "If this wasn't you, you can ignore this message.\n"
+    )
+    html_body = f"""<!DOCTYPE html>
+<html>
+  <body style="margin: 0; padding: 0; background: linear-gradient(145deg, #f2f5ff, #f9fafb);">
+    <div style="padding: 32px 16px;">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width: 560px; margin: 0 auto; background: #ffffff; border-radius: 16px; border: 1px solid #e5e7eb;">
+        <tr>
+          <td style="padding: 28px 32px 12px 32px;">
+            <h1 style="margin: 0; font-family: Georgia, 'Times New Roman', serif; color: #111827; letter-spacing: 0.2px;">Your magic link is ready</h1>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding: 0 32px 8px 32px; font-family: Arial, sans-serif; color: #374151;">
+            <p style="margin: 0 0 14px; line-height: 1.6;">
+              Hi {escape(recipient_name)},
+            </p>
+            <p style="margin: 0 0 14px; line-height: 1.6;">
+              Click the button below to {action}.
+            </p>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding: 0 32px 24px 32px;">
+            <a href="{escape(magic_link)}" style="display: inline-block; background: #4f46e5; color: #ffffff; text-decoration: none; padding: 12px 22px; border-radius: 10px; font-family: Arial, sans-serif; font-weight: 700;">{action.title()} to FeatureRequest</a>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding: 0 32px 24px 32px; font-family: Arial, sans-serif; color: #4b5563; word-break: break-all;">
+            <p style="margin: 0 0 8px; line-height: 1.6;">
+              If the button does not work, copy and paste this link:
+            </p>
+            <p style="margin: 0; line-height: 1.6;">
+              {escape(magic_link)}
+            </p>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding: 0 32px 28px 32px; font-family: Arial, sans-serif; color: #6b7280; font-size: 13px; line-height: 1.6;">
+            <p style="margin: 0;">
+              This link is valid for 30 minutes. If you did not request this email, simply ignore it.
+            </p>
+          </td>
+        </tr>
+      </table>
+    </div>
+  </body>
+</html>"""
+    return subject, plain_text, html_body
+
+
+def _send_magic_link_email(user, magic_link, action):
+    subject, plain_text, html_body = _magic_link_email(
+        user=user,
+        magic_link=magic_link,
+        action=action,
+    )
+    send_mail(
+        subject,
+        plain_text,
+        settings.DEFAULT_FROM_EMAIL,
+        [user.email],
+        html_message=html_body,
+        fail_silently=False,
+    )
 
 
 def _session_payload(user):
@@ -123,12 +198,10 @@ def sign_in_view(request):
 
     if "@" in email_or_handle:
         magic_link = request.build_absolute_uri(reverse("magic-link-login")) + get_query_string(user)
-        send_mail(
-            "Your magic link",
-            f"Click to sign in: {magic_link}",
-            settings.DEFAULT_FROM_EMAIL,
-            [user.email],
-            fail_silently=False,
+        _send_magic_link_email(
+            user=user,
+            magic_link=magic_link,
+            action="sign in",
         )
         return JsonResponse(
             {"detail": "Sign-in link sent. Check your email."},
@@ -173,12 +246,10 @@ def sign_up_view(request):
         display_name=display_name,
     )
     magic_link = request.build_absolute_uri(reverse("magic-link-login")) + get_query_string(user)
-    send_mail(
-        "Your magic link",
-        f"Click to sign in: {magic_link}",
-        settings.DEFAULT_FROM_EMAIL,
-        [user.email],
-        fail_silently=False,
+    _send_magic_link_email(
+        user=user,
+        magic_link=magic_link,
+        action="sign up",
     )
     return JsonResponse({"detail": "Sign-up link sent. Check your email."}, status=200)
 
