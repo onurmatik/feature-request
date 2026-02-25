@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   ArrowBigUpDash,
   Folder,
+  MessageCircle,
   LayoutGrid,
   ListTodo,
   Mail,
@@ -54,16 +55,49 @@ function cls(...values) {
   return values.filter(Boolean).join(" ");
 }
 
+function normalizeHandle(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function getMessagesRouteState(pathname = window.location.pathname) {
+  const pathParts = String(pathname || "").split("/").filter(Boolean);
+  const isMessagesRoute = normalizeHandle(pathParts[0]) === "messages";
+  return {
+    isMessagesRoute,
+    selectedMessageHandle: isMessagesRoute ? normalizeHandle(pathParts[1]) : "",
+  };
+}
+
+function messageThreadIdFromHandle(handle) {
+  const normalized = normalizeHandle(handle);
+  return normalized ? `handle:${normalized}` : "";
+}
+
+function getHandleFromThreadId(threadId) {
+  if (!String(threadId || "").startsWith("handle:")) {
+    return "";
+  }
+
+  return normalizeHandle(String(threadId).replace("handle:", ""));
+}
+
 function parseBootstrap() {
   const value = window.__FR_BOOTSTRAP__ || {};
   const pathParts = window.location.pathname.split("/").filter(Boolean);
-  const ownerFromPath = pathParts[0] || "";
-  const slugFromPath = pathParts[1] || "";
-  const isProjectFormRoute = pathParts[0] === ownerFromPath && pathParts[1] === "projects" && pathParts[2] === "new";
+  const routeState = getMessagesRouteState();
+  const ownerFromPath = routeState.isMessagesRoute ? "" : normalizeHandle(pathParts[0] || "");
+  const slugFromPath = routeState.isMessagesRoute ? "" : String(pathParts[1] || "");
+  const isProjectFormRoute =
+    !routeState.isMessagesRoute &&
+    normalizeHandle(pathParts[0]) === ownerFromPath &&
+    pathParts[1] === "projects" &&
+    pathParts[2] === "new";
   const initialProjectSlug = isProjectFormRoute ? "" : String(value.initialProjectSlug || slugFromPath);
   return {
-    ownerHandle: String(value.ownerHandle || ownerFromPath).toLowerCase(),
+    ownerHandle: routeState.isMessagesRoute ? "" : normalizeHandle(value.ownerHandle || ownerFromPath),
     initialProjectSlug,
+    initialView: routeState.isMessagesRoute ? "messages" : isProjectFormRoute ? "newProject" : "issues",
+    initialMessageThreadId: messageThreadIdFromHandle(routeState.selectedMessageHandle),
     isProjectFormRoute,
     isAuthenticated: Boolean(value.isAuthenticated),
     currentUserHandle: String(value.currentUserHandle || "").trim(),
@@ -84,7 +118,12 @@ function csrfTokenFromCookie() {
 
 function getPostAuthRedirect(handle) {
   const safeHandle = String(handle || "").trim();
-  const defaultRedirect = safeHandle ? `/${safeHandle}/` : "/";
+  const routeState = getMessagesRouteState();
+  const defaultRedirect = routeState.isMessagesRoute
+    ? `${window.location.pathname}${window.location.search}${window.location.hash}`
+    : safeHandle
+      ? `/${safeHandle}/`
+      : "/";
   const params = new URLSearchParams(window.location.search);
   const next = params.get("next");
 
@@ -107,6 +146,12 @@ function getPostAuthRedirect(handle) {
 function authSignInEndpoint() {
   const next = new URLSearchParams(window.location.search).get("next");
   if (!next) {
+    const routeState = getMessagesRouteState();
+    if (routeState.isMessagesRoute) {
+      const currentPath = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+      return `/auth/sign-in?next=${encodeURIComponent(currentPath)}`;
+    }
+
     return "/auth/sign-in";
   }
 
@@ -410,6 +455,63 @@ function formatLongDate(isoString) {
   }).format(new Date(isoString));
 }
 
+function safeEpoch(value) {
+  const timestamp = Date.parse(String(value || ""));
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function getMessageThreadId(correspondentHandle, correspondentEmail) {
+  const handle = normalizeHandle(correspondentHandle);
+  if (handle) {
+    return `handle:${handle}`;
+  }
+
+  const email = String(correspondentEmail || "").trim().toLowerCase();
+  return `email:${email || "anonymous"}`;
+}
+
+function getMessageThreadLabel(thread) {
+  if (thread.correspondentHandle) {
+    return `@${thread.correspondentHandle}`;
+  }
+
+  if (thread.correspondentName) {
+    return thread.correspondentName;
+  }
+
+  if (thread.correspondentEmail) {
+    return thread.correspondentEmail;
+  }
+
+  return "Guest";
+}
+
+function getMessageThreadLabelById(threadId) {
+  if (!threadId) {
+    return "No conversation selected";
+  }
+
+  if (threadId.startsWith("handle:")) {
+    return `@${threadId.replace("handle:", "")}`;
+  }
+
+  if (threadId.startsWith("email:")) {
+    const email = threadId.replace("email:", "");
+    return email || "Guest";
+  }
+
+  return "Guest";
+}
+
+function trimForPreview(value, maxLength = 100) {
+  const text = String(value || "").trim();
+  if (!text || text.length <= maxLength) {
+    return text;
+  }
+
+  return `${text.slice(0, maxLength).trimEnd()}...`;
+}
+
 function getSlugFromPath(ownerHandle) {
   const parts = window.location.pathname.split("/").filter(Boolean);
   if (parts[0] !== ownerHandle) {
@@ -440,13 +542,22 @@ export default function App() {
   const [statusLine, setStatusLine] = useState("");
   const [statusError, setStatusError] = useState(false);
 
-  const [view, setView] = useState(bootstrap.isProjectFormRoute ? "newProject" : "issues");
+  const [view, setView] = useState(bootstrap.initialView);
 
   const [comments, setComments] = useState([]);
   const [commentDraft, setCommentDraft] = useState("");
   const [commentFeedback, setCommentFeedback] = useState("");
   const [isCommentSubmitting, setIsCommentSubmitting] = useState(false);
   const [isIssueUpdating, setIsIssueUpdating] = useState(false);
+  const [messages, setMessages] = useState([]);
+  const [isMessagesLoading, setIsMessagesLoading] = useState(false);
+  const [selectedMessageThreadId, setSelectedMessageThreadId] = useState(
+    bootstrap.initialMessageThreadId || "",
+  );
+  const [messageComposerBody, setMessageComposerBody] = useState("");
+  const [messageComposerFeedback, setMessageComposerFeedback] = useState("");
+  const [messageComposerFeedbackTone, setMessageComposerFeedbackTone] = useState("");
+  const [isMessageComposerSubmitting, setIsMessageComposerSubmitting] = useState(false);
 
   const [isContactOpen, setIsContactOpen] = useState(false);
   const [contactSenderName, setContactSenderName] = useState("");
@@ -535,7 +646,101 @@ export default function App() {
     [filteredIssues, selectedIssueId],
   );
 
+  const messageThreads = useMemo(() => {
+    if (!messages.length) {
+      return [];
+    }
+
+    const viewerHandle = normalizeHandle(currentUserHandle);
+    const grouped = new Map();
+
+    for (const message of messages) {
+      const senderHandle = normalizeHandle(message.sender_handle);
+      const recipientHandle = normalizeHandle(message.recipient_handle);
+      const isOutgoing = Boolean(senderHandle) && senderHandle === viewerHandle;
+      const correspondentHandle = isOutgoing ? recipientHandle : senderHandle;
+      const correspondentEmail = isOutgoing ? "" : String(message.sender_email || "").trim();
+      const correspondentName = isOutgoing ? `@${recipientHandle}` : String(message.sender_name || "").trim();
+      const threadId = getMessageThreadId(correspondentHandle, correspondentEmail);
+
+      const existing =
+        grouped.get(threadId) || {
+          threadId,
+          correspondentHandle,
+          correspondentName,
+          correspondentEmail,
+          messages: [],
+          latestMessageEpoch: 0,
+          latestMessageAt: "",
+          latestMessageText: "",
+        };
+
+      existing.messages.push({
+        ...message,
+        isOutgoing,
+      });
+      const parsed = safeEpoch(message.created_at);
+      if (parsed >= existing.latestMessageEpoch) {
+        existing.latestMessageEpoch = parsed;
+        existing.latestMessageAt = String(message.created_at || "");
+        existing.latestMessageText = String(message.body || "");
+      }
+
+      grouped.set(threadId, existing);
+    }
+
+    return [...grouped.values()]
+      .map((thread) => ({
+        ...thread,
+        messages: thread.messages.sort((a, b) => safeEpoch(a.created_at) - safeEpoch(b.created_at)),
+      }))
+      .sort((a, b) => b.latestMessageEpoch - a.latestMessageEpoch);
+  }, [messages, currentUserHandle]);
+
+  const selectedMessageThread = useMemo(() => {
+    if (!selectedMessageThreadId) {
+      return null;
+    }
+
+    return messageThreads.find((thread) => thread.threadId === selectedMessageThreadId) || null;
+  }, [messageThreads, selectedMessageThreadId]);
+
+  const selectedMessageHandle = useMemo(() => {
+    if (selectedMessageThread?.correspondentHandle) {
+      return selectedMessageThread.correspondentHandle;
+    }
+
+    return getHandleFromThreadId(selectedMessageThreadId);
+  }, [selectedMessageThread, selectedMessageThreadId]);
+
+  const canSendDirectMessage = useMemo(() => {
+    const correspondentHandle = normalizeHandle(selectedMessageHandle);
+    return Boolean(
+      isAuthenticated &&
+      correspondentHandle &&
+      correspondentHandle !== normalizeHandle(currentUserHandle),
+    );
+  }, [currentUserHandle, isAuthenticated, selectedMessageHandle]);
+
+  useEffect(() => {
+    if (selectedMessageThreadId || !messageThreads.length) {
+      return;
+    }
+
+    setSelectedMessageThreadId(messageThreads[0].threadId);
+  }, [messageThreads, selectedMessageThreadId]);
+
+  useEffect(() => {
+    setMessageComposerBody("");
+    setMessageComposerFeedback("");
+    setMessageComposerFeedbackTone("");
+  }, [selectedMessageThreadId]);
+
   const pageTitle = useMemo(() => {
+    if (view === "messages") {
+      return `Messages | ${APP_NAME}`;
+    }
+
     if (view === "settings" && selectedProject?.name) {
       return `${selectedProject.name} Settings | ${APP_NAME}`;
     }
@@ -564,6 +769,10 @@ export default function App() {
   }, [bootstrap.ownerHandle, selectedIssue?.title, selectedProject?.name, selectedProjectSlug, view]);
 
   const pageDescription = useMemo(() => {
+    if (view === "messages") {
+      return "Review direct messages from people who contacted this board.";
+    }
+
     if (view === "settings" && selectedProject?.name) {
       return `Manage project settings for ${selectedProject.name} on ${APP_NAME}.`;
     }
@@ -638,6 +847,11 @@ export default function App() {
     [bootstrap.ownerHandle],
   );
 
+  const messagesUrl = useCallback((handle = "") => {
+    const normalized = normalizeHandle(handle);
+    return normalized ? `/messages/${normalized}/` : "/messages/";
+  }, []);
+
   const setStatus = useCallback((text, isError = false) => {
     setStatusLine(text);
     setStatusError(isError);
@@ -661,6 +875,28 @@ export default function App() {
     setSubscriptionStatus(String(data.subscription_status || "").toLowerCase());
     setProjectLimit(Number(data.project_limit || 1));
   }, []);
+
+  const refreshMessages = useCallback(async () => {
+    if (!isAuthenticated) {
+      setMessages([]);
+      return;
+    }
+
+    setIsMessagesLoading(true);
+    try {
+      const response = await fetch("/api/me/messages");
+      if (!response.ok) {
+        setMessages([]);
+        setStatus("Messages could not be loaded.", true);
+        return;
+      }
+
+      const data = await response.json();
+      setMessages(data);
+    } finally {
+      setIsMessagesLoading(false);
+    }
+  }, [isAuthenticated, setStatus]);
 
   async function ensureCsrfCookie() {
     await fetch("/auth/me");
@@ -807,6 +1043,9 @@ export default function App() {
     setSubscriptionStatus("");
     setProjectLimit(1);
     setAuthMode(null);
+    setMessages([]);
+    setSelectedMessageThreadId("");
+    setIsMessagesLoading(false);
     window.location.assign("/");
   }
 
@@ -891,10 +1130,31 @@ export default function App() {
     refreshSession().catch(() => {
       setIsAuthenticated(false);
       setCurrentUserHandle("");
+      setMessages([]);
+      setSelectedMessageThreadId("");
+      setIsMessagesLoading(false);
     });
   }, [refreshSession]);
 
   useEffect(() => {
+    if (view !== "messages") {
+      return;
+    }
+
+    if (!isAuthenticated) {
+      return;
+    }
+
+    refreshMessages().catch(() => {
+      setStatus("Messages could not be loaded.", true);
+    });
+  }, [isAuthenticated, refreshMessages, setStatus, view]);
+
+  useEffect(() => {
+    if (!bootstrap.ownerHandle) {
+      return;
+    }
+
     let cancelled = false;
 
     async function boot() {
@@ -915,7 +1175,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [refreshProjects, refreshIssues, setStatus]);
+  }, [bootstrap.ownerHandle, refreshProjects, refreshIssues, setStatus]);
 
   useEffect(() => {
     if (!isProfileMenuOpen) {
@@ -935,10 +1195,14 @@ export default function App() {
   }, [isProfileMenuOpen]);
 
   useEffect(() => {
+    if (!bootstrap.ownerHandle) {
+      return;
+    }
+
     refreshIssues().catch(() => {
       setStatus("Requests could not be loaded.", true);
     });
-  }, [refreshIssues, setStatus]);
+  }, [bootstrap.ownerHandle, refreshIssues, setStatus]);
 
   useEffect(() => {
     if (!selectedIssue?.id) {
@@ -954,6 +1218,13 @@ export default function App() {
 
   useEffect(() => {
     function onPopState() {
+      const routeState = getMessagesRouteState();
+      if (routeState.isMessagesRoute) {
+        setView("messages");
+        setSelectedMessageThreadId(messageThreadIdFromHandle(routeState.selectedMessageHandle));
+        return;
+      }
+
       const isProjectForm = isProjectFormPath(bootstrap.ownerHandle);
       const slug = isProjectForm ? "" : getSlugFromPath(bootstrap.ownerHandle);
       setView(isProjectForm ? "newProject" : "issues");
@@ -967,6 +1238,10 @@ export default function App() {
   }, [bootstrap.ownerHandle]);
 
   useEffect(() => {
+    if (!bootstrap.ownerHandle) {
+      return;
+    }
+
     const onProjectFormRoute = isProjectFormPath(bootstrap.ownerHandle);
     if (!onProjectFormRoute || !shouldShowUpgradeForProjects) {
       return;
@@ -1006,6 +1281,36 @@ export default function App() {
     if (window.location.pathname !== url) {
       window.history.pushState({ slug: nextSlug }, "", url);
     }
+  }
+
+  function setMessagesThreadAndHistory(nextThreadId, replaceHistory = false) {
+    const normalizedThreadId = String(nextThreadId || "");
+    const targetHandle = getHandleFromThreadId(normalizedThreadId);
+    setView("messages");
+    setSelectedMessageThreadId(normalizedThreadId);
+    const nextUrl = messagesUrl(targetHandle);
+    if (window.location.pathname !== nextUrl) {
+      const historyMethod = replaceHistory ? "replaceState" : "pushState";
+      window.history[historyMethod](
+        { view: "messages", selectedMessageHandle: targetHandle },
+        "",
+        nextUrl,
+      );
+    }
+  }
+
+  function openMessagesForOwnerContact() {
+    const ownerHandle = normalizeHandle(bootstrap.ownerHandle);
+    const initialThreadId = isOwnerViewer ? "" : messageThreadIdFromHandle(ownerHandle);
+
+    setMessagesThreadAndHistory(initialThreadId);
+    if (!isAuthenticated) {
+      return;
+    }
+
+    refreshMessages().catch(() => {
+      setStatus("Messages could not be loaded.", true);
+    });
   }
 
   async function handleIssuePatch(payload) {
@@ -1201,6 +1506,66 @@ export default function App() {
       }, 500);
     } finally {
       setIsContactSubmitting(false);
+    }
+  }
+
+  async function handleSendDirectMessage() {
+    if (!isAuthenticated) {
+      openAuth("signIn");
+      return;
+    }
+
+    const correspondentHandle = normalizeHandle(selectedMessageHandle);
+    if (!correspondentHandle) {
+      setMessageComposerFeedback("Select a user to start a conversation.");
+      setMessageComposerFeedbackTone("error");
+      return;
+    }
+
+    if (correspondentHandle === normalizeHandle(currentUserHandle)) {
+      setMessageComposerFeedback("You cannot message yourself.");
+      setMessageComposerFeedbackTone("error");
+      return;
+    }
+
+    const body = messageComposerBody.trim();
+    if (!body) {
+      setMessageComposerFeedback("Message body is required.");
+      setMessageComposerFeedbackTone("error");
+      return;
+    }
+
+    setIsMessageComposerSubmitting(true);
+    setMessageComposerFeedback("Sending...");
+    setMessageComposerFeedbackTone("");
+
+    try {
+      const response = await fetch(`/api/owners/${encodeURIComponent(correspondentHandle)}/messages`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": csrfTokenFromCookie(),
+        },
+        body: JSON.stringify({
+          body,
+        }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const detail = typeof data.detail === "string" ? data.detail : "Message could not be sent.";
+        setMessageComposerFeedback(detail);
+        setMessageComposerFeedbackTone("error");
+        return;
+      }
+
+      setMessageComposerBody("");
+      setMessageComposerFeedback("Message sent.");
+      setMessageComposerFeedbackTone("success");
+      setMessagesThreadAndHistory(messageThreadIdFromHandle(correspondentHandle), true);
+      await refreshMessages();
+    } finally {
+      setIsMessageComposerSubmitting(false);
     }
   }
 
@@ -1637,27 +2002,33 @@ export default function App() {
           </div>
 
           <nav className="hidden md:flex items-center text-sm font-medium text-[#6b7280] gap-2 truncate">
-            <a
-              href={`/${bootstrap.ownerHandle || ""}/`}
-              className="hover:text-[#111827]"
-            >
-              {bootstrap.ownerHandle || "owner"}
-            </a>
-            <span className="text-[#d1d5db] font-mono">/</span>
-            <span className="text-[#111827] font-semibold truncate">
-              {selectedProject ? selectedProject.name : "All Projects"}
-            </span>
-            {isOwnerViewer ? (
-              <a
-                href={projectFormUrl}
-                onClick={handleProjectFormNavigation}
-                aria-label="Create New Project"
-                className="ml-2 p-1 rounded flex items-center text-[#6b7280] hover:text-[#111827] hover:bg-[#f3f4f6] transition-colors"
-                title="Create New Project"
-              >
-                <Plus size={18} />
-              </a>
-            ) : null}
+            {view === "messages" && !bootstrap.ownerHandle ? (
+              <span className="text-[#111827] font-semibold">messages</span>
+            ) : (
+              <>
+                <a
+                  href={`/${bootstrap.ownerHandle || ""}/`}
+                  className="hover:text-[#111827]"
+                >
+                  {bootstrap.ownerHandle || "owner"}
+                </a>
+                <span className="text-[#d1d5db] font-mono">/</span>
+                <span className="text-[#111827] font-semibold truncate">
+                  {selectedProject ? selectedProject.name : "All Projects"}
+                </span>
+                {isOwnerViewer ? (
+                  <a
+                    href={projectFormUrl}
+                    onClick={handleProjectFormNavigation}
+                    aria-label="Create New Project"
+                    className="ml-2 p-1 rounded flex items-center text-[#6b7280] hover:text-[#111827] hover:bg-[#f3f4f6] transition-colors"
+                    title="Create New Project"
+                  >
+                    <Plus size={18} />
+                  </a>
+                ) : null}
+              </>
+            )}
           </nav>
         </div>
 
@@ -1734,24 +2105,26 @@ export default function App() {
       </header>
 
       <div className="flex-1 flex overflow-hidden">
-        <aside className="w-60 bg-white border-r border-[#e5e7eb] flex-col shrink-0 hidden md:flex">
-          <div className="flex-1 p-2 space-y-4 overflow-y-auto">{projectButtons}</div>
+        {bootstrap.ownerHandle ? (
+          <aside className="w-60 bg-white border-r border-[#e5e7eb] flex-col shrink-0 hidden md:flex">
+            <div className="flex-1 p-2 space-y-4 overflow-y-auto">{projectButtons}</div>
 
-          <div className="p-2 border-t border-[#e5e7eb]">
-            <button
-              type="button"
-              onClick={() => {
-                setContactFeedback("");
-                setContactFeedbackTone("");
-                setIsContactOpen(true);
-              }}
-              className="w-full flex items-center gap-3 px-3 py-2 rounded-sm-ds text-[#6b7280] hover:bg-[#f3f4f6] font-medium text-sm transition-colors"
-            >
-              <Mail size={18} />
-              Contact @{bootstrap.ownerHandle || "owner"}
-            </button>
-          </div>
-        </aside>
+            <div className="p-2 border-t border-[#e5e7eb]">
+              <button
+                type="button"
+                onClick={() => {
+                  setContactFeedback("");
+                  setContactFeedbackTone("");
+                  openMessagesForOwnerContact();
+                }}
+                className="w-full flex items-center gap-3 px-3 py-2 rounded-sm-ds text-[#6b7280] hover:bg-[#f3f4f6] font-medium text-sm transition-colors"
+              >
+                {isOwnerViewer ? <MessageCircle size={18} /> : <Mail size={18} />}
+                {isOwnerViewer ? "Messages" : `Contact @${bootstrap.ownerHandle || "owner"}`}
+              </button>
+            </div>
+          </aside>
+        ) : null}
 
         <div className="flex-1 flex overflow-hidden">
           {view === "issues" ? (
@@ -2123,6 +2496,182 @@ export default function App() {
                 ) : (
                   <div className="p-10 text-[#6b7280]">Select a request to view details.</div>
                 )}
+              </main>
+            </div>
+          ) : view === "messages" ? (
+            <div className="flex-1 flex overflow-hidden">
+              <section className="w-full md:w-[360px] border-r border-[#e5e7eb] bg-white flex flex-col shrink-0">
+                <div className="p-4 border-b border-[#e5e7eb] space-y-2">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-sm font-bold uppercase tracking-widest text-[#6b7280]">Messages</h2>
+                    {isAuthenticated ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          refreshMessages().catch(() => {
+                            setStatus("Messages could not be loaded.", true);
+                          });
+                        }}
+                        className="text-[10px] font-mono font-bold text-[#6b7280] hover:text-[#111827] uppercase"
+                      >
+                        Refresh
+                      </button>
+                    ) : null}
+                  </div>
+                  <p className="text-xs text-[#6b7280]">
+                    {isMessagesLoading
+                      ? "Loading conversations..."
+                      : messageThreads.length
+                        ? "Select a conversation to view messages."
+                        : "No conversations found yet."}
+                  </p>
+                </div>
+
+                <div className="flex-1 overflow-y-auto divide-y divide-[#e5e7eb]">
+                  {isMessagesLoading ? (
+                    <p className="p-4 text-sm text-[#6b7280]">Loading messages...</p>
+                  ) : messageThreads.length ? (
+                    messageThreads.map((thread) => {
+                      const isActive = thread.threadId === selectedMessageThreadId;
+                      return (
+                        <button
+                          type="button"
+                          key={thread.threadId}
+                          onClick={() => setMessagesThreadAndHistory(thread.threadId)}
+                          className={cls(
+                            "w-full text-left px-4 py-3 transition-colors",
+                            isActive
+                              ? "bg-cyan-50 border-l-4 border-[#06B6D4]"
+                              : "hover:bg-[#f9fafb] border-l-4 border-transparent",
+                          )}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className={cls("text-sm font-semibold", isActive ? "text-[#06B6D4]" : "text-[#111827]")}>
+                              {getMessageThreadLabel(thread)}
+                            </span>
+                            <span className="text-[10px] text-[#6b7280]">{formatRelativeDate(thread.latestMessageAt)}</span>
+                          </div>
+                          <p className="text-xs text-[#6b7280] mt-1">{trimForPreview(thread.latestMessageText)}</p>
+                        </button>
+                      );
+                    })
+                  ) : (
+                    <p className="p-4 text-sm text-[#6b7280]">No messages found yet.</p>
+                  )}
+                </div>
+              </section>
+
+              <main className="flex-1 bg-white flex flex-col overflow-hidden">
+                <div className="border-b border-[#e5e7eb] px-4 py-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <h2 className="text-sm font-bold uppercase tracking-widest text-[#6b7280]">
+                      {selectedMessageThread ? getMessageThreadLabel(selectedMessageThread) : getMessageThreadLabelById(selectedMessageThreadId)}
+                    </h2>
+                    {selectedMessageHandle ? (
+                      <span className="text-[10px] font-mono text-[#6b7280]">
+                        {selectedMessageThread ? selectedMessageThread.messages.length : 0} message
+                        {selectedMessageThread?.messages.length === 1 ? "" : "s"}
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-mono text-[#6b7280]">No conversation selected</span>
+                    )}
+                  </div>
+                  {!isAuthenticated ? (
+                    <p className="mt-2 text-xs text-[#6b7280]">Sign in to open your message inbox.</p>
+                  ) : null}
+                </div>
+                <div className="flex-1 overflow-y-auto space-y-3 px-4 py-4">
+                  {selectedMessageThread ? (
+                    selectedMessageThread.messages.map((message) => (
+                      <div
+                        key={message.id}
+                        className={cls("flex", message.isOutgoing ? "justify-end" : "justify-start")}
+                      >
+                        <div
+                          className={cls(
+                            "max-w-[88%] rounded-sm-ds border p-3 text-sm break-words space-y-1",
+                            message.isOutgoing
+                              ? "bg-cyan-50 border-cyan-100 text-[#0f172a]"
+                              : "bg-[#f9fafb] border-[#e5e7eb] text-[#6b7280]",
+                          )}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[10px] font-mono font-bold uppercase text-[#6b7280]">
+                              {message.isOutgoing
+                                ? `@${normalizeHandle(currentUserHandle) || "you"}`
+                                : getMessageThreadLabel(selectedMessageThread)}
+                            </span>
+                            <span className="text-[10px] text-[#9ca3af]">{formatRelativeDate(message.created_at)}</span>
+                          </div>
+                          <div>{message.body}</div>
+                        </div>
+                      </div>
+                    ))
+                  ) : selectedMessageHandle ? (
+                    <div className="text-sm text-[#6b7280]">
+                      Start a new conversation with {getMessageThreadLabelById(selectedMessageThreadId)}.
+                    </div>
+                  ) : (
+                    <div className="text-sm text-[#6b7280]">
+                      Select a user from the left to open a conversation.
+                    </div>
+                  )}
+                </div>
+                <div className="border-t border-[#e5e7eb] bg-[#f9fafb] p-4 space-y-3">
+                  {!selectedMessageHandle ? (
+                    <p className="text-xs text-[#6b7280]">Select a conversation to send a message.</p>
+                  ) : !isAuthenticated ? (
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-xs text-[#6b7280]">Sign in to send a direct message.</p>
+                      <button
+                        type="button"
+                        onClick={() => openAuth("signIn")}
+                        className="px-3 py-1.5 bg-[#111827] text-white text-xs font-bold rounded-sm-ds hover:bg-black transition-colors"
+                      >
+                        Sign In
+                      </button>
+                    </div>
+                  ) : !canSendDirectMessage ? (
+                    <p className="text-xs text-[#6b7280]">Select another user to start a conversation.</p>
+                  ) : (
+                    <>
+                      <textarea
+                        rows={3}
+                        value={messageComposerBody}
+                        onChange={(event) => setMessageComposerBody(event.target.value)}
+                        placeholder={`Message ${getMessageThreadLabelById(selectedMessageThreadId)}...`}
+                        className="w-full bg-white border border-[#e5e7eb] rounded-sm-ds p-3 text-sm focus:ring-1 focus:ring-[#06B6D4] outline-none resize-none"
+                        disabled={isMessageComposerSubmitting}
+                      />
+                      <div className="flex items-center justify-between gap-3">
+                        {messageComposerFeedback ? (
+                          <span
+                            className={cls(
+                              "text-xs",
+                              messageComposerFeedbackTone === "error"
+                                ? "text-[#dc2626]"
+                                : messageComposerFeedbackTone === "success"
+                                  ? "text-[#16a34a]"
+                                  : "text-[#6b7280]",
+                            )}
+                          >
+                            {messageComposerFeedback}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-[#6b7280]">Press send to deliver instantly.</span>
+                        )}
+                        <button
+                          type="button"
+                          onClick={handleSendDirectMessage}
+                          disabled={isMessageComposerSubmitting || !messageComposerBody.trim()}
+                          className="px-4 py-1.5 bg-[#06B6D4] text-white text-xs font-bold rounded-sm-ds hover:bg-cyan-600 transition-colors disabled:opacity-45"
+                        >
+                          {isMessageComposerSubmitting ? "Sending..." : "Send"}
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
               </main>
             </div>
           ) : view === "settings" ? (

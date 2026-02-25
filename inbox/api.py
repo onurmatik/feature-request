@@ -6,6 +6,7 @@ from typing import Optional
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.mail import send_mail
+from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from ninja import Router, Schema
 from ninja.errors import HttpError
@@ -89,8 +90,12 @@ def _moderate_message_submission(body: str):
     client = OpenAI(api_key=api_key)
     instructions = (
         "You moderate direct messages sent through a public feature board inbox. "
-        "Allow only constructive, relevant, and respectful messages addressed to the owner. "
-        "Reject empty, nonsensical, spam, abusive, promotional, or unrelated messages. "
+        "Default to ALLOW for normal human messages. "
+        "Allow concise openers and exploratory questions even if broad (example: 'hey, are you looking for funding?'). "
+        "Messages do not need to mention the owner by name or include specific project details. "
+        "Allow respectful outreach about funding, hiring, partnerships, collaboration, support, or product feedback. "
+        "Reject only messages that are clearly spam/scam, abusive/harassing/hateful, threatening, explicit sexual content, or empty/nonsensical gibberish. "
+        "If uncertain, choose ALLOW. "
         "Respond with exactly one line. If valid: ALLOW. If invalid: REJECT: <short reason>."
     )
 
@@ -226,5 +231,7 @@ def list_my_messages(request):
         "recipient",
         "project",
         "sender_user",
-    ).filter(recipient=user)
+    ).filter(
+        Q(recipient=user) | Q(sender_user=user)
+    ).order_by("-created_at")
     return [_message_to_dict(message) for message in messages]
