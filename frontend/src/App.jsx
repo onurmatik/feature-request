@@ -38,6 +38,9 @@ const PRIORITY_OPTIONS = [
   { value: "3", label: "High" },
   { value: "4", label: "Critical" },
 ];
+const APP_NAME = "Feature Request";
+const APP_BASE_DESCRIPTION =
+  "Feature Request helps you collect, prioritize, and manage feedback, feature requests, and bug reports for your projects.";
 
 const PROJECT_UPGRADE_PLAN = {
   id: "pro_30",
@@ -499,6 +502,88 @@ export default function App() {
     () => filteredIssues.find((issue) => issue.id === selectedIssueId) || null,
     [filteredIssues, selectedIssueId],
   );
+
+  const pageTitle = useMemo(() => {
+    if (view === "settings" && selectedProject?.name) {
+      return `${selectedProject.name} Settings | ${APP_NAME}`;
+    }
+
+    if (view === "newProject") {
+      return `New Project | ${APP_NAME}`;
+    }
+
+    if (selectedIssue?.title && selectedProject?.name) {
+      return `${selectedIssue.title} - ${selectedProject.name} | ${APP_NAME}`;
+    }
+
+    if (selectedProject?.name) {
+      return `${selectedProject.name} | ${APP_NAME}`;
+    }
+
+    if (bootstrap.ownerHandle && !selectedProjectSlug) {
+      return `${bootstrap.ownerHandle}'s all projects | ${APP_NAME}`;
+    }
+
+    if (selectedProjectSlug) {
+      return `${selectedProjectSlug} | ${APP_NAME}`;
+    }
+
+    return APP_NAME;
+  }, [bootstrap.ownerHandle, selectedIssue?.title, selectedProject?.name, selectedProjectSlug, view]);
+
+  const pageDescription = useMemo(() => {
+    if (view === "settings" && selectedProject?.name) {
+      return `Manage project settings for ${selectedProject.name} on ${APP_NAME}.`;
+    }
+
+    if (selectedIssue?.title && selectedProject?.name) {
+      return `View discussion and details for "${selectedIssue.title}" in ${selectedProject.name} on ${APP_NAME}.`;
+    }
+
+    if (selectedProject?.name) {
+      return `${selectedProject.name}: ${selectedProject.tagline || "Feature request board and bug tracker."}`;
+    }
+
+    if (bootstrap.ownerHandle) {
+      return `${APP_NAME} board for ${bootstrap.ownerHandle} with public projects and requests.`;
+    }
+
+    return APP_BASE_DESCRIPTION;
+  }, [
+    bootstrap.ownerHandle,
+    selectedIssue?.title,
+    selectedProject?.name,
+    selectedProject?.tagline,
+    view,
+  ]);
+
+  useEffect(() => {
+    document.title = pageTitle;
+
+    const descriptionMeta = document.querySelector('meta[name="description"]');
+    const descriptionTag = descriptionMeta || document.createElement("meta");
+    descriptionTag.setAttribute("name", "description");
+    descriptionTag.setAttribute("content", pageDescription);
+    if (!descriptionMeta) {
+      document.head.appendChild(descriptionTag);
+    }
+
+    const ogTitleMeta = document.querySelector('meta[property="og:title"]');
+    const ogTitleTag = ogTitleMeta || document.createElement("meta");
+    ogTitleTag.setAttribute("property", "og:title");
+    ogTitleTag.setAttribute("content", pageTitle);
+    if (!ogTitleMeta) {
+      document.head.appendChild(ogTitleTag);
+    }
+
+    const ogDescriptionMeta = document.querySelector('meta[property="og:description"]');
+    const ogDescriptionTag = ogDescriptionMeta || document.createElement("meta");
+    ogDescriptionTag.setAttribute("property", "og:description");
+    ogDescriptionTag.setAttribute("content", pageDescription);
+    if (!ogDescriptionMeta) {
+      document.head.appendChild(ogDescriptionTag);
+    }
+  }, [pageTitle, pageDescription]);
 
   useEffect(() => {
     if (!filteredIssues.length) {

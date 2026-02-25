@@ -50,6 +50,9 @@ const PRICING_PLANS = [
     cta: "Upgrade",
   },
 ];
+const LANDING_TITLE = "Feature Request";
+const LANDING_DESCRIPTION =
+  "Feature Request helps you collect, prioritize, and manage feature requests and bug reports for your projects.";
 
 function cls(...values) {
   return values.filter(Boolean).join(" ");
@@ -110,6 +113,34 @@ export default function LandingPage({ initialAuthMode = null }) {
       setAuthMode(initialAuthMode);
     }
   }, [initialAuthMode, isAuthenticated]);
+
+  useEffect(() => {
+    document.title = LANDING_TITLE;
+
+    const descriptionMeta = document.querySelector('meta[name="description"]');
+    const descriptionTag = descriptionMeta || document.createElement("meta");
+    descriptionTag.setAttribute("name", "description");
+    descriptionTag.setAttribute("content", LANDING_DESCRIPTION);
+    if (!descriptionMeta) {
+      document.head.appendChild(descriptionTag);
+    }
+
+    const ogTitleMeta = document.querySelector('meta[property="og:title"]');
+    const ogTitleTag = ogTitleMeta || document.createElement("meta");
+    ogTitleTag.setAttribute("property", "og:title");
+    ogTitleTag.setAttribute("content", LANDING_TITLE);
+    if (!ogTitleMeta) {
+      document.head.appendChild(ogTitleTag);
+    }
+
+    const ogDescriptionMeta = document.querySelector('meta[property="og:description"]');
+    const ogDescriptionTag = ogDescriptionMeta || document.createElement("meta");
+    ogDescriptionTag.setAttribute("property", "og:description");
+    ogDescriptionTag.setAttribute("content", LANDING_DESCRIPTION);
+    if (!ogDescriptionMeta) {
+      document.head.appendChild(ogDescriptionTag);
+    }
+  }, []);
 
   async function ensureCsrfCookie() {
     await fetch("/auth/me");
