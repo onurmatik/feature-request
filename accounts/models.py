@@ -62,11 +62,33 @@ class User(AbstractBaseUser, PermissionsMixin):
     date_joined = models.DateTimeField(default=timezone.now)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    subscription_tier = models.CharField(
+        max_length=20,
+        choices=[
+            ("free", "Free"),
+            ("pro_30", "Pro (30 projects)"),
+        ],
+        default="free",
+    )
+    subscription_status = models.CharField(max_length=20, blank=True, default="")
+    stripe_customer_id = models.CharField(max_length=255, blank=True, default="")
+    stripe_subscription_id = models.CharField(max_length=255, blank=True, default="")
 
     objects = UserManager()
 
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = ["handle"]
+
+    @property
+    def has_active_paid_subscription(self):
+        return self.subscription_tier == "pro_30" and self.subscription_status == "active"
+
+    @property
+    def project_limit(self):
+        return 30 if self.has_active_paid_subscription else 1
+
+    def has_project_limit(self, current_count):
+        return int(current_count or 0) >= self.project_limit
 
     class Meta:
         ordering = ["-date_joined"]

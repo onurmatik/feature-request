@@ -60,6 +60,23 @@ const SAMPLE_REQUESTS = [
   },
 ];
 
+const PRICING_PLANS = [
+  {
+    id: "free",
+    title: "Starter",
+    name: "Free",
+    description: "Free for 1 project",
+    cta: "Start free",
+  },
+  {
+    id: "pro_30",
+    title: "Growth",
+    name: "Pro",
+    description: "$3/mo for up to 30 projects",
+    cta: "Upgrade",
+  },
+];
+
 function cls(...values) {
   return values.filter(Boolean).join(" ");
 }
@@ -97,6 +114,11 @@ export default function LandingPage({ initialAuthMode = null }) {
   const [signUpHandle, setSignUpHandle] = useState("");
   const [authFeedback, setAuthFeedback] = useState("");
   const [isAuthSubmitting, setIsAuthSubmitting] = useState(false);
+
+  const [isPricingOpen, setIsPricingOpen] = useState(false);
+  const [selectedPlanId, setSelectedPlanId] = useState("free");
+  const [pricingFeedback, setPricingFeedback] = useState("");
+  const [isPricingSubmitting, setIsPricingSubmitting] = useState(false);
 
   const projectsToShow = useMemo(() => {
     if (featuredProjects.length) {
@@ -202,7 +224,11 @@ export default function LandingPage({ initialAuthMode = null }) {
 
       const handle = String(payload.current_user_handle || "").trim();
       if (!handle) {
-        setAuthFeedback("Session started but no handle was returned.");
+        setAuthFeedback(
+          typeof payload.detail === "string"
+            ? payload.detail
+            : "Sign in link sent. Check your email.",
+        );
         return;
       }
 
@@ -238,7 +264,7 @@ export default function LandingPage({ initialAuthMode = null }) {
         body: JSON.stringify({
           email,
           handle,
-          display_name: displayName,
+          display_name: handle,
         }),
       });
 
@@ -274,6 +300,75 @@ export default function LandingPage({ initialAuthMode = null }) {
     setIsAuthSubmitting(false);
   }
 
+  function openPricingModal() {
+    setSelectedPlanId("free");
+    setPricingFeedback("");
+    setIsPricingOpen(true);
+  }
+
+  function closePricingModal() {
+    setIsPricingOpen(false);
+    setPricingFeedback("");
+    setIsPricingSubmitting(false);
+  }
+
+  async function selectPlan(planId) {
+    setPricingFeedback("");
+
+    if (planId === "free") {
+      closePricingModal();
+      if (isAuthenticated && currentUserHandle) {
+        window.location.assign(`/${currentUserHandle}/`);
+        return;
+      }
+
+      openAuth("signUp");
+      setAuthFeedback("Create an account to start with the free plan.");
+      return;
+    }
+
+    if (!isAuthenticated) {
+      closePricingModal();
+      openAuth("signUp");
+      setAuthFeedback("Create an account to upgrade to the paid plan.");
+      return;
+    }
+
+    setIsPricingSubmitting(true);
+
+    try {
+      await ensureCsrfCookie();
+      const response = await fetch("/api/billing/checkout", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": csrfTokenFromCookie(),
+        },
+        body: JSON.stringify({ plan_id: planId }),
+      });
+
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const detail =
+          typeof payload.detail === "string" ? payload.detail : "Could not create checkout session.";
+        setPricingFeedback(detail);
+        return;
+      }
+
+      const checkoutUrl = typeof payload.checkout_url === "string" ? payload.checkout_url : "";
+      if (!checkoutUrl) {
+        setPricingFeedback("Checkout URL is unavailable.");
+        return;
+      }
+
+      window.location.assign(checkoutUrl);
+    } catch {
+      setPricingFeedback("Checkout request failed. Please try again.");
+    } finally {
+      setIsPricingSubmitting(false);
+    }
+  }
+
   return (
     <div className="min-h-screen bg-[#f3f4f6] text-[#111827]">
       <header className="sticky top-0 z-50 border-b border-[#e5e7eb] bg-white h-[56px] flex items-center px-4 md:px-8">
@@ -292,9 +387,13 @@ export default function LandingPage({ initialAuthMode = null }) {
             <a href="#projects" className="text-sm font-medium text-[#6b7280] hover:text-[#111827] transition-colors">
               Public Boards
             </a>
-            <a href="#pricing" className="text-sm font-medium text-[#6b7280] hover:text-[#111827] transition-colors">
+            <button
+              type="button"
+              onClick={openPricingModal}
+              className="text-sm font-medium text-[#6b7280] hover:text-[#111827] transition-colors"
+            >
               Pricing
-            </a>
+            </button>
           </nav>
 
           <div className="flex items-center gap-4">
@@ -343,10 +442,16 @@ export default function LandingPage({ initialAuthMode = null }) {
               The simplest way to manage feature requests, bug reports, and product feedback. Public boards, upvoting,
               and focused discussions for all your projects in one place.
             </p>
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
               <button
                 type="button"
-                onClick={() => openAuth("signUp")}
+                onClick={() => {
+                  if (isAuthenticated && currentUserHandle) {
+                    window.location.assign(`/${currentUserHandle}/`);
+                    return;
+                  }
+                  openAuth("signUp");
+                }}
                 className="w-full sm:w-auto px-8 py-3 bg-[#06B6D4] text-white text-sm font-bold rounded-sm-ds hover:bg-cyan-600 transition-all uppercase tracking-wide"
               >
                 Create your Board
@@ -382,7 +487,7 @@ export default function LandingPage({ initialAuthMode = null }) {
               </div>
               <div className="flex-1 flex justify-center">
                 <div className="w-1/2 h-5 bg-white border border-[#e5e7eb] rounded text-[10px] font-mono text-[#9ca3af] flex items-center px-2">
-                  featurerequest.io/onurmatik/mini-feedback
+                  featurerequest.io/onurmatik/opt-bot
                 </div>
               </div>
             </div>
@@ -529,10 +634,10 @@ export default function LandingPage({ initialAuthMode = null }) {
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4">
               <button
                 type="button"
-                onClick={() => openAuth("signUp")}
+                onClick={openPricingModal}
                 className="w-full sm:w-auto px-8 py-3 bg-[#06B6D4] text-white text-sm font-bold rounded-sm-ds hover:bg-cyan-600 transition-all uppercase tracking-wide"
               >
-                Start for free
+                Choose your plan
               </button>
               <span className="text-[#6b7280] font-mono text-[10px] uppercase tracking-widest">No credit card required</span>
             </div>
@@ -693,6 +798,68 @@ export default function LandingPage({ initialAuthMode = null }) {
                   </div>
                 </form>
               )}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {isPricingOpen ? (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-[#111827]/60 p-4"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) {
+              closePricingModal();
+            }
+          }}
+        >
+          <div className="w-full max-w-xl overflow-hidden rounded-md-ds border border-[#e5e7eb] bg-white shadow-2xl">
+            <div className="px-6 py-5 border-b border-[#e5e7eb] bg-[#f9fafb]">
+              <h3 className="text-lg font-bold text-[#111827]">Choose your plan</h3>
+              <p className="text-sm text-[#6b7280]">Select the billing option that matches your board needs.</p>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div className="grid gap-3 md:grid-cols-2">
+                {PRICING_PLANS.map((plan) => (
+                  <button
+                    key={plan.id}
+                    type="button"
+                    onClick={() => setSelectedPlanId(plan.id)}
+                    className={cls(
+                      "border rounded-md-ds p-4 text-left transition-all",
+                      selectedPlanId === plan.id
+                        ? "bg-cyan-50 border-[#06B6D4]"
+                        : "border-[#e5e7eb] hover:border-[#06B6D4]",
+                    )}
+                  >
+                    <p className="text-xs font-mono text-[#6b7280] uppercase tracking-wide">{plan.title}</p>
+                    <p className="mt-1 text-lg font-bold text-[#111827]">{plan.name}</p>
+                    <p className="mt-2 text-sm text-[#6b7280]">{plan.description}</p>
+                  </button>
+                ))}
+              </div>
+
+              {pricingFeedback ? <p className="text-sm text-[#dc2626]">{pricingFeedback}</p> : null}
+
+              <div className="flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={closePricingModal}
+                  className="px-4 py-2 text-sm font-bold text-[#6b7280] hover:text-[#111827]"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => selectPlan(selectedPlanId)}
+                  disabled={isPricingSubmitting}
+                  className="px-5 py-2 bg-[#06B6D4] text-white text-sm font-bold rounded-sm-ds hover:bg-cyan-600 transition-all disabled:opacity-50"
+                >
+                  {isPricingSubmitting
+                    ? "Please wait..."
+                    : PRICING_PLANS.find((plan) => plan.id === selectedPlanId)?.cta || "Continue"}
+                </button>
+              </div>
             </div>
           </div>
         </div>

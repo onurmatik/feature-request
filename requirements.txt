@@ -1,6 +1,7 @@
 Django
 django-ninja
 django-sesame
+stripe
 python-dotenv
 python-slugify
 

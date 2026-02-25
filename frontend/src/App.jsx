@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   ArrowBigUpDash,
@@ -6,7 +6,10 @@ import {
   LayoutGrid,
   Layers,
   Mail,
+  LogOut,
+  Plus,
   Search,
+  ChevronDown,
   Settings,
 } from "lucide-react";
 
@@ -35,6 +38,14 @@ const PRIORITY_OPTIONS = [
   { value: "4", label: "Critical" },
 ];
 
+const PROJECT_UPGRADE_PLAN = {
+  id: "pro_30",
+  title: "Growth",
+  name: "Pro",
+  description: "$3/mo for up to 30 projects",
+  cta: "Upgrade",
+};
+
 function cls(...values) {
   return values.filter(Boolean).join(" ");
 }
@@ -44,11 +55,17 @@ function parseBootstrap() {
   const pathParts = window.location.pathname.split("/").filter(Boolean);
   const ownerFromPath = pathParts[0] || "";
   const slugFromPath = pathParts[1] || "";
+  const isProjectFormRoute = pathParts[0] === ownerFromPath && pathParts[1] === "projects" && pathParts[2] === "new";
+  const initialProjectSlug = isProjectFormRoute ? "" : String(value.initialProjectSlug || slugFromPath);
   return {
     ownerHandle: String(value.ownerHandle || ownerFromPath).toLowerCase(),
-    initialProjectSlug: String(value.initialProjectSlug || slugFromPath),
+    initialProjectSlug,
+    isProjectFormRoute,
     isAuthenticated: Boolean(value.isAuthenticated),
     currentUserHandle: String(value.currentUserHandle || "").trim(),
+    subscriptionTier: String(value.subscription_tier || "free").toLowerCase(),
+    subscriptionStatus: String(value.subscription_status || "").toLowerCase(),
+    projectLimit: Number(value.project_limit || 1),
   };
 }
 
@@ -145,6 +162,11 @@ function getSlugFromPath(ownerHandle) {
   return parts[1] || "";
 }
 
+function isProjectFormPath(ownerHandle) {
+  const parts = window.location.pathname.split("/").filter(Boolean);
+  return parts[0] === ownerHandle && parts[1] === "projects" && parts[2] === "new";
+}
+
 export default function App() {
   const bootstrap = useMemo(parseBootstrap, []);
 
@@ -161,7 +183,7 @@ export default function App() {
   const [statusLine, setStatusLine] = useState("");
   const [statusError, setStatusError] = useState(false);
 
-  const [view, setView] = useState("issues");
+  const [view, setView] = useState(bootstrap.isProjectFormRoute ? "newProject" : "issues");
 
   const [comments, setComments] = useState([]);
   const [commentDraft, setCommentDraft] = useState("");
@@ -192,15 +214,26 @@ export default function App() {
   const [projectFeedback, setProjectFeedback] = useState("");
   const [projectFeedbackTone, setProjectFeedbackTone] = useState("");
   const [isProjectSaving, setIsProjectSaving] = useState(false);
+  const [isNewProjectSubmitting, setIsNewProjectSubmitting] = useState(false);
+  const [newProjectFeedback, setNewProjectFeedback] = useState("");
+  const [newProjectFeedbackTone, setNewProjectFeedbackTone] = useState("");
   const [isProjectDeleting, setIsProjectDeleting] = useState(false);
+  const [isUpgradePlanOpen, setIsUpgradePlanOpen] = useState(false);
+  const [isUpgradePlanSubmitting, setIsUpgradePlanSubmitting] = useState(false);
+  const [upgradePlanFeedback, setUpgradePlanFeedback] = useState("");
   const [isAuthenticated, setIsAuthenticated] = useState(bootstrap.isAuthenticated);
   const [currentUserHandle, setCurrentUserHandle] = useState(bootstrap.currentUserHandle);
+  const [subscriptionTier, setSubscriptionTier] = useState(bootstrap.subscriptionTier);
+  const [subscriptionStatus, setSubscriptionStatus] = useState(bootstrap.subscriptionStatus);
+  const [projectLimit, setProjectLimit] = useState(Number(bootstrap.projectLimit || 1));
   const [signInIdentity, setSignInIdentity] = useState("");
   const [signUpEmail, setSignUpEmail] = useState("");
   const [signUpHandle, setSignUpHandle] = useState("");
   const [authMode, setAuthMode] = useState(null);
   const [authFeedback, setAuthFeedback] = useState("");
   const [isAuthSubmitting, setIsAuthSubmitting] = useState(false);
+  const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+  const profileMenuRef = useRef(null);
 
   const selectedProject = useMemo(
     () => projects.find((project) => project.slug === selectedProjectSlug) || null,
@@ -212,6 +245,18 @@ export default function App() {
       String(currentUserHandle || "").toLowerCase() === bootstrap.ownerHandle,
     [currentUserHandle, isAuthenticated, bootstrap.ownerHandle],
   );
+  const projectLimitToUse = Number(projectLimit || 1);
+  const hasActivePaidPlan = subscriptionTier === "pro_30" && subscriptionStatus === "active";
+  const isAtProjectLimit = isOwnerViewer && !hasActivePaidPlan && projects.length >= projectLimitToUse;
+  const projectFormUrl = useMemo(() => {
+    if (!bootstrap.ownerHandle) {
+      return "/projects/new/";
+    }
+
+    return `/${bootstrap.ownerHandle}/projects/new/`;
+  }, [bootstrap.ownerHandle]);
+
+  const shouldShowUpgradeForProjects = isAtProjectLimit && isOwnerViewer;
 
   const filteredIssues = useMemo(() => {
     if (!searchQuery.trim()) {
@@ -262,12 +307,18 @@ export default function App() {
     if (!response.ok) {
       setIsAuthenticated(false);
       setCurrentUserHandle("");
+      setSubscriptionTier("free");
+      setSubscriptionStatus("");
+      setProjectLimit(1);
       return;
     }
 
     const data = await response.json();
     setIsAuthenticated(Boolean(data.is_authenticated));
     setCurrentUserHandle(String(data.current_user_handle || ""));
+    setSubscriptionTier(String(data.subscription_tier || "free").toLowerCase());
+    setSubscriptionStatus(String(data.subscription_status || "").toLowerCase());
+    setProjectLimit(Number(data.project_limit || 1));
   }, []);
 
   async function ensureCsrfCookie() {
@@ -317,11 +368,18 @@ export default function App() {
 
       const handle = String(payload.current_user_handle || "").trim();
       if (!handle) {
-        setAuthFeedback("Session started but no handle was returned.");
+        setAuthFeedback(
+          typeof payload.detail === "string"
+            ? payload.detail
+            : "Sign in link sent. Check your email.",
+        );
         return;
       }
       setIsAuthenticated(true);
       setCurrentUserHandle(handle);
+      setSubscriptionTier(String(payload.subscription_tier || "free").toLowerCase());
+      setSubscriptionStatus(String(payload.subscription_status || "").toLowerCase());
+      setProjectLimit(Number(payload.project_limit || 1));
       closeAuth();
     } catch {
       setAuthFeedback("Sign in failed. Please try again.");
@@ -372,12 +430,50 @@ export default function App() {
 
       setIsAuthenticated(true);
       setCurrentUserHandle(nextHandle);
+      setSubscriptionTier(String(payload.subscription_tier || "free").toLowerCase());
+      setSubscriptionStatus(String(payload.subscription_status || "").toLowerCase());
+      setProjectLimit(Number(payload.project_limit || 1));
       closeAuth();
     } catch {
       setAuthFeedback("Sign up failed. Please try again.");
     } finally {
       setIsAuthSubmitting(false);
     }
+  }
+
+  async function handleLogout() {
+    if (!isAuthenticated) {
+      setIsProfileMenuOpen(false);
+      return;
+    }
+
+    try {
+      const response = await fetch("/auth/logout", {
+        method: "POST",
+        headers: {
+          "X-CSRFToken": csrfTokenFromCookie(),
+        },
+      });
+
+      if (!response.ok) {
+        setStatus("Logout failed.", true);
+        setIsProfileMenuOpen(false);
+        return;
+      }
+    } catch {
+      setStatus("Logout failed. Please try again.", true);
+      setIsProfileMenuOpen(false);
+      return;
+    }
+
+    setIsProfileMenuOpen(false);
+    setIsAuthenticated(false);
+    setCurrentUserHandle("");
+    setSubscriptionTier("free");
+    setSubscriptionStatus("");
+    setProjectLimit(1);
+    setAuthMode(null);
+    window.location.assign("/");
   }
 
   const refreshProjects = useCallback(async () => {
@@ -488,6 +584,23 @@ export default function App() {
   }, [refreshProjects, refreshIssues, setStatus]);
 
   useEffect(() => {
+    if (!isProfileMenuOpen) {
+      return;
+    }
+
+    function onDocumentMouseDown(event) {
+      if (profileMenuRef.current && !profileMenuRef.current.contains(event.target)) {
+        setIsProfileMenuOpen(false);
+      }
+    }
+
+    window.addEventListener("mousedown", onDocumentMouseDown);
+    return () => {
+      window.removeEventListener("mousedown", onDocumentMouseDown);
+    };
+  }, [isProfileMenuOpen]);
+
+  useEffect(() => {
     refreshIssues().catch(() => {
       setStatus("Requests could not be loaded.", true);
     });
@@ -506,8 +619,9 @@ export default function App() {
 
   useEffect(() => {
     function onPopState() {
-      const slug = getSlugFromPath(bootstrap.ownerHandle);
-      setView("issues");
+      const isProjectForm = isProjectFormPath(bootstrap.ownerHandle);
+      const slug = isProjectForm ? "" : getSlugFromPath(bootstrap.ownerHandle);
+      setView(isProjectForm ? "newProject" : "issues");
       setSelectedProjectSlug(slug);
     }
 
@@ -516,6 +630,20 @@ export default function App() {
       window.removeEventListener("popstate", onPopState);
     };
   }, [bootstrap.ownerHandle]);
+
+  useEffect(() => {
+    const onProjectFormRoute = isProjectFormPath(bootstrap.ownerHandle);
+    if (!onProjectFormRoute || !shouldShowUpgradeForProjects) {
+      return;
+    }
+
+    openUpgradePlanModal();
+    setView("issues");
+    const url = boardUrl("");
+    if (window.location.pathname !== url) {
+      window.history.replaceState({ slug: "" }, "", url);
+    }
+  }, [bootstrap.ownerHandle, boardUrl, shouldShowUpgradeForProjects]);
 
   useEffect(() => {
     if (!selectedProject) {
@@ -749,6 +877,169 @@ export default function App() {
     setIsNewIssueOpen(true);
   }
 
+  function openUpgradePlanModal() {
+    setUpgradePlanFeedback("");
+    setIsUpgradePlanSubmitting(false);
+    setIsUpgradePlanOpen(true);
+  }
+
+  function closeUpgradePlanModal() {
+    setIsUpgradePlanOpen(false);
+    setUpgradePlanFeedback("");
+    setIsUpgradePlanSubmitting(false);
+  }
+
+  async function handleUpgradePlan() {
+    setUpgradePlanFeedback("");
+    setIsUpgradePlanSubmitting(true);
+
+    try {
+      await ensureCsrfCookie();
+      const response = await fetch("/api/billing/checkout", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": csrfTokenFromCookie(),
+        },
+        body: JSON.stringify({ plan_id: PROJECT_UPGRADE_PLAN.id }),
+      });
+
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const detail =
+          typeof payload.detail === "string" ? payload.detail : "Could not create checkout session.";
+        setUpgradePlanFeedback(detail);
+        return;
+      }
+
+      const checkoutUrl = typeof payload.checkout_url === "string" ? payload.checkout_url : "";
+      if (!checkoutUrl) {
+        setUpgradePlanFeedback("Checkout URL is unavailable.");
+        return;
+      }
+
+      window.location.assign(checkoutUrl);
+    } catch {
+      setUpgradePlanFeedback("Checkout request failed. Please try again.");
+    } finally {
+      setIsUpgradePlanSubmitting(false);
+    }
+  }
+
+  function handleProjectMenuNavigation(event) {
+    setIsProfileMenuOpen(false);
+    if (shouldShowUpgradeForProjects) {
+      event.preventDefault();
+      openUpgradePlanModal();
+      return;
+    }
+
+    event.preventDefault();
+    setProjectNameDraft("");
+    setProjectTaglineDraft("");
+    setProjectUrlDraft("");
+    setNewProjectFeedback("");
+    setNewProjectFeedbackTone("");
+    setView("newProject");
+    if (window.location.pathname !== projectFormUrl) {
+      window.history.pushState({ slug: "projects", isProjectForm: true }, "", projectFormUrl);
+    }
+  }
+
+  function handleProjectFormNavigation(event) {
+    if (shouldShowUpgradeForProjects) {
+      event.preventDefault();
+      openUpgradePlanModal();
+      return;
+    }
+
+    event.preventDefault();
+    setProjectNameDraft("");
+    setProjectTaglineDraft("");
+    setProjectUrlDraft("");
+    setNewProjectFeedback("");
+    setNewProjectFeedbackTone("");
+    setView("newProject");
+    if (window.location.pathname !== projectFormUrl) {
+      window.history.pushState({ slug: "projects", isProjectForm: true }, "", projectFormUrl);
+    }
+  }
+
+  function closeNewProjectForm() {
+    setIsNewProjectSubmitting(false);
+    setNewProjectFeedback("");
+    setNewProjectFeedbackTone("");
+    setView("issues");
+    const url = boardUrl("");
+    if (window.location.pathname !== url) {
+      window.history.pushState({ slug: "" }, "", url);
+    }
+  }
+
+  async function handleSubmitNewProject() {
+    if (!isAuthenticated) {
+      openAuth("signIn");
+      return;
+    }
+
+    if (!isOwnerViewer) {
+      setNewProjectFeedback("Only the owner can create projects.");
+      setNewProjectFeedbackTone("error");
+      return;
+    }
+
+    const name = projectNameDraft.trim();
+    if (!name) {
+      setNewProjectFeedback("Project name is required.");
+      setNewProjectFeedbackTone("error");
+      return;
+    }
+
+    setIsNewProjectSubmitting(true);
+    setNewProjectFeedback("Creating...");
+    setNewProjectFeedbackTone("");
+
+    try {
+      const response = await fetch("/api/projects", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": csrfTokenFromCookie(),
+        },
+        body: JSON.stringify({
+          name,
+          tagline: projectTaglineDraft.trim(),
+          url: projectUrlDraft.trim(),
+        }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const detail = typeof data.detail === "string" ? data.detail : "Project creation failed.";
+        setNewProjectFeedback(detail);
+        setNewProjectFeedbackTone("error");
+        return;
+      }
+
+      setProjectNameDraft("");
+      setProjectTaglineDraft("");
+      setProjectUrlDraft("");
+      setNewProjectFeedback("Project created.");
+      setNewProjectFeedbackTone("success");
+      setProjects((previous) => [...previous, data]);
+      setSelectedProjectSlug(data.slug);
+      const nextUrl = boardUrl(data.slug);
+      if (window.location.pathname !== nextUrl) {
+        window.history.pushState({ slug: data.slug }, "", nextUrl);
+      }
+      await refreshProjects();
+      setView("issues");
+      setStatus("Project created.");
+    } finally {
+      setIsNewProjectSubmitting(false);
+    }
+  }
+
   async function handleSubmitNewIssue() {
     if (!selectedProjectSlug) {
       return;
@@ -956,27 +1247,52 @@ export default function App() {
       <header className="h-[56px] bg-white border-b border-[#e5e7eb] flex items-center justify-between px-4 md:px-6 shrink-0 z-50">
         <div className="flex items-center gap-4 md:gap-6 min-w-0">
           <div className="flex items-center gap-2 shrink-0">
-            <div className="w-8 h-8 bg-[#06B6D4] rounded-sm-ds flex items-center justify-center text-white shadow-sm">
-              <Layers size={20} />
-            </div>
-            <span className="font-bold text-lg tracking-tight">FeatureRequest</span>
+            <a href="/" className="flex items-center gap-2">
+              <div className="w-8 h-8 bg-[#06B6D4] rounded-sm-ds flex items-center justify-center text-white shadow-sm">
+                <Layers size={20} />
+              </div>
+              <span className="font-bold text-lg tracking-tight">FeatureRequest</span>
+            </a>
           </div>
 
           <nav className="hidden md:flex items-center text-sm font-medium text-[#6b7280] gap-2 truncate">
-            <span className="hover:text-[#111827]">{bootstrap.ownerHandle || "owner"}</span>
+            <a
+              href={`/${bootstrap.ownerHandle || ""}/`}
+              className="hover:text-[#111827]"
+            >
+              {bootstrap.ownerHandle || "owner"}
+            </a>
             <span className="text-[#d1d5db] font-mono">/</span>
             <span className="text-[#111827] font-semibold truncate">
               {selectedProject ? selectedProject.name : "All Projects"}
             </span>
             {isOwnerViewer ? (
+              <a
+                href={projectFormUrl}
+                onClick={handleProjectFormNavigation}
+                aria-label="Create New Project"
+                className="ml-2 p-1 rounded flex items-center text-[#6b7280] hover:text-[#111827] hover:bg-[#f3f4f6] transition-colors"
+                title="Create New Project"
+              >
+                <Plus size={18} />
+              </a>
+            ) : null}
+            {isOwnerViewer ? (
               <button
                 type="button"
                 onClick={() => setView((current) => (current === "issues" ? "settings" : "issues"))}
+                disabled={!selectedProjectSlug}
                 className={cls(
-                  "ml-2 p-1 rounded text-[#6b7280] hover:text-[#111827] transition-colors flex items-center",
-                  view === "settings" ? "bg-cyan-50 text-[#06B6D4]" : "hover:bg-[#f3f4f6]",
+                  "ml-2 p-1 rounded text-[#6b7280] transition-colors flex items-center",
+                  selectedProjectSlug
+                    ? view === "settings"
+                      ? "bg-cyan-50 text-[#06B6D4] hover:text-[#111827] hover:bg-[#f3f4f6]"
+                      : "hover:text-[#111827] hover:bg-[#f3f4f6]"
+                    : "cursor-not-allowed opacity-45",
+                  view === "settings" ? "bg-cyan-50 text-[#06B6D4]" : "",
                 )}
                 title="Project Settings"
+                aria-label="Project Settings"
               >
                 <Settings size={18} />
               </button>
@@ -986,25 +1302,74 @@ export default function App() {
 
         <div className="flex items-center gap-3">
           {isOwnerViewer ? (
+            <a
+              href={projectFormUrl}
+              onClick={handleProjectFormNavigation}
+              aria-label="Create New Project"
+              className="md:hidden p-1 rounded flex items-center text-[#6b7280] hover:text-[#111827] hover:bg-[#f3f4f6] transition-colors"
+              title="Create New Project"
+            >
+              <Plus size={18} />
+            </a>
+          ) : null}
+          {isOwnerViewer ? (
             <button
               type="button"
               onClick={() => setView((current) => (current === "issues" ? "settings" : "issues"))}
+              disabled={!selectedProjectSlug}
               className={cls(
-                "md:hidden p-1 rounded text-[#6b7280] hover:text-[#111827] transition-colors flex items-center",
-                view === "settings" ? "bg-cyan-50 text-[#06B6D4]" : "hover:bg-[#f3f4f6]",
+                "md:hidden p-1 rounded text-[#6b7280] transition-colors flex items-center",
+                selectedProjectSlug
+                  ? view === "settings"
+                    ? "bg-cyan-50 text-[#06B6D4] hover:text-[#111827] hover:bg-[#f3f4f6]"
+                    : "hover:text-[#111827] hover:bg-[#f3f4f6]"
+                  : "cursor-not-allowed opacity-45",
               )}
               title="Project Settings"
+              aria-label="Project Settings"
             >
               <Settings size={18} />
             </button>
           ) : null}
           {isAuthenticated ? (
-            <>
-              <span className="text-xs font-mono text-[#6b7280]">{currentUserHandle || "user"}</span>
-              <div className="w-8 h-8 rounded-full bg-cyan-50 flex items-center justify-center text-[#06B6D4] font-bold text-xs border border-cyan-100">
-                {(currentUserHandle || "US").slice(0, 2).toUpperCase()}
-              </div>
-            </>
+            <div ref={profileMenuRef} className="relative">
+              <button
+                type="button"
+                onClick={() => setIsProfileMenuOpen((value) => !value)}
+                className="flex items-center gap-2 rounded-sm-ds border border-transparent px-2 py-1 transition-colors hover:border-[#e5e7eb] hover:bg-[#f8fafc]"
+              >
+                <span className="text-xs font-mono text-[#6b7280]">{currentUserHandle || "user"}</span>
+                <div className="w-8 h-8 rounded-full bg-cyan-50 flex items-center justify-center text-[#06B6D4] font-bold text-xs border border-cyan-100">
+                  {(currentUserHandle || "US").slice(0, 2).toUpperCase()}
+                </div>
+                <ChevronDown size={14} className="text-[#6b7280]" />
+              </button>
+
+              {isProfileMenuOpen ? (
+                <div className="absolute right-0 top-full mt-2 w-44 rounded-sm-ds border border-[#e5e7eb] bg-white shadow-sm overflow-hidden z-50">
+                  {isOwnerViewer ? (
+                    <a
+                      href={projectFormUrl}
+                      onClick={(event) => {
+                        handleProjectMenuNavigation(event);
+                      }}
+                      className="flex w-full items-center gap-2 px-3 py-2 text-sm text-[#111827] hover:bg-[#f3f4f6]"
+                    >
+                      <Plus size={16} />
+                      New Project
+                    </a>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={handleLogout}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-sm text-[#111827] hover:bg-[#f3f4f6]"
+                  >
+                    <LogOut size={16} />
+                    Logout
+                  </button>
+                </div>
+              ) : null}
+            </div>
           ) : (
             <div className="flex items-center gap-2">
               <button
@@ -1320,7 +1685,7 @@ export default function App() {
                 )}
               </main>
             </div>
-          ) : (
+          ) : view === "settings" ? (
             <div className="flex-1 bg-white flex flex-col overflow-y-auto">
               <div className="max-w-3xl mx-auto w-full px-6 md:px-8 py-10 space-y-12">
                 <div>
@@ -1437,6 +1802,95 @@ export default function App() {
                       disabled={!selectedProject || !isOwnerViewer || isProjectDeleting}
                     >
                       Delete Project
+                    </button>
+                  </div>
+                </section>
+              </div>
+            </div>
+          ) : (
+            <div className="flex-1 bg-white flex flex-col overflow-y-auto">
+              <div className="max-w-3xl mx-auto w-full px-6 md:px-8 py-10 space-y-12">
+                <div>
+                  <h2 className="text-2xl font-bold text-[#111827] mb-2">New Project</h2>
+                  <p className="text-sm text-[#6b7280]">Create a new project under your workspace.</p>
+                </div>
+
+                {!isOwnerViewer ? <p className="text-sm text-[#6b7280]">Only the board owner can create a project.</p> : null}
+
+                <section className="space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-mono font-bold text-[#6b7280] uppercase">Project Name</label>
+                      <input
+                        type="text"
+                        value={projectNameDraft}
+                        onChange={(event) => setProjectNameDraft(event.target.value)}
+                        disabled={!isOwnerViewer || isNewProjectSubmitting}
+                        className={cls(
+                          "w-full px-3 py-2 border border-[#e5e7eb] rounded-sm-ds text-sm",
+                          isOwnerViewer ? "bg-white" : "bg-[#f9fafb]",
+                        )}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-mono font-bold text-[#6b7280] uppercase">Tagline</label>
+                      <input
+                        type="text"
+                        value={projectTaglineDraft}
+                        onChange={(event) => setProjectTaglineDraft(event.target.value)}
+                        disabled={!isOwnerViewer || isNewProjectSubmitting}
+                        className={cls(
+                          "w-full px-3 py-2 border border-[#e5e7eb] rounded-sm-ds text-sm",
+                          isOwnerViewer ? "bg-white" : "bg-[#f9fafb]",
+                        )}
+                      />
+                    </div>
+                    <div className="md:col-span-2 space-y-1.5">
+                      <label className="text-[10px] font-mono font-bold text-[#6b7280] uppercase">Project URL</label>
+                      <input
+                        type="url"
+                        value={projectUrlDraft}
+                        onChange={(event) => setProjectUrlDraft(event.target.value)}
+                        disabled={!isOwnerViewer || isNewProjectSubmitting}
+                        placeholder="https://example.com"
+                        className={cls(
+                          "w-full px-3 py-2 border border-[#e5e7eb] rounded-sm-ds text-sm",
+                          isOwnerViewer ? "bg-white" : "bg-[#f9fafb]",
+                        )}
+                      />
+                    </div>
+                  </div>
+
+                  {newProjectFeedback ? (
+                    <p
+                      className={cls(
+                        "text-xs",
+                        newProjectFeedbackTone === "error"
+                          ? "text-[#dc2626]"
+                          : newProjectFeedbackTone === "success"
+                            ? "text-[#16a34a]"
+                            : "text-[#6b7280]",
+                      )}
+                    >
+                      {newProjectFeedback}
+                    </p>
+                  ) : null}
+
+                  <div className="flex justify-end gap-3">
+                    <button
+                      type="button"
+                      onClick={closeNewProjectForm}
+                      className="px-6 py-2 border border-[#e5e7eb] text-[#6b7280] text-sm font-bold rounded-sm-ds hover:bg-[#f3f4f6] transition-all"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSubmitNewProject}
+                      disabled={!isOwnerViewer || isNewProjectSubmitting}
+                      className="px-6 py-2 bg-[#06B6D4] text-white text-sm font-bold rounded-sm-ds hover:bg-cyan-600 shadow-sm transition-all disabled:opacity-45"
+                    >
+                      {isNewProjectSubmitting ? "Creating..." : "Create Project"}
                     </button>
                   </div>
                 </section>
@@ -1660,6 +2114,56 @@ export default function App() {
                   </div>
                 </form>
               )}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {isUpgradePlanOpen ? (
+        <div
+          className="fixed inset-0 z-[110] flex items-center justify-center bg-[#111827]/60 p-4"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) {
+              closeUpgradePlanModal();
+            }
+          }}
+        >
+          <div className="w-full max-w-md overflow-hidden rounded-md-ds border border-[#e5e7eb] bg-white shadow-2xl">
+            <div className="px-6 py-5 border-b border-[#e5e7eb] bg-[#f9fafb]">
+              <h3 className="text-lg font-bold text-[#111827]">Project limit reached</h3>
+              <p className="text-sm text-[#6b7280]">
+                You have reached your plan&apos;s project limit. Upgrade to add another project.
+              </p>
+            </div>
+            <div className="p-6">
+              <div className="border rounded-sm-ds border-[#e5e7eb] p-4">
+                <p className="text-xs font-mono text-[#6b7280] uppercase tracking-wide">
+                  {PROJECT_UPGRADE_PLAN.title}
+                </p>
+                <p className="mt-1 text-lg font-bold text-[#111827]">{PROJECT_UPGRADE_PLAN.name}</p>
+                <p className="mt-2 text-sm text-[#6b7280]">{PROJECT_UPGRADE_PLAN.description}</p>
+              </div>
+
+              {upgradePlanFeedback ? (
+                <p className="mt-3 text-xs text-[#dc2626]">{upgradePlanFeedback}</p>
+              ) : null}
+            </div>
+            <div className="bg-[#f9fafb] px-6 py-4 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={closeUpgradePlanModal}
+                className="px-4 py-2 text-sm font-bold text-[#6b7280] hover:text-[#111827]"
+              >
+                Maybe later
+              </button>
+              <button
+                type="button"
+                onClick={handleUpgradePlan}
+                disabled={isUpgradePlanSubmitting}
+                className="px-4 py-2 bg-[#06B6D4] text-white text-sm font-bold rounded-sm-ds hover:bg-cyan-600 transition-all shadow-sm disabled:opacity-45"
+              >
+                {isUpgradePlanSubmitting ? "Please wait..." : PROJECT_UPGRADE_PLAN.cta}
+              </button>
             </div>
           </div>
         </div>

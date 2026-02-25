@@ -1,6 +1,7 @@
 from ninja import NinjaAPI
 
 from inbox.api import router as inbox_router
+from accounts.api import router as accounts_router
 from projects.api import router as projects_router
 
 api = NinjaAPI(
@@ -11,6 +12,7 @@ api = NinjaAPI(
 
 api.add_router("", projects_router)
 api.add_router("", inbox_router)
+api.add_router("", accounts_router)
 
 
 @api.get("/health", tags=["system"])

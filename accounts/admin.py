@@ -30,6 +30,8 @@ class UserAdmin(BaseUserAdmin):
         "is_staff",
         "is_active",
         "date_joined",
+        "subscription_tier",
+        "subscription_status",
     )
     list_filter = ("is_staff", "is_superuser", "is_active")
     search_fields = ("email", "handle", "display_name")
@@ -38,6 +40,7 @@ class UserAdmin(BaseUserAdmin):
     fieldsets = (
         (None, {"fields": ("email", "password")}),
         ("Profile", {"fields": ("handle", "display_name")}),
+        ("Billing", {"fields": ("subscription_tier", "subscription_status", "stripe_customer_id", "stripe_subscription_id")}),
         (
             "Permissions",
             {
@@ -62,6 +65,10 @@ class UserAdmin(BaseUserAdmin):
                     "email",
                     "handle",
                     "display_name",
+                    "subscription_tier",
+                    "subscription_status",
+                    "stripe_customer_id",
+                    "stripe_subscription_id",
                     "password1",
                     "password2",
                     "is_staff",

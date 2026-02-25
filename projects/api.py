@@ -221,6 +221,13 @@ def list_my_projects(request):
 @router.post("/projects", response={201: ProjectOut})
 def create_project(request, payload: ProjectCreateIn):
     user = _require_auth_user(request)
+
+    if user.has_project_limit(Project.objects.filter(owner=user).count()):
+        raise HttpError(
+            403,
+            "You have reached your project limit. Upgrade to 30 projects to continue.",
+        )
+
     name = _clean_non_empty(payload.name, "Project name")
 
     project = Project.objects.create(
