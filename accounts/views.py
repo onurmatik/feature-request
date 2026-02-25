@@ -1,5 +1,6 @@
 import json
 import re
+from urllib.parse import quote_plus, urlsplit
 
 from html import escape
 
@@ -19,6 +20,44 @@ from sesame.utils import get_query_string
 from .models import User
 
 HANDLE_REGEX = re.compile(r"^[a-z0-9_]+$")
+
+
+def _dashboard_for_user(user):
+    handle = str(user.handle or "").strip()
+    if not handle:
+        return "/"
+    return f"/{handle}/"
+
+
+def _safe_next_path(value, fallback):
+    candidate = str(value or "").strip()
+    if not candidate:
+        return fallback
+    if candidate.startswith("http://") or candidate.startswith("https://"):
+        return fallback
+    if not candidate.startswith("/"):
+        candidate = f"/{candidate}"
+    parsed = urlsplit(candidate)
+    if parsed.scheme or parsed.netloc:
+        return fallback
+    return candidate
+
+
+def _magic_link_url(request, user):
+    base_url = request.build_absolute_uri(reverse("magic-link-login"))
+    query_string = get_query_string(user)
+    if query_string.startswith("?"):
+        query_string = query_string[1:]
+    next_path = _safe_next_path(request.GET.get("next", ""), _dashboard_for_user(user))
+
+    if query_string and next_path:
+        return f"{base_url}?{query_string}&next={quote_plus(next_path)}"
+    if query_string:
+        return f"{base_url}?{query_string}"
+    if next_path:
+        return f"{base_url}?next={quote_plus(next_path)}"
+
+    return base_url
 
 
 def _magic_link_email(user, magic_link, action):
@@ -197,7 +236,7 @@ def sign_in_view(request):
         return JsonResponse({"detail": "Account not found. Please sign up first."}, status=404)
 
     if "@" in email_or_handle:
-        magic_link = request.build_absolute_uri(reverse("magic-link-login")) + get_query_string(user)
+        magic_link = _magic_link_url(request, user)
         _send_magic_link_email(
             user=user,
             magic_link=magic_link,
@@ -245,7 +284,7 @@ def sign_up_view(request):
         handle=handle,
         display_name=display_name,
     )
-    magic_link = request.build_absolute_uri(reverse("magic-link-login")) + get_query_string(user)
+    magic_link = _magic_link_url(request, user)
     _send_magic_link_email(
         user=user,
         magic_link=magic_link,

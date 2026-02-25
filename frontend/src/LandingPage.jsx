@@ -67,6 +67,37 @@ function csrfTokenFromCookie() {
   return tokenPart ? decodeURIComponent(tokenPart.slice("csrftoken=".length)) : "";
 }
 
+function getPostAuthRedirect(handle) {
+  const safeHandle = String(handle || "").trim();
+  const defaultRedirect = safeHandle ? `/${safeHandle}/` : "/";
+  const params = new URLSearchParams(window.location.search);
+  const next = params.get("next");
+
+  if (!next) {
+    return defaultRedirect;
+  }
+
+  try {
+    const nextUrl = new URL(next, window.location.origin);
+    if (nextUrl.origin !== window.location.origin) {
+      return defaultRedirect;
+    }
+    return `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`;
+  } catch {
+    return defaultRedirect;
+  }
+}
+
+function authSignInEndpoint() {
+  const next = new URLSearchParams(window.location.search).get("next");
+  if (!next) {
+    return "/auth/sign-in";
+  }
+
+  const encoded = encodeURIComponent(next);
+  return `/auth/sign-in?next=${encoded}`;
+}
+
 export default function LandingPage({ initialAuthMode = null }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [currentUserHandle, setCurrentUserHandle] = useState("");
@@ -159,7 +190,7 @@ export default function LandingPage({ initialAuthMode = null }) {
 
     try {
       await ensureCsrfCookie();
-      const response = await fetch("/auth/sign-in", {
+      const response = await fetch(authSignInEndpoint(), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -185,7 +216,7 @@ export default function LandingPage({ initialAuthMode = null }) {
         return;
       }
 
-      window.location.assign(`/${handle}/`);
+      window.location.assign(getPostAuthRedirect(handle));
     } catch {
       setAuthFeedback("Sign in failed. Please try again.");
     } finally {
