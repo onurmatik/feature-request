@@ -67,6 +67,7 @@ class IssueOut(Schema):
     id: int
     project_id: int
     author_id: int
+    author_handle: str
     issue_type: str
     title: str
     description: str
@@ -217,6 +218,7 @@ def _issue_to_dict(issue: Issue):
         "id": issue.id,
         "project_id": issue.project_id,
         "author_id": issue.author_id,
+        "author_handle": issue.author.handle,
         "issue_type": issue.issue_type,
         "title": issue.title,
         "description": issue.description,

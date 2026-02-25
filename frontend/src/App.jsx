@@ -1660,7 +1660,7 @@ export default function App() {
                         </button>
                         <div className="h-4 w-[1px] bg-[#e5e7eb]" />
                         <span className="text-[10px] font-mono text-[#6b7280] uppercase">
-                          Created by user #{selectedIssue.author_id} • {formatLongDate(selectedIssue.created_at)}
+                            Created by @{selectedIssue.author_handle || `user-${selectedIssue.author_id}`} • {formatLongDate(selectedIssue.created_at)}
                         </span>
                       </div>
 
