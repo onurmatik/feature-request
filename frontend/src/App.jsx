@@ -1267,17 +1267,6 @@ export default function App() {
               {selectedProject ? selectedProject.name : "All Projects"}
             </span>
             {isOwnerViewer ? (
-              <a
-                href={projectFormUrl}
-                onClick={handleProjectFormNavigation}
-                aria-label="Create New Project"
-                className="ml-2 p-1 rounded flex items-center text-[#6b7280] hover:text-[#111827] hover:bg-[#f3f4f6] transition-colors"
-                title="Create New Project"
-              >
-                <Plus size={18} />
-              </a>
-            ) : null}
-            {isOwnerViewer ? (
               <button
                 type="button"
                 onClick={() => setView((current) => (current === "issues" ? "settings" : "issues"))}
@@ -1297,21 +1286,21 @@ export default function App() {
                 <Settings size={18} />
               </button>
             ) : null}
+            {isOwnerViewer ? (
+              <a
+                href={projectFormUrl}
+                onClick={handleProjectFormNavigation}
+                aria-label="Create New Project"
+                className="ml-2 p-1 rounded flex items-center text-[#6b7280] hover:text-[#111827] hover:bg-[#f3f4f6] transition-colors"
+                title="Create New Project"
+              >
+                <Plus size={18} />
+              </a>
+            ) : null}
           </nav>
         </div>
 
         <div className="flex items-center gap-3">
-          {isOwnerViewer ? (
-            <a
-              href={projectFormUrl}
-              onClick={handleProjectFormNavigation}
-              aria-label="Create New Project"
-              className="md:hidden p-1 rounded flex items-center text-[#6b7280] hover:text-[#111827] hover:bg-[#f3f4f6] transition-colors"
-              title="Create New Project"
-            >
-              <Plus size={18} />
-            </a>
-          ) : null}
           {isOwnerViewer ? (
             <button
               type="button"
@@ -1330,6 +1319,17 @@ export default function App() {
             >
               <Settings size={18} />
             </button>
+          ) : null}
+          {isOwnerViewer ? (
+            <a
+              href={projectFormUrl}
+              onClick={handleProjectFormNavigation}
+              aria-label="Create New Project"
+              className="md:hidden p-1 rounded flex items-center text-[#6b7280] hover:text-[#111827] hover:bg-[#f3f4f6] transition-colors"
+              title="Create New Project"
+            >
+              <Plus size={18} />
+            </a>
           ) : null}
           {isAuthenticated ? (
             <div ref={profileMenuRef} className="relative">
@@ -1723,12 +1723,13 @@ export default function App() {
                         />
                       </div>
                       <div className="space-y-1.5">
-                        <label className="text-[10px] font-mono font-bold text-[#6b7280] uppercase">Tagline</label>
+                        <label className="text-[10px] font-mono font-bold text-[#6b7280] uppercase">Project URL</label>
                         <input
-                          type="text"
-                          value={projectTaglineDraft}
-                          onChange={(event) => setProjectTaglineDraft(event.target.value)}
+                          type="url"
+                          value={projectUrlDraft}
+                          onChange={(event) => setProjectUrlDraft(event.target.value)}
                           disabled={!isOwnerViewer || isProjectSaving}
+                          placeholder="https://example.com"
                           className={cls(
                             "w-full px-3 py-2 border border-[#e5e7eb] rounded-sm-ds text-sm",
                             isOwnerViewer ? "bg-white" : "bg-[#f9fafb]",
@@ -1736,15 +1737,12 @@ export default function App() {
                         />
                       </div>
                       <div className="md:col-span-2 space-y-1.5">
-                        <label className="text-[10px] font-mono font-bold text-[#6b7280] uppercase">
-                          Project URL
-                        </label>
+                        <label className="text-[10px] font-mono font-bold text-[#6b7280] uppercase">Tagline</label>
                         <input
-                          type="url"
-                          value={projectUrlDraft}
-                          onChange={(event) => setProjectUrlDraft(event.target.value)}
+                          type="text"
+                          value={projectTaglineDraft}
+                          onChange={(event) => setProjectTaglineDraft(event.target.value)}
                           disabled={!isOwnerViewer || isProjectSaving}
-                          placeholder="https://example.com"
                           className={cls(
                             "w-full px-3 py-2 border border-[#e5e7eb] rounded-sm-ds text-sm",
                             isOwnerViewer ? "bg-white" : "bg-[#f9fafb]",
@@ -1832,27 +1830,27 @@ export default function App() {
                         )}
                       />
                     </div>
-                    <div className="space-y-1.5">
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-mono font-bold text-[#6b7280] uppercase">Project URL</label>
+                        <input
+                          type="url"
+                          value={projectUrlDraft}
+                          onChange={(event) => setProjectUrlDraft(event.target.value)}
+                          disabled={!isOwnerViewer || isNewProjectSubmitting}
+                          placeholder="https://example.com"
+                          className={cls(
+                            "w-full px-3 py-2 border border-[#e5e7eb] rounded-sm-ds text-sm",
+                            isOwnerViewer ? "bg-white" : "bg-[#f9fafb]",
+                          )}
+                        />
+                    </div>
+                    <div className="md:col-span-2 space-y-1.5">
                       <label className="text-[10px] font-mono font-bold text-[#6b7280] uppercase">Tagline</label>
                       <input
                         type="text"
                         value={projectTaglineDraft}
                         onChange={(event) => setProjectTaglineDraft(event.target.value)}
                         disabled={!isOwnerViewer || isNewProjectSubmitting}
-                        className={cls(
-                          "w-full px-3 py-2 border border-[#e5e7eb] rounded-sm-ds text-sm",
-                          isOwnerViewer ? "bg-white" : "bg-[#f9fafb]",
-                        )}
-                      />
-                    </div>
-                    <div className="md:col-span-2 space-y-1.5">
-                      <label className="text-[10px] font-mono font-bold text-[#6b7280] uppercase">Project URL</label>
-                      <input
-                        type="url"
-                        value={projectUrlDraft}
-                        onChange={(event) => setProjectUrlDraft(event.target.value)}
-                        disabled={!isOwnerViewer || isNewProjectSubmitting}
-                        placeholder="https://example.com"
                         className={cls(
                           "w-full px-3 py-2 border border-[#e5e7eb] rounded-sm-ds text-sm",
                           isOwnerViewer ? "bg-white" : "bg-[#f9fafb]",
