@@ -81,7 +81,16 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     @property
     def has_active_paid_subscription(self):
-        return self.subscription_tier == "pro_30" and self.subscription_status == "active"
+        if self.subscription_tier != "pro_30":
+            return False
+
+        normalized_status = (self.subscription_status or "").strip().lower()
+        # Backward compatibility for legacy paid accounts created before
+        # subscription_status was introduced.
+        if not normalized_status:
+            return True
+
+        return normalized_status in {"active", "trialing"}
 
     @property
     def project_limit(self):

@@ -31,6 +31,18 @@ class SessionApiTest(TestCase):
         self.assertEqual(payload["current_user_handle"], self.user.handle)
         self.assertEqual(payload["user_id"], self.user.id)
 
+    def test_me_treats_legacy_pro_account_without_status_as_paid(self):
+        self.user.subscription_tier = "pro_30"
+        self.user.subscription_status = ""
+        self.user.save(update_fields=["subscription_tier", "subscription_status"])
+
+        self.client.force_login(self.user)
+        response = self.client.get("/auth/me")
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["subscription_tier"], "pro_30")
+        self.assertEqual(payload["project_limit"], 30)
+
     def test_logout_clears_session(self):
         self.client.force_login(self.user)
         logout_response = self.client.post("/auth/logout")

@@ -469,7 +469,8 @@ export default function App() {
     [currentUserHandle, isAuthenticated, bootstrap.ownerHandle],
   );
   const projectLimitToUse = Number(projectLimit || 1);
-  const hasActivePaidPlan = subscriptionTier === "pro_30" && subscriptionStatus === "active";
+  const hasActivePaidPlan =
+    projectLimitToUse > 1 || (subscriptionTier === "pro_30" && !subscriptionStatus);
   const isAtProjectLimit = isOwnerViewer && !hasActivePaidPlan && projects.length >= projectLimitToUse;
   const projectFormUrl = useMemo(() => {
     if (!bootstrap.ownerHandle) {
