@@ -1457,7 +1457,7 @@ export default function App() {
               data-project={project.slug}
               onClick={() => setProjectSlugAndHistory(project.slug)}
               className={cls(
-                "sidebar-project-btn w-full flex items-start gap-3 px-3 py-2 pr-16 rounded-sm-ds font-medium text-sm transition-colors",
+                "sidebar-project-btn w-full flex items-start gap-3 px-3 py-2 rounded-sm-ds font-medium text-sm transition-colors",
                 selectedProjectSlug === project.slug
                   ? "bg-cyan-50 text-[#06B6D4]"
                   : "text-[#6b7280] hover:bg-[#f3f4f6]",
@@ -1465,8 +1465,8 @@ export default function App() {
             >
               <ProjectSidebarIcon faviconUrl={project.favicon_url} projectName={project.name} />
               <span className="flex-1 min-w-0 text-left">
-                <span className="block font-medium leading-tight">{project.name}</span>
-                {project.tagline ? <span className="block text-[11px] leading-tight text-[#6b7280]">{project.tagline}</span> : null}
+                <span className="block font-medium leading-tight pr-16">{project.name}</span>
+                {project.tagline ? <span className="block w-full text-[11px] leading-tight text-[#6b7280] pt-2">{project.tagline}</span> : null}
               </span>
             </button>
             <span className="absolute top-2 right-2 flex items-center gap-1">
