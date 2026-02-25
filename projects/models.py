@@ -13,6 +13,7 @@ class Project(models.Model):
     slug = models.SlugField(max_length=140)
     tagline = models.CharField(max_length=160, blank=True)
     url = models.URLField(blank=True)
+    favicon_url = models.URLField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

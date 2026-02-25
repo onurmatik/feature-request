@@ -317,6 +317,24 @@ function MarkdownContent({ value, fallback }) {
   }
 }
 
+function ProjectSidebarIcon({ faviconUrl, projectName }) {
+  const [isError, setIsError] = useState(false);
+
+  if (!faviconUrl || isError) {
+    return <Folder size={18} />;
+  }
+
+  return (
+    <img
+      src={faviconUrl}
+      alt={`${projectName} icon`}
+      onError={() => setIsError(true)}
+      className="h-[18px] w-[18px] rounded-sm-ds object-contain bg-white border border-[#e5e7eb] shrink-0"
+      referrerPolicy="no-referrer"
+    />
+  );
+}
+
 function formatRelativeDate(isoString) {
   if (!isoString) {
     return "-";
@@ -1445,7 +1463,7 @@ export default function App() {
                   : "text-[#6b7280] hover:bg-[#f3f4f6]",
               )}
             >
-              <Folder size={18} />
+              <ProjectSidebarIcon faviconUrl={project.favicon_url} projectName={project.name} />
               <span className="flex-1 min-w-0 text-left">
                 <span className="block font-medium leading-tight">{project.name}</span>
                 {project.tagline ? <span className="block text-[11px] leading-tight text-[#6b7280]">{project.tagline}</span> : null}

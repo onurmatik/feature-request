@@ -1,5 +1,10 @@
 import logging
+import ssl
+from html.parser import HTMLParser
 from typing import Optional
+from urllib.error import HTTPError, URLError
+from urllib.parse import urljoin, urlparse
+from urllib.request import Request, urlopen
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -30,6 +35,7 @@ class ProjectOut(Schema):
     slug: str
     tagline: str
     url: str
+    favicon_url: str
     created_at: str
     updated_at: str
 
@@ -139,6 +145,207 @@ def _clean_non_empty(value: str, field_name: str):
     return cleaned
 
 
+class _FaviconHTMLParser(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.urls = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag.lower() != "link":
+            return
+
+        values = {name.lower(): (value or "").strip() for name, value in attrs}
+        rel = values.get("rel", "").lower()
+        href = values.get("href", "")
+        if not href:
+            return
+
+        tokens = rel.split()
+        if not (
+            "icon" in tokens
+            or "shortcut" in tokens
+            or "apple-touch-icon" in tokens
+            or "mask-icon" in tokens
+        ):
+            return
+
+        self.urls.append(href)
+
+
+def _append_debug(debug: Optional[list[str]], message: str):
+    if debug is None:
+        return
+    debug.append(message)
+
+
+def _normalize_favicon_candidate(base_url: str, candidate: str):
+    if not candidate:
+        return ""
+    normalized = urljoin(base_url, candidate)
+    parsed = urlparse(normalized)
+    if parsed.scheme not in {"http", "https"}:
+        return ""
+    return normalized
+
+
+def _open_url(request: Request, timeout: int, debug: Optional[list[str]] = None):
+    try:
+        return urlopen(request, timeout=timeout)
+    except URLError as error:
+        reason = getattr(error, "reason", None)
+        if isinstance(reason, ssl.SSLCertVerificationError):
+            _append_debug(
+                debug,
+                "SSL certificate verification failed; retrying without verification",
+            )
+            return urlopen(
+                request,
+                timeout=timeout,
+                context=ssl._create_unverified_context(),
+            )
+        raise
+
+
+def _fetch_url_headers(url: str, method: str = "HEAD", debug: Optional[list[str]] = None):
+    _append_debug(debug, f"{method} {url}")
+
+    request = Request(
+        url,
+        method=method,
+        headers={"User-Agent": "FeatureRequest/1.0 (+https://github.com/)"},
+    )
+    try:
+        with _open_url(request, timeout=5, debug=debug) as response:
+            status = getattr(response, "status", 0)
+            if not (200 <= status < 400):
+                _append_debug(debug, f"Rejected with status {status}")
+                return None
+            content_type = (response.getheader("Content-Type") or "").lower()
+            _append_debug(debug, f"Status {status}; content-type: {content_type or '(missing)'}")
+            return response.headers
+    except HTTPError as error:
+        if method == "HEAD" and error.code == 405:
+            _append_debug(debug, "HEAD not supported, retrying with GET")
+            return _fetch_url_headers(url, method="GET", debug=debug)
+        _append_debug(debug, f"HTTP error {error.code}: {getattr(error, 'reason', '')}")
+        return None
+    except URLError as error:
+        _append_debug(debug, f"Network error for {url}: {getattr(error, 'reason', error)}")
+        return None
+    except Exception as error:
+        _append_debug(debug, f"Unexpected error for {url}: {error}")
+        return None
+
+
+def _extract_project_favicon_url(base_url: str, debug: Optional[list[str]] = None):
+    request = Request(
+        base_url,
+        headers={"User-Agent": "FeatureRequest/1.0 (+https://github.com/)"},
+    )
+    try:
+        with _open_url(request, timeout=5, debug=debug) as response:
+            status = getattr(response, "status", 0)
+            if not (200 <= status < 400):
+                _append_debug(debug, f"Page response status: {status}")
+                return []
+            content_type = (response.getheader("Content-Type") or "").lower()
+            if "text/html" not in content_type:
+                _append_debug(
+                    debug,
+                    f"Project URL is not HTML (content-type: {content_type})",
+                )
+                return []
+
+            body_chunks = []
+            body_size = 0
+            max_bytes = 1_048_576
+            while body_size < max_bytes:
+                chunk = response.read(8192)
+                if not chunk:
+                    break
+
+                body_chunks.append(chunk)
+                body_size += len(chunk)
+                merged = b"".join(body_chunks)
+                if b"</head>" in merged.lower():
+                    break
+
+            body = b"".join(body_chunks).decode("utf-8", errors="ignore")
+    except HTTPError:
+        _append_debug(debug, f"HTTP error while fetching page HTML for {base_url}")
+        return []
+    except URLError as error:
+        _append_debug(
+            debug,
+            f"Network error while fetching page HTML for {base_url}: {getattr(error, 'reason', error)}",
+        )
+        return []
+    except Exception as error:
+        _append_debug(debug, f"Unexpected error while fetching page HTML for {base_url}: {error}")
+        return []
+
+    parser = _FaviconHTMLParser()
+    parser.feed(body)
+    _append_debug(
+        debug,
+        f"Parsed {len(parser.urls)} favicon candidates from HTML: {parser.urls[:5]}",
+    )
+    return parser.urls
+
+
+def _resolve_favicon_url_internal(project_url: str, collect_debug: bool = False):
+    debug: Optional[list[str]] = [] if collect_debug else None
+
+    parsed = urlparse(project_url)
+    if parsed.scheme not in {"http", "https"}:
+        _append_debug(
+            debug,
+            f"Skipping favicon lookup because scheme is not http/https: {project_url}",
+        )
+        return "", debug
+
+    candidates = _extract_project_favicon_url(project_url, debug=debug)
+    candidates.extend([
+        "/favicon.ico",
+        "/favicon.png",
+        "/icon.png",
+        "/apple-touch-icon.png",
+        "/apple-touch-icon-precomposed.png",
+    ])
+    candidates = list(dict.fromkeys([value for value in candidates if value]))
+    _append_debug(debug, f"Trying {len(candidates)} favicon candidates")
+
+    for candidate in candidates:
+        resolved = _normalize_favicon_candidate(project_url, candidate)
+        if not resolved:
+            _append_debug(debug, f"Skipping unsupported favicon candidate: {candidate}")
+            continue
+
+        headers = _fetch_url_headers(resolved, debug=debug)
+        if not headers:
+            _append_debug(debug, f"No valid response for favicon candidate: {resolved}")
+            continue
+
+        content_type = (headers.get("Content-Type") or "").lower()
+        if content_type and "text/html" in content_type:
+            _append_debug(debug, f"Rejected HTML response for favicon candidate: {resolved}")
+            continue
+
+        _append_debug(debug, f"Selected favicon candidate: {resolved}")
+        return resolved, debug
+
+    _append_debug(debug, f"No favicon candidate resolved for {project_url}")
+    return "", debug
+
+
+def _resolve_favicon_url_with_debug(project_url: str):
+    return _resolve_favicon_url_internal(project_url, collect_debug=True)
+
+
+def _resolve_favicon_url(project_url: str):
+    return _resolve_favicon_url_internal(project_url)[0]
+
+
 def _moderate_issue_submission(issue_type: str, title: str, description: str):
     content = (
         f"issue_type: {issue_type}\n"
@@ -240,6 +447,7 @@ def _project_to_dict(project: Project):
         "slug": project.slug,
         "tagline": project.tagline,
         "url": project.url,
+        "favicon_url": project.favicon_url,
         "created_at": project.created_at.isoformat(),
         "updated_at": project.updated_at.isoformat(),
     }
@@ -307,12 +515,25 @@ def create_project(request, payload: ProjectCreateIn):
         )
 
     name = _clean_non_empty(payload.name, "Project name")
+    url = payload.url.strip()
+    favicon_url = ""
+    if url:
+        favicon_url, favicon_debug = _resolve_favicon_url_with_debug(url)
+        if not favicon_url:
+            logger.warning(
+                "Could not resolve favicon for new project url=%s. debug=%s",
+                url,
+                " | ".join(favicon_debug),
+            )
+    else:
+        favicon_debug = []
 
     project = Project.objects.create(
         owner=user,
         name=name,
         tagline=payload.tagline.strip(),
-        url=payload.url.strip(),
+        url=url,
+        favicon_url=favicon_url,
     )
     project = Project.objects.select_related("owner").get(id=project.id)
     return 201, _project_to_dict(project)
@@ -350,10 +571,25 @@ def update_project(request, project_id: int, payload: ProjectUpdateIn):
         updated_fields.append("tagline")
 
     if payload.url is not None:
-        project.url = payload.url.strip()
+        url = payload.url.strip()
+        project.url = url
         updated_fields.append("url")
 
     if updated_fields:
+        if project.url:
+            project.favicon_url, favicon_debug = _resolve_favicon_url_with_debug(project.url)
+            if not project.favicon_url:
+                logger.warning(
+                    "Could not resolve favicon for project_id=%s url=%s. debug=%s",
+                    project.id,
+                    project.url,
+                    " | ".join(favicon_debug),
+                )
+        else:
+            project.favicon_url = ""
+            favicon_debug = []
+        updated_fields.append("favicon_url")
+
         project.save()
 
     return _project_to_dict(project)

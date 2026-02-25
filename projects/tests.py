@@ -408,47 +408,95 @@ class ProjectApiTest(TestCase):
     def test_owner_can_create_update_and_delete_project(self):
         self.client.force_login(self.owner)
 
-        create_response = self.client.post(
-            "/api/projects",
-            data=json.dumps(
-                {
-                    "name": "Platform Revamp",
-                    "tagline": "Major overhaul",
-                    "url": "https://example.com/platform",
-                }
-            ),
-            content_type="application/json",
-        )
-        self.assertEqual(create_response.status_code, 201)
-        created = create_response.json()
-        self.assertEqual(created["slug"], "platform-revamp")
-        self.assertEqual(created["url"], "https://example.com/platform")
+        with patch("projects.api._resolve_favicon_url") as resolve_favicon:
+            resolve_favicon.side_effect = [
+                "https://example.com/platform/favicon.ico",
+                "https://example.com/platform-v2/favicon.ico",
+            ]
 
-        list_response = self.client.get("/api/projects")
-        self.assertEqual(list_response.status_code, 200)
-        self.assertEqual(len(list_response.json()), 2)
+            create_response = self.client.post(
+                "/api/projects",
+                data=json.dumps(
+                    {
+                        "name": "Platform Revamp",
+                        "tagline": "Major overhaul",
+                        "url": "https://example.com/platform",
+                    }
+                ),
+                content_type="application/json",
+            )
+            self.assertEqual(create_response.status_code, 201)
+            created = create_response.json()
+            self.assertEqual(created["slug"], "platform-revamp")
+            self.assertEqual(created["url"], "https://example.com/platform")
+            self.assertEqual(created["favicon_url"], "https://example.com/platform/favicon.ico")
+            self.assertEqual(resolve_favicon.call_count, 1)
+            resolve_favicon.assert_any_call("https://example.com/platform")
 
-        edit_response = self.client.patch(
-            f"/api/projects/{created['id']}",
-            data=json.dumps(
-                {
-                    "name": "Platform Revamp V2",
-                    "tagline": "Updated scope",
-                    "url": "https://example.com/platform-v2",
-                }
-            ),
-            content_type="application/json",
-        )
-        self.assertEqual(edit_response.status_code, 200)
-        project = Project.objects.get(id=created["id"])
-        project.refresh_from_db()
-        self.assertEqual(project.name, "Platform Revamp V2")
-        self.assertEqual(project.slug, "platform-revamp-v2")
-        self.assertEqual(project.url, "https://example.com/platform-v2")
+            list_response = self.client.get("/api/projects")
+            self.assertEqual(list_response.status_code, 200)
+            self.assertEqual(len(list_response.json()), 2)
 
-        delete_response = self.client.delete(f"/api/projects/{created['id']}")
-        self.assertEqual(delete_response.status_code, 204)
-        self.assertFalse(Project.objects.filter(pk=project.pk).exists())
+            edit_response = self.client.patch(
+                f"/api/projects/{created['id']}",
+                data=json.dumps(
+                    {
+                        "name": "Platform Revamp V2",
+                        "tagline": "Updated scope",
+                        "url": "https://example.com/platform-v2",
+                    }
+                ),
+                content_type="application/json",
+            )
+            self.assertEqual(edit_response.status_code, 200)
+            project = Project.objects.get(id=created["id"])
+            project.refresh_from_db()
+            self.assertEqual(project.name, "Platform Revamp V2")
+            self.assertEqual(project.slug, "platform-revamp-v2")
+            self.assertEqual(project.url, "https://example.com/platform-v2")
+            self.assertEqual(project.favicon_url, "https://example.com/platform-v2/favicon.ico")
+            self.assertEqual(resolve_favicon.call_count, 2)
+            resolve_favicon.assert_any_call("https://example.com/platform-v2")
+
+            delete_response = self.client.delete(f"/api/projects/{created['id']}")
+            self.assertEqual(delete_response.status_code, 204)
+            self.assertFalse(Project.objects.filter(pk=project.pk).exists())
+
+    def test_favicon_is_resolved_when_missing_on_project_update(self):
+        self.client.force_login(self.owner)
+
+        with patch("projects.api._resolve_favicon_url") as resolve_favicon:
+            resolve_favicon.side_effect = [
+                "",
+                "https://example.com/project/favicon.ico",
+            ]
+
+            create_response = self.client.post(
+                "/api/projects",
+                data=json.dumps(
+                    {
+                        "name": "No Favicon Board",
+                        "tagline": "Initial",
+                        "url": "https://example.com/project",
+                    }
+                ),
+                content_type="application/json",
+            )
+            self.assertEqual(create_response.status_code, 201)
+            created = create_response.json()
+            self.assertEqual(created["favicon_url"], "")
+
+            edit_response = self.client.patch(
+                f"/api/projects/{created['id']}",
+                data=json.dumps({"tagline": "Still no explicit URL update"}),
+                content_type="application/json",
+            )
+            self.assertEqual(edit_response.status_code, 200)
+
+            project = Project.objects.get(id=created["id"])
+            self.assertEqual(project.favicon_url, "https://example.com/project/favicon.ico")
+            self.assertEqual(resolve_favicon.call_count, 2)
+            resolve_favicon.assert_any_call("https://example.com/project")
 
     def test_auto_slug_is_unique_per_owner(self):
         self.client.force_login(self.owner)
