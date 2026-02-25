@@ -1,40 +1,14 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ArrowBigUpDash,
-  FolderOpen,
+  ArrowRight,
+  Link2,
   ListTodo,
   Lock,
   MessageSquare,
   Palette,
   Sparkles,
 } from "lucide-react";
-
-const DEFAULT_FEATURED_PROJECTS = [
-  {
-    id: "sample-a",
-    owner_handle: "onurmatik",
-    name: "Mini Feedback",
-    slug: "mini-feedback",
-    tagline: "Solo founder board where users vote on what ships next.",
-    issues_count: 86,
-  },
-  {
-    id: "sample-b",
-    owner_handle: "buildwithada",
-    name: "ShipLog",
-    slug: "shiplog",
-    tagline: "Public changelog + request inbox for one-person products.",
-    issues_count: 142,
-  },
-  {
-    id: "sample-c",
-    owner_handle: "makercem",
-    name: "Tiny CRM",
-    slug: "tiny-crm",
-    tagline: "Keep users close and let them discover your other projects.",
-    issues_count: 57,
-  },
-];
 
 const SAMPLE_REQUESTS = [
   {
@@ -90,23 +64,9 @@ function csrfTokenFromCookie() {
   return tokenPart ? decodeURIComponent(tokenPart.slice("csrftoken=".length)) : "";
 }
 
-function projectPath(project) {
-  return `/${project.owner_handle}/${project.slug}/`;
-}
-
-function toReadableCount(value) {
-  const count = Number(value || 0);
-  if (!Number.isFinite(count)) {
-    return "0";
-  }
-  return new Intl.NumberFormat("en-US").format(count);
-}
-
 export default function LandingPage({ initialAuthMode = null }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [currentUserHandle, setCurrentUserHandle] = useState("");
-  const [featuredProjects, setFeaturedProjects] = useState([]);
-  const [isFeaturedLoading, setIsFeaturedLoading] = useState(true);
   const [authMode, setAuthMode] = useState(initialAuthMode);
 
   const [signInIdentity, setSignInIdentity] = useState("");
@@ -119,13 +79,6 @@ export default function LandingPage({ initialAuthMode = null }) {
   const [selectedPlanId, setSelectedPlanId] = useState("free");
   const [pricingFeedback, setPricingFeedback] = useState("");
   const [isPricingSubmitting, setIsPricingSubmitting] = useState(false);
-
-  const projectsToShow = useMemo(() => {
-    if (featuredProjects.length) {
-      return featuredProjects;
-    }
-    return DEFAULT_FEATURED_PROJECTS;
-  }, [featuredProjects]);
 
   const refreshSession = useCallback(async () => {
     const response = await fetch("/auth/me");
@@ -157,37 +110,6 @@ export default function LandingPage({ initialAuthMode = null }) {
       setAuthMode(initialAuthMode);
     }
   }, [initialAuthMode, isAuthenticated]);
-
-  useEffect(() => {
-    let isCancelled = false;
-
-    async function loadFeaturedProjects() {
-      setIsFeaturedLoading(true);
-      try {
-        const response = await fetch("/api/public/featured-projects?limit=3");
-        if (!response.ok) {
-          throw new Error("Projects not available.");
-        }
-        const data = await response.json();
-        if (!isCancelled) {
-          setFeaturedProjects(Array.isArray(data) ? data : []);
-        }
-      } catch {
-        if (!isCancelled) {
-          setFeaturedProjects([]);
-        }
-      } finally {
-        if (!isCancelled) {
-          setIsFeaturedLoading(false);
-        }
-      }
-    }
-
-    loadFeaturedProjects();
-    return () => {
-      isCancelled = true;
-    };
-  }, []);
 
   async function ensureCsrfCookie() {
     await fetch("/auth/me");
@@ -382,9 +304,6 @@ export default function LandingPage({ initialAuthMode = null }) {
             <a href="#features" className="text-sm font-medium text-[#6b7280] hover:text-[#111827] transition-colors">
               Features
             </a>
-            <a href="#projects" className="text-sm font-medium text-[#6b7280] hover:text-[#111827] transition-colors">
-              Public Boards
-            </a>
             <button
               type="button"
               onClick={openPricingModal}
@@ -475,8 +394,11 @@ export default function LandingPage({ initialAuthMode = null }) {
           </div>
         </section>
 
-        <section id="demo" className="-mt-12 md:-mt-20 px-4">
-          <div className="mx-auto max-w-5xl bg-white border border-[#e5e7eb] rounded-md-ds shadow-2xl overflow-hidden">
+        <section id="demo" className="-mt-12 md:-mt-20 px-4 pb-20">
+          <a
+            href="/onurmatik/feature-request/"
+            className="mx-auto max-w-5xl block bg-white border border-[#e5e7eb] rounded-md-ds shadow-2xl overflow-hidden relative group transition-all duration-300 hover:shadow-[0_20px_50px_rgba(6,182,212,0.15)]"
+          >
             <div className="h-10 bg-[#f9fafb] border-b border-[#e5e7eb] flex items-center px-4 gap-2">
               <div className="flex gap-1.5">
                 <span className="h-2.5 w-2.5 rounded-full bg-[#e5e7eb]" />
@@ -485,11 +407,11 @@ export default function LandingPage({ initialAuthMode = null }) {
               </div>
               <div className="flex-1 flex justify-center">
                 <div className="w-1/2 h-5 bg-white border border-[#e5e7eb] rounded text-[10px] font-mono text-[#9ca3af] flex items-center px-2">
-                  featurerequest.io/onurmatik/opt-bot
+                  featurerequest.io/onurmatik/feature-request
                 </div>
               </div>
             </div>
-            <div className="flex h-[400px] md:h-[600px] opacity-90 grayscale-[0.2]">
+            <div className="flex h-[400px] md:h-[600px]">
               <aside className="hidden sm:block w-48 border-r border-[#e5e7eb] p-3 bg-white">
                 <div className="space-y-4">
                   <div className="space-y-1">
@@ -554,41 +476,27 @@ export default function LandingPage({ initialAuthMode = null }) {
                 </div>
               </div>
             </div>
-          </div>
-        </section>
-
-        <section id="projects" className="py-20 px-4 max-w-7xl mx-auto">
-          <div className="text-center mb-12">
-            <p className="text-[10px] font-mono font-bold text-[#06B6D4] uppercase tracking-[0.2em]">Featured Public Boards</p>
-            <h2 className="text-3xl font-bold text-[#111827] mt-4">Community Projects</h2>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {projectsToShow.map((project) => (
-              <a
-                key={project.id}
-                href={projectPath(project)}
-                className="group rounded-md-ds border border-[#e5e7eb] bg-white p-6 hover:border-[#06B6D4] transition-all hover:shadow-ds"
-              >
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="h-10 w-10 rounded-sm-ds bg-cyan-50 text-[#06B6D4] flex items-center justify-center">
-                    <FolderOpen size={20} />
-                  </div>
-                  <div>
-                    <p className="font-bold text-[#111827] group-hover:text-[#06B6D4]">{project.name}</p>
-                    <p className="text-[10px] font-mono text-[#6b7280]">/{project.owner_handle}/{project.slug}</p>
-                  </div>
+            <div className="h-14 md:h-16 bg-[#f9fafb] border-t border-[#e5e7eb] px-4 md:px-6 flex items-center justify-between">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="hidden sm:flex h-8 w-8 rounded-sm-ds bg-white border border-[#e5e7eb] items-center justify-center text-[#6b7280] shrink-0">
+                  <Link2 size={16} />
                 </div>
-                <p className="text-sm text-[#6b7280] mb-6">
-                  {project.tagline || "Public request board for roadmap planning and bug triage."}
-                </p>
-                <div className="flex items-center justify-between text-[10px] font-mono font-bold uppercase tracking-wide">
-                  <span className="text-[#6b7280]">{toReadableCount(project.issues_count)} Requests</span>
-                  <span className="text-[#06B6D4]">View Board</span>
+                <div className="min-w-0">
+                  <span className="block text-[10px] font-mono font-bold uppercase tracking-wider text-[#9ca3af] leading-none mb-1">
+                    Project Board
+                  </span>
+                  <span className="block text-[11px] md:text-xs font-mono text-[#111827] truncate">
+                    featurerequest.io/onurmatik/feature-request
+                  </span>
                 </div>
-              </a>
-            ))}
-          </div>
+              </div>
+              <div className="flex items-center gap-2 px-3 md:px-4 py-2 bg-[#111827] text-white text-[10px] md:text-xs font-bold uppercase tracking-wide rounded-sm-ds shadow-sm group-hover:bg-[#06B6D4] transition-colors shrink-0">
+                <span className="hidden sm:inline">See Feature Request&apos;s own board</span>
+                <span className="sm:hidden">See board</span>
+                <ArrowRight size={14} />
+              </div>
+            </div>
+          </a>
         </section>
 
         <section id="features" className="py-20 bg-white border-y border-[#e5e7eb]">
