@@ -10,7 +10,8 @@ from html import escape
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.mail import send_mail
-from django.db.models import Count
+from django.db.models import Count, F, Max
+from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
 from ninja import Router, Schema
 from ninja.errors import HttpError
@@ -482,6 +483,12 @@ def _project_to_dict(project: Project):
     }
 
 
+def _order_projects_by_last_request(queryset):
+    return queryset.annotate(
+        _last_request_at=Coalesce(Max("issues__created_at"), F("created_at"))
+    ).order_by("-_last_request_at", "-created_at", "-id")
+
+
 def _featured_project_to_dict(project: Project):
     return {
         "id": project.id,
@@ -636,7 +643,9 @@ def _get_annotated_issue_queryset():
 @router.get("/projects", response=list[ProjectOut])
 def list_my_projects(request):
     user = _require_auth_user(request)
-    projects = Project.objects.select_related("owner").filter(owner=user)
+    projects = _order_projects_by_last_request(
+        Project.objects.select_related("owner").filter(owner=user)
+    )
     return [_project_to_dict(project) for project in projects]
 
 
@@ -744,7 +753,9 @@ def delete_project(request, project_id: int):
 @router.get("/owners/{owner_handle}/projects", response=list[ProjectOut])
 def list_owner_projects(request, owner_handle: str):
     owner = _get_owner(owner_handle)
-    projects = Project.objects.select_related("owner").filter(owner=owner)
+    projects = _order_projects_by_last_request(
+        Project.objects.select_related("owner").filter(owner=owner)
+    )
     return [_project_to_dict(project) for project in projects]
 
 

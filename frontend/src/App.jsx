@@ -1434,7 +1434,7 @@ export default function App() {
       setIsNewIssueOpen(false);
       setNewIssueFeedback("");
 
-      await refreshIssues();
+      await Promise.all([refreshIssues(), refreshProjects()]);
       setSelectedIssueId(data.id);
       setStatus("Request created.");
     } finally {
