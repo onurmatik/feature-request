@@ -2,6 +2,7 @@ Django
 django-ninja
 django-sesame
 django-storages[s3]
+django-ses[events]
 boto3
 stripe
 python-dotenv
