@@ -1,3 +1,4 @@
+import hashlib
 from django.contrib.auth.base_user import BaseUserManager
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
 from django.core.validators import RegexValidator
@@ -5,6 +6,16 @@ from django.db import models
 from django.utils import timezone
 
 from .handles import is_reserved_handle
+
+
+def gravatar_url_for_email(email: str, size: int = 80) -> str:
+    normalized_email = str(email or "").strip().lower()
+    if not normalized_email:
+        return ""
+
+    normalized_size = max(1, min(512, int(size or 80)))
+    digest = hashlib.md5(normalized_email.encode("utf-8")).hexdigest()
+    return f"https://www.gravatar.com/avatar/{digest}?s={normalized_size}&d=identicon&r=g"
 
 
 class UserManager(BaseUserManager):
@@ -110,6 +121,10 @@ class User(AbstractBaseUser, PermissionsMixin):
         self.handle = self.handle.lower()
         self.email = self.__class__.objects.normalize_email(self.email)
         super().save(*args, **kwargs)
+
+    @property
+    def avatar_url(self) -> str:
+        return gravatar_url_for_email(self.email)
 
     def __str__(self):
         return self.display_name or self.handle

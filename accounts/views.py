@@ -140,6 +140,7 @@ def _session_payload(user):
         return {
             "is_authenticated": True,
             "current_user_handle": user.handle,
+            "current_user_avatar_url": user.avatar_url,
             "user_id": user.id,
             "subscription_tier": user.subscription_tier,
             "subscription_status": user.subscription_status,
@@ -148,6 +149,7 @@ def _session_payload(user):
     return {
         "is_authenticated": False,
         "current_user_handle": "",
+        "current_user_avatar_url": "",
         "user_id": None,
         "subscription_tier": "free",
         "subscription_status": "",

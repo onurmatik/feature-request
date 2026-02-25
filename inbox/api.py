@@ -11,6 +11,7 @@ from django.shortcuts import get_object_or_404
 from ninja import Router, Schema
 from ninja.errors import HttpError
 from openai import OpenAI
+from accounts.models import gravatar_url_for_email
 
 from projects.models import Project
 
@@ -37,6 +38,7 @@ class OwnerMessageOut(Schema):
     sender_handle: Optional[str] = None
     sender_name: str
     sender_email: str
+    sender_avatar_url: str
     body: str
     created_at: str
 
@@ -66,6 +68,7 @@ def _message_to_dict(message: OwnerMessage):
         "sender_handle": message.sender_user.handle if message.sender_user else None,
         "sender_name": message.sender_name,
         "sender_email": message.sender_email,
+        "sender_avatar_url": gravatar_url_for_email(message.sender_email),
         "body": message.body,
         "created_at": message.created_at.isoformat(),
     }

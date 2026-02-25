@@ -56,6 +56,42 @@ function cls(...values) {
   return values.filter(Boolean).join(" ");
 }
 
+function UserAvatar({
+  imageUrl,
+  label,
+  sizeClass = "w-8 h-8",
+  fallbackClassName = "bg-cyan-50 border border-cyan-100 text-[#06B6D4]",
+  fallbackTextClassName = "text-[10px] font-bold",
+  imageClassName = "rounded-full border border-cyan-100 object-cover",
+}) {
+  const safeLabel = String(label || "").trim();
+  const fallback = safeLabel.slice(0, 2).toUpperCase() || "??";
+  const safeImageUrl = String(imageUrl || "").trim();
+
+  if (!safeImageUrl) {
+    return (
+      <div
+        className={cls(
+          sizeClass,
+          "rounded-full flex items-center justify-center shrink-0",
+          fallbackClassName,
+          fallbackTextClassName,
+        )}
+      >
+        {fallback}
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={safeImageUrl}
+      alt={`${safeLabel || "user"} avatar`}
+      className={cls(sizeClass, "rounded-full object-cover shrink-0", imageClassName)}
+    />
+  );
+}
+
 function normalizeHandle(value) {
   return String(value || "").trim().toLowerCase();
 }
@@ -199,6 +235,7 @@ function parseBootstrap() {
     isNotFoundRoute: route.kind === "notFound" || route.kind === "reserved",
     isAuthenticated: Boolean(value.isAuthenticated),
     currentUserHandle: String(value.currentUserHandle || "").trim(),
+    currentUserAvatarUrl: String(value.currentUserAvatarUrl || "").trim(),
     subscriptionTier: String(value.subscription_tier || "free").toLowerCase(),
     subscriptionStatus: String(value.subscription_status || "").toLowerCase(),
     projectLimit: Number(value.project_limit || 1),
@@ -684,6 +721,7 @@ export default function App() {
   const [upgradePlanFeedback, setUpgradePlanFeedback] = useState("");
   const [isAuthenticated, setIsAuthenticated] = useState(bootstrap.isAuthenticated);
   const [currentUserHandle, setCurrentUserHandle] = useState(bootstrap.currentUserHandle);
+  const [currentUserAvatarUrl, setCurrentUserAvatarUrl] = useState(bootstrap.currentUserAvatarUrl);
   const [subscriptionTier, setSubscriptionTier] = useState(bootstrap.subscriptionTier);
   const [subscriptionStatus, setSubscriptionStatus] = useState(bootstrap.subscriptionStatus);
   const [projectLimit, setProjectLimit] = useState(Number(bootstrap.projectLimit || 1));
@@ -979,6 +1017,7 @@ export default function App() {
     if (!response.ok) {
       setIsAuthenticated(false);
       setCurrentUserHandle("");
+      setCurrentUserAvatarUrl("");
       setSubscriptionTier("free");
       setSubscriptionStatus("");
       setProjectLimit(1);
@@ -988,6 +1027,7 @@ export default function App() {
     const data = await response.json();
     setIsAuthenticated(Boolean(data.is_authenticated));
     setCurrentUserHandle(String(data.current_user_handle || ""));
+    setCurrentUserAvatarUrl(String(data.current_user_avatar_url || ""));
     setSubscriptionTier(String(data.subscription_tier || "free").toLowerCase());
     setSubscriptionStatus(String(data.subscription_status || "").toLowerCase());
     setProjectLimit(Number(data.project_limit || 1));
@@ -1071,6 +1111,7 @@ export default function App() {
       }
       setIsAuthenticated(true);
       setCurrentUserHandle(handle);
+      setCurrentUserAvatarUrl(String(payload.current_user_avatar_url || ""));
       setSubscriptionTier(String(payload.subscription_tier || "free").toLowerCase());
       setSubscriptionStatus(String(payload.subscription_status || "").toLowerCase());
       setProjectLimit(Number(payload.project_limit || 1));
@@ -1156,6 +1197,7 @@ export default function App() {
     setIsProfileMenuOpen(false);
     setIsAuthenticated(false);
     setCurrentUserHandle("");
+    setCurrentUserAvatarUrl("");
     setSubscriptionTier("free");
     setSubscriptionStatus("");
     setProjectLimit(1);
@@ -1269,6 +1311,7 @@ export default function App() {
     refreshSession().catch(() => {
       setIsAuthenticated(false);
       setCurrentUserHandle("");
+      setCurrentUserAvatarUrl("");
       setMessages([]);
       setSelectedMessageThreadId("");
       setIsMessagesLoading(false);
@@ -2341,9 +2384,11 @@ export default function App() {
                 className="flex items-center gap-2 rounded-sm-ds border border-transparent px-2 py-1 transition-colors hover:border-[#e5e7eb] hover:bg-[#f8fafc]"
               >
                 <span className="text-xs font-mono text-[#6b7280]">{currentUserHandle || "user"}</span>
-                <div className="w-8 h-8 rounded-full bg-cyan-50 flex items-center justify-center text-[#06B6D4] font-bold text-xs border border-cyan-100">
-                  {(currentUserHandle || "US").slice(0, 2).toUpperCase()}
-                </div>
+                <UserAvatar
+                  imageUrl={currentUserAvatarUrl}
+                  label={currentUserHandle || "user"}
+                  sizeClass="w-8 h-8"
+                />
                 <ChevronDown size={14} className="text-[#6b7280]" />
               </button>
 
@@ -2670,14 +2715,24 @@ export default function App() {
                           disabled={isIssueUpdating}
                           className="flex items-center gap-1.5 px-3 py-1.5 border border-[#e5e7eb] rounded-sm-ds text-[#111827] font-semibold text-xs hover:bg-[#f3f4f6] transition-colors disabled:opacity-50"
                         >
-                          <ArrowBigUpDash size={18} className="text-[#06B6D4]" />
-                          Upvote ({selectedIssue.upvotes_count})
-                        </button>
-                        <div className="h-4 w-[1px] bg-[#e5e7eb]" />
-                        <span className="text-[10px] font-mono text-[#6b7280] uppercase">
-                            Created by @{selectedIssue.author_handle || `user-${selectedIssue.author_id}`} • {formatLongDate(selectedIssue.created_at)}
-                        </span>
-                      </div>
+                  <ArrowBigUpDash size={18} className="text-[#06B6D4]" />
+                  Upvote ({selectedIssue.upvotes_count})
+                </button>
+                <div className="h-4 w-[1px] bg-[#e5e7eb]" />
+                <div className="flex items-center gap-2">
+                  <UserAvatar
+                    imageUrl={selectedIssue.author_avatar_url}
+                    label={selectedIssue.author_handle || `user-${selectedIssue.author_id}`}
+                    sizeClass="w-6 h-6"
+                    fallbackClassName="bg-cyan-50 border border-cyan-100 text-[#06B6D4]"
+                    fallbackTextClassName="text-[9px] font-bold"
+                    imageClassName="rounded-full border border-cyan-100 object-cover"
+                  />
+                  <span className="text-[10px] font-mono text-[#6b7280] uppercase">
+                    Created by @{selectedIssue.author_handle || `user-${selectedIssue.author_id}`} • {formatLongDate(selectedIssue.created_at)}
+                  </span>
+                </div>
+              </div>
 
                       <div className="flex items-center gap-2">
                         <div className="flex items-center gap-2 border border-[#e5e7eb] rounded-sm-ds px-2 py-1">
@@ -2736,9 +2791,12 @@ export default function App() {
                           ) : (
                             comments.map((comment) => (
                               <div key={comment.id} className="flex gap-4">
-                                <div className="w-8 h-8 rounded-full bg-cyan-50 flex items-center justify-center text-[#06B6D4] font-bold text-[10px] shrink-0">
-                                  {String(comment.author_handle || "??").slice(0, 2).toUpperCase()}
-                                </div>
+                                <UserAvatar
+                                  imageUrl={comment.author_avatar_url}
+                                  label={comment.author_handle}
+                                  sizeClass="w-8 h-8"
+                                  fallbackTextClassName="text-[10px] font-bold"
+                                />
                                 <div className="flex-1">
                                   <div className="flex items-center justify-between mb-1">
                                     <span className="text-xs font-bold">@{comment.author_handle}</span>

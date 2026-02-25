@@ -17,6 +17,8 @@ from ninja import Router, Schema
 from ninja.errors import HttpError
 from openai import OpenAI
 
+from accounts.models import gravatar_url_for_email
+
 from .models import Issue, IssueComment, IssueUpvote, Project
 
 router = Router(tags=["issues"])
@@ -77,6 +79,7 @@ class IssueOut(Schema):
     project_id: int
     author_id: int
     author_handle: str
+    author_avatar_url: str
     issue_type: str
     title: str
     description: str
@@ -103,6 +106,7 @@ class CommentOut(Schema):
     issue_id: int
     author_id: int
     author_handle: str
+    author_avatar_url: str
     body: str
     created_at: str
     updated_at: str
@@ -456,6 +460,7 @@ def _issue_to_dict(issue: Issue):
         "project_id": issue.project_id,
         "author_id": issue.author_id,
         "author_handle": issue.author.handle,
+        "author_avatar_url": gravatar_url_for_email(issue.author.email),
         "issue_type": issue.issue_type,
         "title": issue.title,
         "description": issue.description,
@@ -507,6 +512,7 @@ def _comment_to_dict(comment: IssueComment):
         "issue_id": comment.issue_id,
         "author_id": comment.author_id,
         "author_handle": comment.author.handle,
+        "author_avatar_url": gravatar_url_for_email(comment.author.email),
         "body": comment.body,
         "created_at": comment.created_at.isoformat(),
         "updated_at": comment.updated_at.isoformat(),
