@@ -56,7 +56,7 @@ class AuthEntryApiTest(TestCase):
             password="test-pass-123",
         )
 
-    def test_sign_up_creates_user_and_logs_in(self):
+    def test_sign_up_sends_magic_link(self):
         response = self.client.post(
             "/auth/sign-up",
             data=json.dumps(
@@ -68,14 +68,16 @@ class AuthEntryApiTest(TestCase):
             ),
             content_type="application/json",
         )
-        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.status_code, 200)
         payload = response.json()
-        self.assertTrue(payload["is_authenticated"])
-        self.assertEqual(payload["current_user_handle"], "new_user")
+        self.assertEqual(payload["detail"], "Sign-up link sent. Check your email.")
+        self.assertTrue(
+            get_user_model().objects.filter(email__iexact="new-user@example.com").exists()
+        )
 
         me_response = self.client.get("/auth/me")
         self.assertEqual(me_response.status_code, 200)
-        self.assertTrue(me_response.json()["is_authenticated"])
+        self.assertFalse(me_response.json()["is_authenticated"])
 
     def test_sign_up_rejects_invalid_or_duplicate_data(self):
         duplicate_email = self.client.post(

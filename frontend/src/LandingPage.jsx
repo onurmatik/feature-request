@@ -251,7 +251,7 @@ export default function LandingPage({ initialAuthMode = null }) {
     }
 
     setIsAuthSubmitting(true);
-    setAuthFeedback("Creating account...");
+    setAuthFeedback("Sending sign-up link...");
 
     try {
       await ensureCsrfCookie();
@@ -275,13 +275,11 @@ export default function LandingPage({ initialAuthMode = null }) {
         return;
       }
 
-      const nextHandle = String(payload.current_user_handle || "").trim();
-      if (!nextHandle) {
-        setAuthFeedback("Account created but handle was missing.");
-        return;
-      }
-
-      window.location.assign(`/${nextHandle}/`);
+      setAuthFeedback(
+        typeof payload.detail === "string"
+          ? payload.detail
+          : "Sign-up link sent. Check your email.",
+      );
     } catch {
       setAuthFeedback("Sign up failed. Please try again.");
     } finally {

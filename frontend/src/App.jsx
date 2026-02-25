@@ -399,7 +399,7 @@ export default function App() {
     }
 
     setIsAuthSubmitting(true);
-    setAuthFeedback("Creating account...");
+    setAuthFeedback("Sending sign-up link...");
 
     try {
       await ensureCsrfCookie();
@@ -422,18 +422,11 @@ export default function App() {
         return;
       }
 
-      const nextHandle = String(payload.current_user_handle || "").trim();
-      if (!nextHandle) {
-        setAuthFeedback("Account created but handle was missing.");
-        return;
-      }
-
-      setIsAuthenticated(true);
-      setCurrentUserHandle(nextHandle);
-      setSubscriptionTier(String(payload.subscription_tier || "free").toLowerCase());
-      setSubscriptionStatus(String(payload.subscription_status || "").toLowerCase());
-      setProjectLimit(Number(payload.project_limit || 1));
-      closeAuth();
+      setAuthFeedback(
+        typeof payload.detail === "string"
+          ? payload.detail
+          : "Sign-up link sent. Check your email.",
+      );
     } catch {
       setAuthFeedback("Sign up failed. Please try again.");
     } finally {

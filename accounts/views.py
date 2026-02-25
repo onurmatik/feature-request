@@ -1,5 +1,6 @@
 import json
 import re
+ 
 
 from django.conf import settings
 from django.contrib.auth import get_user_model, login, logout
@@ -171,8 +172,15 @@ def sign_up_view(request):
         handle=handle,
         display_name=display_name,
     )
-    login(request, user, backend=settings.AUTHENTICATION_BACKENDS[0])
-    return JsonResponse(_session_payload(user), status=201)
+    magic_link = request.build_absolute_uri(reverse("magic-link-login")) + get_query_string(user)
+    send_mail(
+        "Your magic link",
+        f"Click to sign in: {magic_link}",
+        settings.DEFAULT_FROM_EMAIL,
+        [user.email],
+        fail_silently=False,
+    )
+    return JsonResponse({"detail": "Sign-up link sent. Check your email."}, status=200)
 
 
 @require_POST
