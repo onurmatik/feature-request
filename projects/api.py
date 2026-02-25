@@ -637,6 +637,7 @@ def _get_annotated_issue_queryset():
     return Issue.objects.select_related("project", "author").annotate(
         upvotes_count=Count("upvotes", distinct=True),
         comments_count=Count("comments", distinct=True),
+        _last_comment_at=Coalesce(Max("comments__created_at"), F("created_at")),
     )
 
 
@@ -798,7 +799,8 @@ def list_owner_issues(
         _validate_priority(priority)
         queryset = queryset.filter(priority=priority)
 
-    return [_issue_to_dict(issue) for issue in queryset]
+    ordered_query = queryset.order_by("-_last_comment_at", "-created_at", "-id")
+    return [_issue_to_dict(issue) for issue in ordered_query]
 
 
 @router.get(
