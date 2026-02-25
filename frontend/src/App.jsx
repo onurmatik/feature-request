@@ -113,6 +113,209 @@ function typeTone(type) {
   return type === "bug" ? "border-rose-100 text-rose-700" : "border-purple-100 text-purple-700";
 }
 
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+
+function parseInlineMarkdown(line) {
+  const safeLine = escapeHtml(line);
+  const pattern = /\*\*([^\*\n]+)\*\*|__([^_\n]+)__|`([^`\n]+)`|~~([^~\n]+)~~|\[([^\]\n]+)\]\(([^)\n]+)\)|\*([^*\n]+)\*|_([^_\n]+)_/g;
+
+  const elements = [];
+  let cursor = 0;
+  let match;
+  let index = 0;
+
+  while ((match = pattern.exec(safeLine)) !== null) {
+    if (match.index > cursor) {
+      elements.push(safeLine.slice(cursor, match.index));
+    }
+
+    if (match[1] || match[2]) {
+      elements.push(<strong key={`markdown-strong-${index++}`}>{match[1] || match[2]}</strong>);
+    } else if (match[3]) {
+      elements.push(<code key={`markdown-code-${index++}`}>{match[3]}</code>);
+    } else if (match[4]) {
+      elements.push(<del key={`markdown-del-${index++}`}>{match[4]}</del>);
+    } else if (match[5] && match[6]) {
+      const href = String(match[6]).trim();
+      const isSafeUrl = href.startsWith("http://") || href.startsWith("https://") || href.startsWith("/");
+      const safeHref = isSafeUrl ? href : "#";
+
+      elements.push(
+        <a
+          key={`markdown-link-${index++}`}
+          href={safeHref}
+          target={safeHref.startsWith("http") ? "_blank" : undefined}
+          rel={safeHref.startsWith("http") ? "noopener noreferrer" : undefined}
+          className="text-[#06B6D4] underline underline-offset-2"
+        >
+          {match[5]}
+        </a>,
+      );
+    } else if (match[7] || match[8]) {
+      elements.push(<em key={`markdown-em-${index++}`}>{match[7] || match[8]}</em>);
+    }
+
+    cursor = pattern.lastIndex;
+  }
+
+  if (cursor < safeLine.length) {
+    elements.push(safeLine.slice(cursor));
+  }
+
+  return elements;
+}
+
+function parseMarkdownBlocks(value) {
+  const lines = String(value || "").replaceAll("\r\n", "\n").split("\n");
+  const blocks = [];
+  let paragraphLines = [];
+  let listContext = null;
+
+  function flushParagraph() {
+    if (!paragraphLines.length) {
+      return;
+    }
+
+    const blockIndex = blocks.length;
+    const linesToRender = [...paragraphLines];
+    paragraphLines = [];
+
+    blocks.push(
+      <p key={`markdown-paragraph-${blockIndex}`} className="mb-4 leading-relaxed">
+        {linesToRender.map((line, lineIndex) => (
+          <span key={`markdown-paragraph-line-${blockIndex}-${lineIndex}`} className={lineIndex ? "block mt-1" : "block"}>
+            {parseInlineMarkdown(line)}
+          </span>
+        ))}
+      </p>,
+    );
+  }
+
+  function flushList() {
+    if (!listContext || !listContext.items.length) {
+      return;
+    }
+
+    const listIndex = blocks.length;
+    const listItems = listContext.items.map((item, itemIndex) => (
+      <li key={`markdown-list-item-${listIndex}-${itemIndex}`}>{parseInlineMarkdown(item)}</li>
+    ));
+
+    if (listContext.ordered) {
+      blocks.push(
+        <ol key={`markdown-ol-${listIndex}`} className="pl-5 mb-4 list-decimal space-y-2">
+          {listItems}
+        </ol>,
+      );
+    } else {
+      blocks.push(
+        <ul key={`markdown-ul-${listIndex}`} className="pl-5 mb-4 list-disc space-y-2">
+          {listItems}
+        </ul>,
+      );
+    }
+
+    listContext = null;
+  }
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    const headingMatch = line.match(/^(#{1,6})\s+(.*)$/);
+    const unorderedListMatch = line.match(/^\s*[-*]\s+(.*)$/);
+    const orderedListMatch = line.match(/^\s*\d+\.\s+(.*)$/);
+
+    if (line.startsWith("```")) {
+      flushParagraph();
+      flushList();
+
+      const codeLines = [];
+      for (i += 1; i < lines.length; i += 1) {
+        const codeLine = lines[i];
+        if (codeLine.trim() === "```") {
+          break;
+        }
+        codeLines.push(codeLine);
+      }
+
+      blocks.push(
+        <pre
+          key={`markdown-code-${blocks.length}`}
+          className="bg-[#0b1220] text-[#e5e7eb] p-3 rounded-sm-ds mb-4 overflow-x-auto"
+        >
+          <code className="font-mono text-xs leading-relaxed">{codeLines.join("\n")}</code>
+        </pre>,
+      );
+      continue;
+    }
+
+    if (headingMatch) {
+      flushParagraph();
+      flushList();
+
+      const level = Math.min(headingMatch[1].length, 6);
+      const text = headingMatch[2].trim();
+      const HeadingTag = `h${level}`;
+
+      blocks.push(
+        <HeadingTag
+          key={`markdown-heading-${blocks.length}`}
+          className="font-bold text-[#111827] mt-1 mb-2 last:mb-0"
+        >
+          {parseInlineMarkdown(text)}
+        </HeadingTag>,
+      );
+      continue;
+    }
+
+    if (unorderedListMatch || orderedListMatch) {
+      if (!listContext || listContext.ordered !== Boolean(orderedListMatch)) {
+        flushList();
+        listContext = { ordered: Boolean(orderedListMatch), items: [] };
+      }
+
+      listContext.items.push(unorderedListMatch ? unorderedListMatch[1] : orderedListMatch[1]);
+      continue;
+    }
+
+    if (!line.trim()) {
+      flushParagraph();
+      flushList();
+      continue;
+    }
+
+    paragraphLines.push(line);
+  }
+
+  flushParagraph();
+  flushList();
+
+  return blocks;
+}
+
+function MarkdownContent({ value, fallback }) {
+  const content = String(value || "").trim();
+  const fallbackText = String(fallback || "");
+
+  if (!content) {
+    return <p>{fallbackText}</p>;
+  }
+
+  try {
+    return (
+      <div className="prose prose-sm max-w-none space-y-1">
+        {parseMarkdownBlocks(content)}
+      </div>
+    );
+  } catch {
+    return <p className="whitespace-pre-wrap text-[#6b7280]">{content}</p>;
+  }
+}
+
 function formatRelativeDate(isoString) {
   if (!isoString) {
     return "-";
@@ -1707,12 +1910,11 @@ export default function App() {
                     <div className="flex-1 overflow-y-auto px-8 py-6 space-y-8">
                       <div>
                         <h1 className="text-2xl font-bold text-[#111827] mb-4">{selectedIssue.title}</h1>
-                        <div className="prose prose-sm max-w-none text-[#6b7280] space-y-4">
-                          {selectedIssue.description ? (
-                            <p>{selectedIssue.description}</p>
-                          ) : (
-                            <p>No description provided.</p>
-                          )}
+                        <div className="text-[#6b7280]">
+                          <MarkdownContent
+                            value={selectedIssue.description}
+                            fallback="No description provided."
+                          />
                         </div>
                       </div>
 
@@ -1738,7 +1940,7 @@ export default function App() {
                                     </span>
                                   </div>
                                   <div className="p-3 bg-[#f9fafb] border border-[#e5e7eb] rounded-sm-ds text-sm text-[#6b7280]">
-                                    {comment.body}
+                                    <MarkdownContent value={comment.body} />
                                   </div>
                                 </div>
                               </div>
@@ -1756,7 +1958,19 @@ export default function App() {
                             disabled={!isAuthenticated || isCommentSubmitting}
                           />
                           <div className="flex items-center justify-between">
-                            <span className="text-[10px] font-mono text-[#d1d5db]">Markdown supported</span>
+                            {commentFeedback ? (
+                              <span
+                                className={`text-[10px] font-mono ${
+                                  commentFeedback.toLowerCase().includes("rejected by moderation")
+                                    ? "text-[#b91c1c]"
+                                    : "text-[#d1d5db]"
+                                }`}
+                              >
+                                {commentFeedback}
+                              </span>
+                            ) : (
+                              <span className="text-[10px] font-mono text-[#d1d5db]">Markdown supported</span>
+                            )}
                             <button
                               type="button"
                               onClick={handlePostComment}
@@ -1766,17 +1980,6 @@ export default function App() {
                               Post Comment
                             </button>
                           </div>
-                          {commentFeedback ? (
-                            <p
-                              className={`mt-2 text-xs ${
-                                commentFeedback.toLowerCase().includes("rejected by moderation")
-                                  ? "text-[#b91c1c]"
-                                  : "text-[#6b7280]"
-                              }`}
-                            >
-                              {commentFeedback}
-                            </p>
-                          ) : null}
                         </div>
                       </div>
                     </div>
