@@ -7,6 +7,8 @@ import stripe
 from .models import User
 
 router = Router(tags=["billing"])
+PRO_30_UNIT_AMOUNT = 300
+PRO_30_CURRENCY = "usd"
 
 
 class BillingPlanOut(Schema):
@@ -81,38 +83,56 @@ def create_checkout_session(request, payload: BillingCheckoutIn):
     if not settings.STRIPE_SECRET_KEY:
         raise HttpError(500, "Stripe is not configured.")
 
-    if not settings.STRIPE_PRICE_ID_30:
-        raise HttpError(400, "Stripe price is missing for the paid plan.")
-
     stripe.api_key = settings.STRIPE_SECRET_KEY
 
-    customer_id = user.stripe_customer_id
-    if not customer_id:
-        customer = stripe.Customer.create(
-            email=user.email,
-            name=user.handle,
-            metadata={"user_id": str(user.id)},
+    try:
+        customer_id = user.stripe_customer_id
+        if not customer_id:
+            customer = stripe.Customer.create(
+                email=user.email,
+                name=user.handle,
+                metadata={"user_id": str(user.id)},
+            )
+            customer_id = customer.id
+            user.stripe_customer_id = customer_id
+            user.save(update_fields=["stripe_customer_id"])
+
+        success_url, cancel_url = _build_checkout_urls(request)
+
+        session = stripe.checkout.Session.create(
+            customer=customer_id,
+            client_reference_id=str(user.id),
+            mode="subscription",
+            line_items=[
+                {
+                    "price_data": {
+                        "currency": PRO_30_CURRENCY,
+                        "unit_amount": PRO_30_UNIT_AMOUNT,
+                        "recurring": {"interval": "month"},
+                        "product_data": {
+                            "name": "FeatureRequest Pro",
+                            "description": "Up to 30 projects",
+                        },
+                    },
+                    "quantity": 1,
+                },
+            ],
+            allow_promotion_codes=True,
+            success_url=success_url,
+            cancel_url=cancel_url,
+            metadata={"plan_id": payload.plan_id},
         )
-        customer_id = customer.id
-        user.stripe_customer_id = customer_id
-        user.save(update_fields=["stripe_customer_id"])
-
-    success_url, cancel_url = _build_checkout_urls(request)
-
-    session = stripe.checkout.Session.create(
-        customer=customer_id,
-        client_reference_id=str(user.id),
-        mode="subscription",
-        line_items=[
-            {
-                "price": settings.STRIPE_PRICE_ID_30,
-                "quantity": 1,
-            },
-        ],
-        allow_promotion_codes=True,
-        success_url=success_url,
-        cancel_url=cancel_url,
-        metadata={"plan_id": payload.plan_id},
-    )
+    except stripe.error.AuthenticationError:
+        raise HttpError(500, "Stripe authentication failed. Check STRIPE_SECRET_KEY.")
+    except stripe.error.InvalidRequestError as exc:
+        message = (exc.user_message or "").strip()
+        if "No such price" in message:
+            raise HttpError(400, "Stripe price is invalid. Check STRIPE_PRICE_ID_30.")
+        if "No such customer" in message:
+            raise HttpError(400, "Stripe customer is invalid. Please retry checkout.")
+        raise HttpError(400, message or "Stripe rejected the checkout request.")
+    except stripe.error.StripeError as exc:
+        message = (exc.user_message or "").strip()
+        raise HttpError(502, message or "Stripe could not create the checkout session.")
 
     return BillingCheckoutOut(plan_id=payload.plan_id, checkout_url=session.url)
