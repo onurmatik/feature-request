@@ -341,7 +341,7 @@ export default function LandingPage({ initialAuthMode = null }) {
             </h1>
             <p className="text-lg md:text-xl text-[#6b7280] max-w-2xl mx-auto leading-relaxed">
               The simplest way to manage feature requests, bug reports, and product feedback. Public boards, upvoting,
-              and focused discussions in one place.
+              and focused discussions for all your projects in one place.
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
               <button
@@ -351,18 +351,23 @@ export default function LandingPage({ initialAuthMode = null }) {
               >
                 Create your Board
               </button>
-              <button
-                type="button"
-                onClick={() => {
-                  const demo = document.getElementById("demo");
-                  if (demo) {
-                    demo.scrollIntoView({ behavior: "smooth" });
-                  }
-                }}
-                className="w-full sm:w-auto px-8 py-3 bg-white border border-[#e5e7eb] text-[#111827] text-sm font-bold rounded-sm-ds hover:bg-[#f3f4f6] transition-all uppercase tracking-wide"
+              <a
+                href="https://github.com/onurmatik/feature-request"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full sm:w-auto px-8 py-3 bg-white border border-[#e5e7eb] text-[#111827] text-sm font-bold rounded-sm-ds hover:bg-[#f3f4f6] transition-all uppercase tracking-wide inline-flex items-center justify-center gap-2"
               >
-                View live demo
-              </button>
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                  className="h-4 w-4"
+                  aria-hidden="true"
+                >
+                  <path d="M12 2C6.477 2 2 6.485 2 12.013c0 4.425 2.866 8.184 6.839 9.504.5.092.682-.217.682-.482 0-.237-.008-.865-.013-1.697-2.782.603-3.369-1.34-3.369-1.34-.454-1.157-1.11-1.465-1.11-1.465-.908-.62.069-.608.069-.608 1.003.07 1.531 1.033 1.531 1.033.892 1.53 2.341 1.088 2.91.832.092-.646.35-1.09.636-1.34-2.22-.252-4.555-1.112-4.555-4.945 0-1.093.39-1.987 1.03-2.686-.103-.252-.447-1.27.098-2.647 0 0 .84-.27 2.75 1.027a9.564 9.564 0 0 1 2.5-.337 9.55 9.55 0 0 1 2.5.337c1.909-1.297 2.748-1.027 2.748-1.027.547 1.377.202 2.395.1 2.647.64.7 1.029 1.593 1.029 2.686 0 3.842-2.339 4.69-4.566 4.936.359.31.678.923.678 1.862 0 1.344-.013 2.428-.013 2.76 0 .267.18.578.688.48A10.022 10.022 0 0 0 22 12.013C22 6.485 17.523 2 12 2Z" />
+                </svg>
+                View on Github
+              </a>
             </div>
           </div>
         </section>
@@ -377,7 +382,7 @@ export default function LandingPage({ initialAuthMode = null }) {
               </div>
               <div className="flex-1 flex justify-center">
                 <div className="w-1/2 h-5 bg-white border border-[#e5e7eb] rounded text-[10px] font-mono text-[#9ca3af] flex items-center px-2">
-                  featurerequest.com/onurmatik/mini-feedback
+                  featurerequest.io/onurmatik/mini-feedback
                 </div>
               </div>
             </div>
