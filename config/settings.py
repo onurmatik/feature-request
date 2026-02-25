@@ -47,6 +47,11 @@ INSTALLED_APPS = [
     "inbox",
 ]
 
+AWS_STORAGE_BUCKET_NAME = os.getenv("AWS_STORAGE_BUCKET_NAME", "").strip()
+if AWS_STORAGE_BUCKET_NAME:
+    INSTALLED_APPS.append("storages")
+
+
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -106,6 +111,28 @@ USE_TZ = True
 
 STATIC_URL = os.getenv("STATIC_URL", "/static/")
 STATIC_ROOT = Path(os.getenv("STATIC_ROOT", str(BASE_DIR / "staticfiles")))
+
+if AWS_STORAGE_BUCKET_NAME:
+    AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID", "").strip()
+    AWS_SECRET_ACCESS_KEY = os.getenv(
+        "AWS_SECRET_ACCESS_KEY",
+        os.getenv("AWS_SECRET_KEY", ""),
+    ).strip()
+    AWS_S3_REGION_NAME = os.getenv(
+        "AWS_S3_REGION_NAME",
+        os.getenv("AWS_DEFAULT_REGION", "us-east-1"),
+    ).strip()
+    AWS_S3_SIGNATURE_VERSION = os.getenv("AWS_S3_SIGNATURE_VERSION", "s3v4")
+    AWS_QUERYSTRING_AUTH = False
+    AWS_LOCATION = os.getenv("AWS_LOCATION", "static").strip()
+    STATIC_URL = f"https://{AWS_STORAGE_BUCKET_NAME}.s3.amazonaws.com/{AWS_LOCATION}/"
+    STATICFILES_STORAGE = "storages.backends.s3boto3.S3ManifestStaticFilesStorage"
+    STORAGES = {
+        "default": {"BACKEND": "storages.backends.s3boto3.S3Boto3Storage"},
+        "staticfiles": {
+            "BACKEND": "storages.backends.s3boto3.S3ManifestStaticFilesStorage"
+        },
+    }
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 STRIPE_PUBLIC_KEY = os.getenv("STRIPE_PUBLIC_KEY", "")

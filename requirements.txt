@@ -1,6 +1,8 @@
 Django
 django-ninja
 django-sesame
+django-storages
+boto3
 stripe
 python-dotenv
 openai
