@@ -30,6 +30,14 @@ def env_path(name, default):
     return f"/{segment}/"
 
 
+# AWS credentials
+AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID')
+AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_ACCESS_KEY')
+AWS_STORAGE_BUCKET_NAME = os.getenv('AWS_STORAGE_BUCKET_NAME')
+AWS_REGION_NAME = os.getenv('AWS_DEFAULT_REGION')
+AWS_S3_REGION_NAME = AWS_REGION_NAME
+
+
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-only-secret-key-change-in-production")
 DEBUG = env_bool("DEBUG", env_bool("DJANGO_DEBUG", True))
 ALLOWED_HOSTS = env_list(
@@ -150,10 +158,26 @@ STRIPE_PRICE_ID_30 = os.getenv("STRIPE_PRICE_ID_30", "")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
 TURNSTILE_SITEKEY = os.getenv("TURNSTILE_SITEKEY", "")
 TURNSTILE_SECRETKEY = os.getenv("TURNSTILE_SECRETKEY", "")
-EMAIL_BACKEND = os.getenv(
-    "EMAIL_BACKEND",
-    "django.core.mail.backends.console.EmailBackend" if DEBUG else "django_ses.SESBackend",
-)
+
+
+# Email & Authentication
+DEFAULT_FROM_EMAIL = 'hi@featurerequest.io'
+SERVER_EMAIL = 'notice@featurerequest.io'
+EMAIL_BACKEND = os.getenv('EMAIL_BACKEND')
+ADMIN_EMAIL = os.getenv('ADMIN_EMAIL')
+
+if ADMIN_EMAIL:
+    ADMINS = [('Admin', 'onurmatik@gmail.com')]
+
+EMAIL_SUBJECT_PREFIX = '[FeatureRequest] '
+
+if EMAIL_BACKEND:
+    AWS_SES_REGION_NAME = AWS_REGION_NAME
+    AWS_SES_ACCESS_KEY_ID = AWS_ACCESS_KEY_ID
+    AWS_SES_SECRET_ACCESS_KEY = AWS_SECRET_ACCESS_KEY
+else:
+    EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+
 
 CSRF_TRUSTED_ORIGINS = env_list(
     "CSRF_TRUSTED_ORIGINS",
