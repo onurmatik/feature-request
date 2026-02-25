@@ -1413,8 +1413,8 @@ export default function App() {
 
         <div className="flex-1 flex overflow-hidden">
           {view === "issues" ? (
-            <div className="flex-1 flex overflow-hidden">
-              <section className="w-full md:w-[380px] border-r border-[#e5e7eb] bg-white flex flex-col shrink-0">
+                <div className="flex-1 flex overflow-hidden">
+                  <section className="w-full md:w-[380px] border-r border-[#e5e7eb] bg-white flex flex-col shrink-0">
                 <div className="p-4 border-b border-[#e5e7eb] space-y-3">
                   <div className="md:hidden space-y-3">{projectButtons}</div>
 
@@ -1557,10 +1557,83 @@ export default function App() {
                     })
                   )}
                 </div>
-              </section>
+                  </section>
 
               <main className="hidden lg:flex flex-1 bg-white flex-col overflow-hidden">
-                {selectedIssue ? (
+                {isNewIssueOpen ? (
+                  <div className="flex-1 overflow-y-auto px-8 py-6 space-y-4">
+                    <h1 className="text-2xl font-bold text-[#111827]">Create New Request</h1>
+                    <p className="text-sm text-[#6b7280]">Describe your issue in detail below.</p>
+
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-mono font-bold text-[#6b7280] uppercase">Title</label>
+                      <input
+                        value={newIssueTitle}
+                        onChange={(event) => setNewIssueTitle(event.target.value)}
+                        type="text"
+                        className="w-full px-3 py-2 border border-[#e5e7eb] rounded-sm-ds text-sm focus:ring-1 focus:ring-[#06B6D4] outline-none"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-mono font-bold text-[#6b7280] uppercase">Description</label>
+                      <textarea
+                        rows={5}
+                        value={newIssueDescription}
+                        onChange={(event) => setNewIssueDescription(event.target.value)}
+                        className="w-full px-3 py-2 border border-[#e5e7eb] rounded-sm-ds text-sm focus:ring-1 focus:ring-[#06B6D4] outline-none resize-y"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-mono font-bold text-[#6b7280] uppercase">Issue Type</label>
+                        <select
+                          value={newIssueType}
+                          onChange={(event) => setNewIssueType(event.target.value)}
+                          className="w-full px-3 py-2 border border-[#e5e7eb] rounded-sm-ds text-sm focus:ring-1 focus:ring-[#06B6D4] outline-none"
+                        >
+                          <option value="feature">Feature</option>
+                          <option value="bug">Bug</option>
+                        </select>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-mono font-bold text-[#6b7280] uppercase">Priority</label>
+                        <select
+                          value={newIssuePriority}
+                          onChange={(event) => setNewIssuePriority(event.target.value)}
+                          className="w-full px-3 py-2 border border-[#e5e7eb] rounded-sm-ds text-sm focus:ring-1 focus:ring-[#06B6D4] outline-none"
+                        >
+                          <option value="1">Low</option>
+                          <option value="2">Medium</option>
+                          <option value="3">High</option>
+                          <option value="4">Critical</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {newIssueFeedback ? <p className="text-xs text-[#6b7280]">{newIssueFeedback}</p> : null}
+
+                    <div className="flex justify-end gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setIsNewIssueOpen(false)}
+                        className="px-4 py-2 text-sm font-bold text-[#6b7280] hover:text-[#111827]"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleSubmitNewIssue}
+                        disabled={isNewIssueSubmitting}
+                        className="px-4 py-2 bg-[#06B6D4] text-white text-sm font-bold rounded-sm-ds hover:bg-cyan-600 transition-all shadow-sm disabled:opacity-45"
+                      >
+                        Create Request
+                      </button>
+                    </div>
+                  </div>
+                ) : selectedIssue ? (
                   <>
                     <header className="px-8 py-4 border-b border-[#e5e7eb] flex items-center justify-between shrink-0">
                       <div className="flex items-center gap-4">
@@ -2227,95 +2300,6 @@ export default function App() {
         </div>
       ) : null}
 
-      {isNewIssueOpen ? (
-        <div
-          className="fixed inset-0 bg-[#111827]/60 backdrop-blur-[2px] z-[100] flex items-center justify-center p-4"
-          onClick={(event) => {
-            if (event.target === event.currentTarget) {
-              setIsNewIssueOpen(false);
-            }
-          }}
-        >
-          <div className="bg-white rounded-md-ds shadow-2xl max-w-lg w-full overflow-hidden">
-            <div className="p-6 space-y-4">
-              <h3 className="text-lg font-bold text-[#111827]">Create New Request</h3>
-              <p className="text-sm text-[#6b7280]">
-                New issue will be created under
-                <span className="font-mono font-semibold text-[#111827]"> /{bootstrap.ownerHandle}/{selectedProjectSlug}</span>
-              </p>
-
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-mono font-bold text-[#6b7280] uppercase">Title</label>
-                <input
-                  value={newIssueTitle}
-                  onChange={(event) => setNewIssueTitle(event.target.value)}
-                  type="text"
-                  className="w-full px-3 py-2 border border-[#e5e7eb] rounded-sm-ds text-sm focus:ring-1 focus:ring-[#06B6D4] outline-none"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-mono font-bold text-[#6b7280] uppercase">Description</label>
-                <textarea
-                  rows={4}
-                  value={newIssueDescription}
-                  onChange={(event) => setNewIssueDescription(event.target.value)}
-                  className="w-full px-3 py-2 border border-[#e5e7eb] rounded-sm-ds text-sm focus:ring-1 focus:ring-[#06B6D4] outline-none resize-y"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-mono font-bold text-[#6b7280] uppercase">Issue Type</label>
-                  <select
-                    value={newIssueType}
-                    onChange={(event) => setNewIssueType(event.target.value)}
-                    className="w-full px-3 py-2 border border-[#e5e7eb] rounded-sm-ds text-sm focus:ring-1 focus:ring-[#06B6D4] outline-none"
-                  >
-                    <option value="feature">Feature</option>
-                    <option value="bug">Bug</option>
-                  </select>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-mono font-bold text-[#6b7280] uppercase">Priority</label>
-                  <select
-                    value={newIssuePriority}
-                    onChange={(event) => setNewIssuePriority(event.target.value)}
-                    className="w-full px-3 py-2 border border-[#e5e7eb] rounded-sm-ds text-sm focus:ring-1 focus:ring-[#06B6D4] outline-none"
-                  >
-                    <option value="1">Low</option>
-                    <option value="2">Medium</option>
-                    <option value="3">High</option>
-                    <option value="4">Critical</option>
-                  </select>
-                </div>
-              </div>
-
-              {newIssueFeedback ? (
-                <p className="text-xs text-[#6b7280]">{newIssueFeedback}</p>
-              ) : null}
-            </div>
-            <div className="bg-[#f9fafb] px-6 py-4 flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => setIsNewIssueOpen(false)}
-                className="px-4 py-2 text-sm font-bold text-[#6b7280] hover:text-[#111827]"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleSubmitNewIssue}
-                disabled={isNewIssueSubmitting}
-                className="px-4 py-2 bg-[#06B6D4] text-white text-sm font-bold rounded-sm-ds hover:bg-cyan-600 transition-all shadow-sm disabled:opacity-45"
-              >
-                Create Request
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }
