@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.contrib import admin
 from django.urls import path
 from sesame.views import LoginView
@@ -12,7 +13,7 @@ from accounts.views import (
 from config.api import api
 
 urlpatterns = [
-    path("admin-qweasd123/", admin.site.urls),
+    path(settings.ADMIN_URL.lstrip("/"), admin.site.urls),
     path("auth/me", me_view, name="auth-me"),
     path("auth/sign-in", sign_in_view, name="auth-sign-in"),
     path("auth/sign-up", sign_up_view, name="auth-sign-up"),

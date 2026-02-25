@@ -15,6 +15,7 @@
 ## Environment flags
 
 - `DJANGO_DEV_ORIGIN=http://127.0.0.1:8000` (optional) changes Vite proxy target.
+- `ADMIN_URL=/admin/` (optional) changes the proxied Django admin route.
 
 ## Build
 

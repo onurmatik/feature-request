@@ -22,6 +22,14 @@ def env_list(name, default):
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
+def env_path(name, default):
+    value = os.getenv(name, default)
+    segment = value.strip().strip("/")
+    if not segment:
+        segment = default.strip("/")
+    return f"/{segment}/"
+
+
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-only-secret-key-change-in-production")
 DEBUG = env_bool("DEBUG", env_bool("DJANGO_DEBUG", True))
 ALLOWED_HOSTS = env_list(
@@ -33,6 +41,7 @@ ALLOWED_HOSTS = env_list(
         "www.featurerequest.io",
     ],
 )
+ADMIN_URL = env_path("ADMIN_URL", "/admin/")
 
 INSTALLED_APPS = [
     "django.contrib.admin",

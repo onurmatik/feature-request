@@ -2,6 +2,11 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 const djangoDevOrigin =
   globalThis.process?.env?.DJANGO_DEV_ORIGIN || "http://127.0.0.1:8000";
+const adminPathSegment =
+  (globalThis.process?.env?.ADMIN_URL || "/admin/")
+    .trim()
+    .replace(/^\/+|\/+$/g, "") || "admin";
+const adminUrl = `/${adminPathSegment}`;
 const allowedHosts =
   (globalThis.process?.env?.VITE_ALLOWED_HOSTS ||
     "featurerequest.io,www.featurerequest.io,localhost,127.0.0.1")
@@ -27,7 +32,7 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
       },
-      "/admin-qweasd123": {
+      [adminUrl]: {
         target: djangoDevOrigin,
         changeOrigin: true,
         secure: false,

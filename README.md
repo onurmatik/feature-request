@@ -65,6 +65,7 @@ FeatureRequest is a monorepo-style web application with a Django backend API and
   ```bash
   export DJANGO_DEV_ORIGIN=http://127.0.0.1:8000
   ```
+- `ADMIN_URL` configures the Django admin route (defaults to `/admin/`).
 
 ## Useful Commands
 
