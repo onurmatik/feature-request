@@ -15,7 +15,7 @@ def gravatar_url_for_email(email: str, size: int = 80) -> str:
 
     normalized_size = max(1, min(512, int(size or 80)))
     digest = hashlib.md5(normalized_email.encode("utf-8")).hexdigest()
-    return f"https://www.gravatar.com/avatar/{digest}?s={normalized_size}&d=identicon&r=g"
+    return f"https://www.gravatar.com/avatar/{digest}?s={normalized_size}&d=mp&r=g"
 
 
 class UserManager(BaseUserManager):
