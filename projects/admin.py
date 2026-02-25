@@ -2,7 +2,7 @@ from django.contrib import admin, messages
 from django.utils.html import format_html_join
 
 from .models import Issue, IssueComment, IssueUpvote, Project
-from .api import _resolve_favicon_url_with_debug
+from .api import _normalize_project_url, _resolve_favicon_url_with_debug
 
 
 @admin.action(description="Refresh selected projects' favicons")
@@ -19,19 +19,21 @@ def refresh_project_favicons(modeladmin, request, queryset):
             skipped_details.append(f"{project.name} ({project.slug}): no URL")
             continue
 
-        favicon_url, debug = _resolve_favicon_url_with_debug(project.url)
+        normalized_url = _normalize_project_url(project.url)
+        favicon_url, debug = _resolve_favicon_url_with_debug(normalized_url)
         if not favicon_url:
             failed_details.append(
                 f"{project.name} ({project.slug}): no favicon found | {' | '.join(debug or [])}",
             )
             continue
 
-        if project.favicon_url != favicon_url:
+        if project.favicon_url != favicon_url or project.url != normalized_url:
             project.favicon_url = favicon_url
-            project.save(update_fields=["favicon_url"])
+            project.url = normalized_url
+            project.save(update_fields=["favicon_url", "url"])
             updated += 1
             updated_details.append(
-                f"{project.name} ({project.slug}): {favicon_url} | {' | '.join(debug[-3:])}",
+                f"{project.name} ({project.slug}): {favicon_url} | url={normalized_url} | {' | '.join(debug[-3:])}",
             )
 
     if updated:

@@ -188,6 +188,27 @@ def _normalize_favicon_candidate(base_url: str, candidate: str):
     return normalized
 
 
+def _normalize_project_url(url: str):
+    candidate = (url or "").strip()
+    if not candidate:
+        return ""
+
+    parsed = urlparse(candidate)
+    if parsed.scheme:
+        return candidate
+
+    if candidate.startswith("//"):
+        return f"https:{candidate}"
+
+    if candidate.startswith("/"):
+        return candidate
+
+    if " " in candidate:
+        return candidate
+
+    return f"https://{candidate}"
+
+
 def _open_url(request: Request, timeout: int, debug: Optional[list[str]] = None):
     try:
         return urlopen(request, timeout=timeout)
@@ -295,16 +316,22 @@ def _extract_project_favicon_url(base_url: str, debug: Optional[list[str]] = Non
 
 def _resolve_favicon_url_internal(project_url: str, collect_debug: bool = False):
     debug: Optional[list[str]] = [] if collect_debug else None
+    normalized_project_url = _normalize_project_url(project_url)
+    if normalized_project_url != project_url:
+        _append_debug(
+            debug,
+            f"Normalized project URL from {project_url} to {normalized_project_url}",
+        )
 
-    parsed = urlparse(project_url)
+    parsed = urlparse(normalized_project_url)
     if parsed.scheme not in {"http", "https"}:
         _append_debug(
             debug,
-            f"Skipping favicon lookup because scheme is not http/https: {project_url}",
+            f"Skipping favicon lookup because scheme is not http/https: {normalized_project_url}",
         )
         return "", debug
 
-    candidates = _extract_project_favicon_url(project_url, debug=debug)
+    candidates = _extract_project_favicon_url(normalized_project_url, debug=debug)
     candidates.extend([
         "/favicon.ico",
         "/favicon.png",
@@ -316,7 +343,7 @@ def _resolve_favicon_url_internal(project_url: str, collect_debug: bool = False)
     _append_debug(debug, f"Trying {len(candidates)} favicon candidates")
 
     for candidate in candidates:
-        resolved = _normalize_favicon_candidate(project_url, candidate)
+        resolved = _normalize_favicon_candidate(normalized_project_url, candidate)
         if not resolved:
             _append_debug(debug, f"Skipping unsupported favicon candidate: {candidate}")
             continue
@@ -334,7 +361,7 @@ def _resolve_favicon_url_internal(project_url: str, collect_debug: bool = False)
         _append_debug(debug, f"Selected favicon candidate: {resolved}")
         return resolved, debug
 
-    _append_debug(debug, f"No favicon candidate resolved for {project_url}")
+    _append_debug(debug, f"No favicon candidate resolved for {normalized_project_url}")
     return "", debug
 
 
@@ -515,7 +542,7 @@ def create_project(request, payload: ProjectCreateIn):
         )
 
     name = _clean_non_empty(payload.name, "Project name")
-    url = payload.url.strip()
+    url = _normalize_project_url(payload.url)
     favicon_url = ""
     if url:
         favicon_url, favicon_debug = _resolve_favicon_url_with_debug(url)
@@ -571,7 +598,7 @@ def update_project(request, project_id: int, payload: ProjectUpdateIn):
         updated_fields.append("tagline")
 
     if payload.url is not None:
-        url = payload.url.strip()
+        url = _normalize_project_url(payload.url)
         project.url = url
         updated_fields.append("url")
 

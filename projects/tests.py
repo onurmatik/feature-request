@@ -408,10 +408,10 @@ class ProjectApiTest(TestCase):
     def test_owner_can_create_update_and_delete_project(self):
         self.client.force_login(self.owner)
 
-        with patch("projects.api._resolve_favicon_url") as resolve_favicon:
+        with patch("projects.api._resolve_favicon_url_with_debug") as resolve_favicon:
             resolve_favicon.side_effect = [
-                "https://example.com/platform/favicon.ico",
-                "https://example.com/platform-v2/favicon.ico",
+                ("https://example.com/platform/favicon.ico", ["ok"]),
+                ("https://example.com/platform-v2/favicon.ico", ["ok"]),
             ]
 
             create_response = self.client.post(
@@ -465,10 +465,10 @@ class ProjectApiTest(TestCase):
     def test_favicon_is_resolved_when_missing_on_project_update(self):
         self.client.force_login(self.owner)
 
-        with patch("projects.api._resolve_favicon_url") as resolve_favicon:
+        with patch("projects.api._resolve_favicon_url_with_debug") as resolve_favicon:
             resolve_favicon.side_effect = [
-                "",
-                "https://example.com/project/favicon.ico",
+                ("", ["none"]),
+                ("https://example.com/project/favicon.ico", ["ok"]),
             ]
 
             create_response = self.client.post(
@@ -497,6 +497,29 @@ class ProjectApiTest(TestCase):
             self.assertEqual(project.favicon_url, "https://example.com/project/favicon.ico")
             self.assertEqual(resolve_favicon.call_count, 2)
             resolve_favicon.assert_any_call("https://example.com/project")
+
+    def test_create_project_normalizes_scheme_less_url(self):
+        self.client.force_login(self.owner)
+
+        with patch("projects.api._resolve_favicon_url_with_debug") as resolve_favicon:
+            resolve_favicon.return_value = ("https://featurerequest.io/list-todo.svg", ["ok"])
+
+            create_response = self.client.post(
+                "/api/projects",
+                data=json.dumps(
+                    {
+                        "name": "FeatureRequest",
+                        "url": "featurerequest.io",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            self.assertEqual(create_response.status_code, 201)
+            created = create_response.json()
+            self.assertEqual(created["url"], "https://featurerequest.io")
+            self.assertEqual(created["favicon_url"], "https://featurerequest.io/list-todo.svg")
+            resolve_favicon.assert_called_once_with("https://featurerequest.io")
 
     def test_auto_slug_is_unique_per_owner(self):
         self.client.force_login(self.owner)
