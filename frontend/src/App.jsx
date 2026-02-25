@@ -644,6 +644,8 @@ export default function App() {
   const [selectedMessageThreadId, setSelectedMessageThreadId] = useState(
     bootstrap.initialMessageThreadId || "",
   );
+  const [messageSidebarProjects, setMessageSidebarProjects] = useState([]);
+  const [isMessageSidebarProjectsLoading, setIsMessageSidebarProjectsLoading] = useState(false);
   const [messageComposerBody, setMessageComposerBody] = useState("");
   const [messageComposerFeedback, setMessageComposerFeedback] = useState("");
   const [messageComposerFeedbackTone, setMessageComposerFeedbackTone] = useState("");
@@ -737,10 +739,6 @@ export default function App() {
   );
 
   const messageThreads = useMemo(() => {
-    if (!messages.length) {
-      return [];
-    }
-
     const viewerHandle = normalizeHandle(currentUserHandle);
     const grouped = new Map();
 
@@ -763,6 +761,7 @@ export default function App() {
           latestMessageEpoch: 0,
           latestMessageAt: "",
           latestMessageText: "",
+          isNewConversation: false,
         };
 
       existing.messages.push({
@@ -779,13 +778,32 @@ export default function App() {
       grouped.set(threadId, existing);
     }
 
-    return [...grouped.values()]
+    const threads = [...grouped.values()]
       .map((thread) => ({
         ...thread,
         messages: thread.messages.sort((a, b) => safeEpoch(a.created_at) - safeEpoch(b.created_at)),
       }))
       .sort((a, b) => b.latestMessageEpoch - a.latestMessageEpoch);
-  }, [messages, currentUserHandle]);
+
+    const selectedHandle = getHandleFromThreadId(selectedMessageThreadId);
+    const selectedThreadId = messageThreadIdFromHandle(selectedHandle);
+
+    if (selectedThreadId && !threads.some((thread) => thread.threadId === selectedThreadId)) {
+      threads.unshift({
+        threadId: selectedThreadId,
+        correspondentHandle: selectedHandle,
+        correspondentName: `@${selectedHandle}`,
+        correspondentEmail: "",
+        messages: [],
+        latestMessageEpoch: Number.MAX_SAFE_INTEGER,
+        latestMessageAt: "",
+        latestMessageText: "",
+        isNewConversation: true,
+      });
+    }
+
+    return threads;
+  }, [messages, currentUserHandle, selectedMessageThreadId]);
 
   const selectedMessageThread = useMemo(() => {
     if (!selectedMessageThreadId) {
@@ -1145,6 +1163,8 @@ export default function App() {
     setMessages([]);
     setSelectedMessageThreadId("");
     setIsMessagesLoading(false);
+    setMessageSidebarProjects([]);
+    setIsMessageSidebarProjectsLoading(false);
     window.location.assign("/");
   }
 
@@ -1252,6 +1272,8 @@ export default function App() {
       setMessages([]);
       setSelectedMessageThreadId("");
       setIsMessagesLoading(false);
+      setMessageSidebarProjects([]);
+      setIsMessageSidebarProjectsLoading(false);
     });
   }, [refreshSession]);
 
@@ -1268,6 +1290,55 @@ export default function App() {
       setStatus("Messages could not be loaded.", true);
     });
   }, [isAuthenticated, refreshMessages, setStatus, view]);
+
+  useEffect(() => {
+    if (view !== "messages") {
+      return;
+    }
+
+    const correspondentHandle = normalizeHandle(selectedMessageHandle);
+    if (!correspondentHandle) {
+      setMessageSidebarProjects([]);
+      setIsMessageSidebarProjectsLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setIsMessageSidebarProjectsLoading(true);
+
+    async function loadMessageSidebarProjects() {
+      try {
+        const response = await fetch(
+          `/api/owners/${encodeURIComponent(correspondentHandle)}/projects`,
+        );
+
+        if (!response.ok) {
+          if (!cancelled) {
+            setMessageSidebarProjects([]);
+          }
+          return;
+        }
+
+        const data = await response.json();
+        if (!cancelled) {
+          setMessageSidebarProjects(Array.isArray(data) ? data : []);
+        }
+      } catch {
+        if (!cancelled) {
+          setMessageSidebarProjects([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsMessageSidebarProjectsLoading(false);
+        }
+      }
+    }
+
+    loadMessageSidebarProjects();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedMessageHandle, view]);
 
   useEffect(() => {
     if (!bootstrap.ownerHandle) {
@@ -2143,6 +2214,69 @@ export default function App() {
     </>
   );
 
+  const messageProjectsOwnerHandle = normalizeHandle(selectedMessageHandle);
+  const messageProjectButtons = (
+    <>
+      <a
+        href={messageProjectsOwnerHandle ? `/${messageProjectsOwnerHandle}/` : "/messages/"}
+        className={cls(
+          "sidebar-project-btn w-full flex items-center gap-3 px-3 py-2 rounded-sm-ds font-medium text-sm transition-colors",
+          messageProjectsOwnerHandle
+            ? "text-[#6b7280] hover:bg-[#f3f4f6]"
+            : "bg-cyan-50 text-[#06B6D4]",
+        )}
+      >
+        <LayoutGrid size={18} />
+        All Projects
+      </a>
+      <div className="space-y-1">
+        <h3 className="px-3 text-[10px] font-mono font-bold text-[#9ca3af] uppercase tracking-wider mb-2">
+          Projects
+        </h3>
+        {!messageProjectsOwnerHandle ? (
+          <p className="px-3 text-xs text-[#6b7280]">Select a conversation to see projects.</p>
+        ) : isMessageSidebarProjectsLoading ? (
+          <p className="px-3 text-xs text-[#6b7280]">Loading projects...</p>
+        ) : messageSidebarProjects.length ? (
+          messageSidebarProjects.map((project) => (
+            <div key={project.id} className="relative">
+              <a
+                href={`/${messageProjectsOwnerHandle}/${project.slug}/`}
+                className="sidebar-project-btn w-full flex items-start gap-3 px-3 py-2 rounded-sm-ds font-medium text-sm transition-colors text-[#6b7280] hover:bg-[#f3f4f6]"
+              >
+                <ProjectSidebarIcon faviconUrl={project.favicon_url} projectName={project.name} />
+                <span className="flex-1 min-w-0 text-left">
+                  <span className="block font-medium leading-tight pr-10 truncate">{project.name}</span>
+                  {project.tagline ? (
+                    <span className="block w-full text-[11px] leading-tight text-[#6b7280] pt-2">
+                      {project.tagline}
+                    </span>
+                  ) : null}
+                </span>
+              </a>
+              {project.url ? (
+                <span className="absolute top-2 right-2">
+                  <a
+                    href={project.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-[#9ca3af] hover:text-[#111827] p-1 rounded-sm-ds transition-colors"
+                    aria-label={`Open ${project.name} website`}
+                    title="Open project site"
+                  >
+                    <ExternalLink size={16} />
+                  </a>
+                </span>
+              ) : null}
+            </div>
+          ))
+        ) : (
+          <p className="px-3 text-xs text-[#6b7280]">No public projects found.</p>
+        )}
+      </div>
+    </>
+  );
+
   return (
     <div className="h-screen flex flex-col bg-[#f3f4f6] text-[#111827]">
       <header className="h-[56px] bg-white border-b border-[#e5e7eb] flex items-center justify-between px-4 md:px-6 shrink-0 z-50">
@@ -2260,9 +2394,11 @@ export default function App() {
       </header>
 
       <div className="flex-1 flex overflow-hidden">
-        {bootstrap.ownerHandle ? (
+        {bootstrap.ownerHandle || view === "messages" ? (
           <aside className="w-60 bg-white border-r border-[#e5e7eb] flex-col shrink-0 hidden md:flex">
-            <div className="flex-1 p-2 space-y-4 overflow-y-auto">{projectButtons}</div>
+            <div className="flex-1 p-2 space-y-4 overflow-y-auto">
+              {view === "messages" ? messageProjectButtons : projectButtons}
+            </div>
 
             <div className="p-2 border-t border-[#e5e7eb]">
               <button
@@ -2270,12 +2406,23 @@ export default function App() {
                 onClick={() => {
                   setContactFeedback("");
                   setContactFeedbackTone("");
+                  if (view === "messages") {
+                    setMessagesThreadAndHistory(messageThreadIdFromHandle(selectedMessageHandle));
+                    return;
+                  }
+
                   openMessagesForOwnerContact();
                 }}
                 className="w-full flex items-center gap-3 px-3 py-2 rounded-sm-ds text-[#6b7280] hover:bg-[#f3f4f6] font-medium text-sm transition-colors"
               >
                 {isOwnerViewer ? <MessageCircle size={18} /> : <Mail size={18} />}
-                {isOwnerViewer ? "Messages" : `Contact @${bootstrap.ownerHandle || "owner"}`}
+                {view === "messages"
+                  ? selectedMessageHandle
+                    ? `Contact @${selectedMessageHandle}`
+                    : "Messages"
+                  : isOwnerViewer
+                    ? "Messages"
+                    : `Contact @${bootstrap.ownerHandle || "owner"}`}
               </button>
             </div>
           </aside>
@@ -2704,9 +2851,15 @@ export default function App() {
                             <span className={cls("text-sm font-semibold", isActive ? "text-[#06B6D4]" : "text-[#111827]")}>
                               {getMessageThreadLabel(thread)}
                             </span>
-                            <span className="text-[10px] text-[#6b7280]">{formatRelativeDate(thread.latestMessageAt)}</span>
+                            <span className="text-[10px] text-[#6b7280]">
+                              {thread.isNewConversation ? "new" : formatRelativeDate(thread.latestMessageAt)}
+                            </span>
                           </div>
-                          <p className="text-xs text-[#6b7280] mt-1">{trimForPreview(thread.latestMessageText)}</p>
+                          <p className="text-xs text-[#6b7280] mt-1">
+                            {thread.isNewConversation
+                              ? "Start a new conversation."
+                              : trimForPreview(thread.latestMessageText)}
+                          </p>
                         </button>
                       );
                     })
@@ -2736,7 +2889,7 @@ export default function App() {
                   ) : null}
                 </div>
                 <div className="flex-1 overflow-y-auto space-y-3 px-4 py-4">
-                  {selectedMessageThread ? (
+                  {selectedMessageThread && selectedMessageThread.messages.length ? (
                     selectedMessageThread.messages.map((message) => (
                       <div
                         key={message.id}
