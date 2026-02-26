@@ -179,6 +179,14 @@ function ProfileMenu({
             Settings
           </a>
           <a
+            href="/settings/api"
+            onClick={handleMenuClose}
+            className="flex w-full items-center gap-2 px-3 py-2 text-sm text-[#111827] hover:bg-[#f3f4f6]"
+          >
+            <KeyRound size={16} />
+            API Access
+          </a>
+          <a
             href="/messages"
             onClick={handleMenuClose}
             className="flex w-full items-center gap-2 px-3 py-2 text-sm text-[#111827] hover:bg-[#f3f4f6]"
@@ -2829,17 +2837,16 @@ export default function App() {
   const settingsSidebarNavigation = (
     <>
       <div className="space-y-1">
-        <a
-          href={settingsBackHref}
-          className="w-full flex items-center gap-3 px-3 py-2 rounded-sm-ds font-medium text-sm transition-colors text-[#6b7280] hover:bg-[#f3f4f6]"
-        >
-          <LayoutDashboard size={16} />
-          Workspace
-        </a>
-        <div className="space-y-1 px-1">
-          <h3 className="px-3 text-[10px] font-mono font-bold text-[#9ca3af] uppercase tracking-wider mb-2">
+        <div className="px-3 pb-2 flex items-center justify-between relative">
+          <h3 className="text-[10px] font-mono font-bold text-[#9ca3af] uppercase tracking-wider">
             Settings
           </h3>
+          <span className="p-1 rounded-sm-ds invisible shrink-0" aria-hidden="true">
+            <Plus size={14} />
+          </span>
+          <span className="pointer-events-none absolute left-[-0.5rem] right-[-0.5rem] bottom-0 h-px bg-[#e5e7eb]" />
+        </div>
+        <div className="space-y-1 px-1">
           {settingsNavItems.map((item) => {
             const isActive = item.key === "api" ? isApiAccessView : isSettingsGeneralView;
             const Icon = item.icon;
@@ -3687,7 +3694,6 @@ export default function App() {
                         <div className="space-y-2 text-sm text-[#6b7280]">
                           <p>Tokens never expire automatically.</p>
                           <p>Tokens stay active until revoked by you.</p>
-                          <p>`can_write=false` tokens can only perform read operations.</p>
                         </div>
                         <a
                           href={settingsUrl("api")}
