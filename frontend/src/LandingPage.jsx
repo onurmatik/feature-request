@@ -4,7 +4,7 @@ import {
   ArrowRight,
   Link2,
   ListTodo,
-  Lock,
+  Bot,
   MessageSquare,
   Palette,
   Sparkles,
@@ -545,11 +545,11 @@ export default function LandingPage({ initialAuthMode = null }) {
             </div>
             <div className="space-y-4">
               <div className="w-12 h-12 bg-[#f3f4f6] rounded-sm-ds flex items-center justify-center text-[#111827]">
-                <Lock size={22} />
+                <Bot size={22} />
               </div>
-              <h3 className="font-bold text-lg">Public or Private</h3>
+              <h3 className="font-bold text-lg">Agent Friendly</h3>
               <p className="text-sm text-[#6b7280] leading-relaxed">
-                Build in public with open boards or keep sensitive feedback private with board-level control.
+                Your AI agents can access and manage your issues via API.
               </p>
             </div>
           </div>
