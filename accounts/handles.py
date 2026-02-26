@@ -2,6 +2,7 @@ from django.conf import settings
 
 
 RESERVED_MESSAGES_HANDLE = "messages"
+RESERVED_SETTINGS_HANDLE = "settings"
 
 
 def _first_path_segment(path):
@@ -12,7 +13,7 @@ def _first_path_segment(path):
 
 
 def reserved_handles():
-    handles = {RESERVED_MESSAGES_HANDLE}
+    handles = {RESERVED_MESSAGES_HANDLE, RESERVED_SETTINGS_HANDLE}
 
     admin_segment = _first_path_segment(getattr(settings, "ADMIN_URL", "/admin/"))
     if admin_segment:

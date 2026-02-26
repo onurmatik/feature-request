@@ -118,7 +118,11 @@ class AuthEntryApiTest(TestCase):
         self.assertEqual(invalid_handle.status_code, 400)
 
     def test_sign_up_rejects_reserved_handles(self):
-        reserved_handles = ["messages", settings.ADMIN_URL.strip("/").split("/", 1)[0]]
+        reserved_handles = [
+            "messages",
+            "settings",
+            settings.ADMIN_URL.strip("/").split("/", 1)[0],
+        ]
 
         for index, handle in enumerate(reserved_handles):
             response = self.client.post(
