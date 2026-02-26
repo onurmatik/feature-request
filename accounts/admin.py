@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.contrib.auth.forms import UserChangeForm, UserCreationForm
 
-from .models import User
+from .models import ApiToken, User
 
 
 class CustomUserCreationForm(UserCreationForm):
@@ -77,4 +77,32 @@ class UserAdmin(BaseUserAdmin):
                 ),
             },
         ),
+    )
+
+
+@admin.register(ApiToken)
+class ApiTokenAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "user",
+        "name",
+        "can_write",
+        "token_prefix",
+        "created_at",
+        "last_used_at",
+        "revoked_at",
+    )
+    search_fields = (
+        "user__email",
+        "user__handle",
+        "name",
+        "token_prefix",
+    )
+    list_filter = ("can_write", "revoked_at", "created_at")
+    readonly_fields = (
+        "token_prefix",
+        "token_hash",
+        "created_at",
+        "last_used_at",
+        "revoked_at",
     )

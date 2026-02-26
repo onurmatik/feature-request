@@ -1,10 +1,11 @@
 from django.conf import settings
+from django.shortcuts import get_object_or_404
 from ninja import Router, Schema
 from ninja.errors import HttpError
 
 import stripe
 
-from .models import User
+from .models import ApiToken, User
 
 router = Router(tags=["billing"])
 PRO_30_UNIT_AMOUNT = 300
@@ -26,6 +27,24 @@ class BillingCheckoutIn(Schema):
 class BillingCheckoutOut(Schema):
     plan_id: str
     checkout_url: str | None = None
+
+
+class ApiTokenCreateIn(Schema):
+    name: str = "Agent token"
+    can_write: bool = True
+
+
+class ApiTokenOut(Schema):
+    id: int
+    name: str
+    can_write: bool
+    token_prefix: str
+    created_at: str
+    last_used_at: str | None = None
+
+
+class ApiTokenCreateOut(ApiTokenOut):
+    token: str
 
 
 def _require_auth_user(request):
@@ -63,6 +82,19 @@ def _plan_definitions():
 
 def _is_valid_plan(plan_id: str):
     return plan_id in {"free", "pro_30"}
+
+
+def _api_token_to_dict(api_token: ApiToken):
+    return {
+        "id": api_token.id,
+        "name": api_token.name,
+        "can_write": api_token.can_write,
+        "token_prefix": api_token.token_prefix,
+        "created_at": api_token.created_at.isoformat(),
+        "last_used_at": (
+            api_token.last_used_at.isoformat() if api_token.last_used_at else None
+        ),
+    }
 
 
 @router.get("/billing/plans", response=list[BillingPlanOut])
@@ -136,3 +168,38 @@ def create_checkout_session(request, payload: BillingCheckoutIn):
         raise HttpError(502, message or "Stripe could not create the checkout session.")
 
     return BillingCheckoutOut(plan_id=payload.plan_id, checkout_url=session.url)
+
+
+@router.get("/auth/tokens", response=list[ApiTokenOut])
+def list_api_tokens(request):
+    user = _require_auth_user(request)
+    tokens = ApiToken.objects.filter(user=user, revoked_at__isnull=True).order_by(
+        "-created_at"
+    )
+    return [_api_token_to_dict(token) for token in tokens]
+
+
+@router.post("/auth/tokens", response={201: ApiTokenCreateOut})
+def create_api_token(request, payload: ApiTokenCreateIn):
+    user = _require_auth_user(request)
+    token, raw_token = ApiToken.issue(
+        user=user,
+        name=payload.name,
+        can_write=payload.can_write,
+    )
+    response = _api_token_to_dict(token)
+    response["token"] = raw_token
+    return 201, response
+
+
+@router.delete("/auth/tokens/{token_id}", response={204: None})
+def revoke_api_token(request, token_id: int):
+    user = _require_auth_user(request)
+    token = get_object_or_404(
+        ApiToken,
+        id=token_id,
+        user=user,
+        revoked_at__isnull=True,
+    )
+    token.revoke()
+    return 204, None

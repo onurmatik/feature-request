@@ -1,4 +1,7 @@
 import hashlib
+import secrets
+from datetime import timedelta
+
 from django.contrib.auth.base_user import BaseUserManager
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
 from django.core.validators import RegexValidator
@@ -128,3 +131,67 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     def __str__(self):
         return self.display_name or self.handle
+
+
+class ApiToken(models.Model):
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="api_tokens",
+    )
+    name = models.CharField(max_length=120, default="Agent token")
+    can_write = models.BooleanField(default=True)
+    token_prefix = models.CharField(max_length=16, db_index=True)
+    token_hash = models.CharField(max_length=64, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_used_at = models.DateTimeField(null=True, blank=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    @staticmethod
+    def _hash_token(raw_token: str) -> str:
+        normalized = str(raw_token or "").strip()
+        return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+    @classmethod
+    def issue(cls, user, name: str = "", can_write: bool = True):
+        raw_secret = secrets.token_urlsafe(32)
+        raw_token = f"fr_{raw_secret}"
+        clean_name = (name or "").strip() or "Agent token"
+        token = cls.objects.create(
+            user=user,
+            name=clean_name,
+            can_write=bool(can_write),
+            token_prefix=raw_token[:12],
+            token_hash=cls._hash_token(raw_token),
+        )
+        return token, raw_token
+
+    @classmethod
+    def resolve_active(cls, raw_token: str):
+        normalized = str(raw_token or "").strip()
+        if not normalized:
+            return None
+
+        return (
+            cls.objects.select_related("user")
+            .filter(
+                token_hash=cls._hash_token(normalized),
+                revoked_at__isnull=True,
+                user__is_active=True,
+            )
+            .first()
+        )
+
+    def mark_used(self):
+        now = timezone.now()
+        if self.last_used_at and now - self.last_used_at < timedelta(minutes=5):
+            return
+        type(self).objects.filter(id=self.id).update(last_used_at=now)
+
+    def revoke(self):
+        type(self).objects.filter(id=self.id, revoked_at__isnull=True).update(
+            revoked_at=timezone.now()
+        )
