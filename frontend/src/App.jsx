@@ -841,7 +841,7 @@ export default function App() {
   const [selectedIssueId, setSelectedIssueId] = useState(null);
 
   const [typeFilter, setTypeFilter] = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("open");
   const [priorityFilter, setPriorityFilter] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
 

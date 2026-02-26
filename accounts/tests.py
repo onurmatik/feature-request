@@ -1,4 +1,5 @@
 import json
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.conf import settings
@@ -91,6 +92,25 @@ class AuthEntryApiTest(TestCase):
         me_response = self.client.get("/auth/me")
         self.assertEqual(me_response.status_code, 200)
         self.assertFalse(me_response.json()["is_authenticated"])
+
+    @patch("accounts.views.send_mail")
+    def test_sign_up_notifies_admins(self, mock_send_mail):
+        with self.settings(ADMINS=[("Admin", "admin@featurerequest.test")]):
+            response = self.client.post(
+                "/auth/sign-up",
+                data=json.dumps(
+                    {
+                        "email": "admin-notify-user@example.com",
+                        "handle": "admin_notify_user",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(mock_send_mail.call_count, 2)
+        admin_call = mock_send_mail.call_args_list[1]
+        self.assertEqual(admin_call.args[3], ["admin@featurerequest.test"])
 
     def test_sign_up_rejects_invalid_or_duplicate_data(self):
         duplicate_email = self.client.post(

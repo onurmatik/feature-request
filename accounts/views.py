@@ -135,6 +135,51 @@ def _send_magic_link_email(user, magic_link, action):
     )
 
 
+def _notify_admins_on_sign_up(user):
+    admin_emails = [email for _, email in getattr(settings, "ADMINS", []) if email]
+    if not admin_emails:
+        return
+
+    subject = "New user sign-up on FeatureRequest"
+    plain_text = (
+        "A new user has signed up for FeatureRequest.\n\n"
+        f"Email: {user.email}\n"
+        f"Handle: @{user.handle}\n"
+        f"Display name: {user.display_name or '(not provided)'}\n"
+    )
+    html_body = f"""<!DOCTYPE html>
+<html>
+  <body style="margin: 0; padding: 0; background: #f8fafc;">
+    <div style="padding: 24px 16px;">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width: 560px; margin: 0 auto; background: #ffffff; border: 1px solid #e5e7eb; border-radius: 12px;">
+        <tr>
+          <td style="padding: 20px 24px 8px 24px; font-family: Arial, sans-serif; color: #111827;">
+            <h1 style="margin: 0; font-size: 20px;">New user sign-up</h1>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding: 0 24px 16px 24px; font-family: Arial, sans-serif; color: #374151; line-height: 1.6;">
+            <p style="margin: 0 0 12px 0;">A new user has just signed up.</p>
+            <p style="margin: 0 0 12px 0;"><strong>Email:</strong> {escape(user.email)}</p>
+            <p style="margin: 0 0 12px 0;"><strong>Handle:</strong> @{escape(user.handle)}</p>
+            <p style="margin: 0;"><strong>Display name:</strong> {escape(user.display_name or "(not provided)")}</p>
+          </td>
+        </tr>
+      </table>
+    </div>
+  </body>
+</html>"""
+
+    send_mail(
+        subject,
+        plain_text,
+        settings.DEFAULT_FROM_EMAIL,
+        admin_emails,
+        html_message=html_body,
+        fail_silently=True,
+    )
+
+
 def _session_payload(user):
     if user.is_authenticated:
         return {
@@ -292,6 +337,7 @@ def sign_up_view(request):
         handle=handle,
         display_name=display_name,
     )
+    _notify_admins_on_sign_up(user)
     magic_link = _magic_link_url(request, user)
     _send_magic_link_email(
         user=user,
