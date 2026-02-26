@@ -16,6 +16,7 @@ import {
   ChevronDown,
   Settings,
   Trash2,
+  X,
 } from "lucide-react";
 import AuthModal from "./components/AuthModal.jsx";
 import { authSignInEndpoint, csrfTokenFromCookie, getPostAuthRedirect } from "./utils/authClient.js";
@@ -456,6 +457,17 @@ function statusTone(status) {
 
 function typeTone(type) {
   return type === "bug" ? "border-rose-100 text-rose-700" : "border-purple-100 text-purple-700";
+}
+
+function methodTone(method) {
+  const value = String(method || "").toUpperCase();
+  if (value === "POST") {
+    return "text-[#16a34a]";
+  }
+  if (value === "DELETE") {
+    return "text-[#dc2626]";
+  }
+  return "text-[#06B6D4]";
 }
 
 function escapeHtml(value) {
@@ -2770,11 +2782,30 @@ export default function App() {
   );
 
   const settingsNavItems = [
-    { key: "general", label: "General", href: settingsUrl("general") },
-    { key: "api", label: "API Access", href: settingsUrl("api") },
+    { key: "general", label: "General", href: settingsUrl("general"), icon: Settings },
+    { key: "api", label: "API Access", href: settingsUrl("api"), icon: KeyRound },
   ];
+  const settingsBackHref = workspaceOwnerHandle ? `/${workspaceOwnerHandle}/` : "/";
 
   const apiQuickstartEndpoints = [
+    {
+      method: "GET",
+      path: "/api/projects",
+      description: "List current user's projects",
+      curl: `curl -X GET "${apiBaseUrl}/api/projects" -H "Authorization: Bearer <API_TOKEN>"`,
+    },
+    {
+      method: "POST",
+      path: "/api/projects/<owner_handle>/<project_slug>/issues",
+      description: "Create an issue in a project",
+      curl: `curl -X POST "${apiBaseUrl}/api/projects/<owner_handle>/<project_slug>/issues" -H "Authorization: Bearer <API_TOKEN>" -H "Content-Type: application/json" -d '{"title":"Need better search","issue_type":"feature","priority":2}'`,
+    },
+    {
+      method: "GET",
+      path: "/api/issues/<issue_id>",
+      description: "Get issue details",
+      curl: `curl -X GET "${apiBaseUrl}/api/issues/<issue_id>" -H "Authorization: Bearer <API_TOKEN>"`,
+    },
     {
       method: "GET",
       path: "/api/auth/tokens",
@@ -2793,47 +2824,46 @@ export default function App() {
       description: "Revoke an API token",
       curl: `curl -X DELETE "${apiBaseUrl}/api/auth/tokens/<token_id>" -H "Authorization: Bearer <API_TOKEN>"`,
     },
-    {
-      method: "GET",
-      path: "/api/projects",
-      description: "List current user's projects",
-      curl: `curl -X GET "${apiBaseUrl}/api/projects" -H "Authorization: Bearer <API_TOKEN>"`,
-    },
-    {
-      method: "GET",
-      path: "/api/issues/<issue_id>",
-      description: "Get issue details",
-      curl: `curl -X GET "${apiBaseUrl}/api/issues/<issue_id>" -H "Authorization: Bearer <API_TOKEN>"`,
-    },
   ];
 
   const settingsSidebarNavigation = (
-    <div className="space-y-1">
-      <div className="px-3 pb-2 relative">
-        <h3 className="text-[10px] font-mono font-bold text-[#9ca3af] uppercase tracking-wider">Settings</h3>
-        <span className="pointer-events-none absolute left-[-0.5rem] right-[-0.5rem] bottom-0 h-px bg-[#e5e7eb]" />
+    <>
+      <div className="space-y-1">
+        <a
+          href={settingsBackHref}
+          className="w-full flex items-center gap-3 px-3 py-2 rounded-sm-ds font-medium text-sm transition-colors text-[#6b7280] hover:bg-[#f3f4f6]"
+        >
+          <LayoutDashboard size={16} />
+          Workspace
+        </a>
+        <div className="space-y-1 px-1">
+          <h3 className="px-3 text-[10px] font-mono font-bold text-[#9ca3af] uppercase tracking-wider mb-2">
+            Settings
+          </h3>
+          {settingsNavItems.map((item) => {
+            const isActive = item.key === "api" ? isApiAccessView : isSettingsGeneralView;
+            const Icon = item.icon;
+            return (
+              <a
+                key={item.key}
+                href={item.href}
+                onClick={(event) => {
+                  event.preventDefault();
+                  setSettingsSectionAndHistory(item.key);
+                }}
+                className={cls(
+                  "w-full flex items-center gap-3 px-2 py-1.5 rounded-sm-ds font-medium text-sm transition-colors",
+                  isActive ? "bg-cyan-50 text-[#06B6D4]" : "text-[#6b7280] hover:bg-[#f3f4f6]",
+                )}
+              >
+                <Icon size={15} />
+                {item.label}
+              </a>
+            );
+          })}
+        </div>
       </div>
-      {settingsNavItems.map((item) => {
-        const isActive = item.key === "api" ? isApiAccessView : isSettingsGeneralView;
-        return (
-          <a
-            key={item.key}
-            href={item.href}
-            onClick={(event) => {
-              event.preventDefault();
-              setSettingsSectionAndHistory(item.key);
-            }}
-            className={cls(
-              "w-full flex items-center gap-3 px-3 py-2 rounded-sm-ds font-medium text-sm transition-colors",
-              isActive ? "bg-cyan-50 text-[#06B6D4]" : "text-[#6b7280] hover:bg-[#f3f4f6]",
-            )}
-          >
-            <Settings size={16} />
-            {item.label}
-          </a>
-        );
-      })}
-    </div>
+    </>
   );
 
   const settingsMobileNavigation = (
@@ -2842,6 +2872,7 @@ export default function App() {
       <div className="grid grid-cols-2 gap-2">
         {settingsNavItems.map((item) => {
           const isActive = item.key === "api" ? isApiAccessView : isSettingsGeneralView;
+          const Icon = item.icon;
           return (
             <a
               key={`mobile-${item.key}`}
@@ -2857,6 +2888,9 @@ export default function App() {
                   : "border-[#e5e7eb] text-[#6b7280] hover:text-[#111827]",
               )}
             >
+              <span className="inline-flex items-center justify-center mr-1.5 align-middle">
+                <Icon size={12} />
+              </span>
               {item.label}
             </a>
           );
@@ -2993,7 +3027,17 @@ export default function App() {
               {isGlobalSettingsView ? settingsSidebarNavigation : view === "messages" ? messageProjectButtons : projectButtons}
             </div>
 
-            {!isGlobalSettingsView ? (
+            {isGlobalSettingsView ? (
+              <div className="p-2 border-t border-[#e5e7eb]">
+                <a
+                  href={settingsBackHref}
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-sm-ds text-[#6b7280] hover:bg-[#f3f4f6] font-medium text-sm transition-colors"
+                >
+                  <LayoutDashboard size={18} />
+                  Back to Workspace
+                </a>
+              </div>
+            ) : (
               <div className="p-2 border-t border-[#e5e7eb]">
                 <button
                   type="button"
@@ -3018,7 +3062,7 @@ export default function App() {
                   {sidebarBottomActionLabel}
                 </button>
               </div>
-            ) : null}
+            )}
           </aside>
         ) : null}
 
@@ -3600,126 +3644,89 @@ export default function App() {
               </main>
             </div>
           ) : isGlobalSettingsView ? (
-            <div className="flex-1 bg-white flex flex-col overflow-y-auto">
-              <div className="max-w-6xl mx-auto w-full px-6 md:px-8 py-10 space-y-8">
-                {settingsMobileNavigation}
-                <div>
-                  <h2 className="text-2xl font-bold text-[#111827] mb-2">
-                    {isApiAccessView ? "API Access" : "General Settings"}
-                  </h2>
-                  <p className="text-sm text-[#6b7280]">
-                    {isApiAccessView
-                      ? "Manage bearer tokens and API usage for your account."
-                      : "Global workspace settings live here. API access applies to all of your projects."}
-                  </p>
-                </div>
+            <div className="flex-1 bg-white flex flex-col overflow-hidden">
+              {isSettingsGeneralView ? (
+                <div className="flex-1 overflow-y-auto">
+                  <div className="max-w-6xl mx-auto w-full px-6 md:px-8 py-10 space-y-8">
+                    {settingsMobileNavigation}
+                    <div>
+                      <h2 className="text-2xl font-bold text-[#111827] mb-2">General Settings</h2>
+                      <p className="text-sm text-[#6b7280]">
+                        Global workspace settings live here. API access applies to all of your projects.
+                      </p>
+                    </div>
 
-                {isSettingsGeneralView ? (
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    <section className="rounded-md-ds border border-[#e5e7eb] bg-white p-6 space-y-4">
-                      <h3 className="text-sm font-bold uppercase tracking-widest text-[#6b7280]">Account</h3>
-                      {isAuthenticated ? (
-                        <div className="space-y-1">
-                          <p className="text-sm text-[#111827]">
-                            Signed in as <span className="font-mono font-bold">@{currentUserHandle}</span>
-                          </p>
-                          <p className="text-xs text-[#6b7280]">
-                            Your API tokens inherit your account permissions and can access all of your projects.
-                          </p>
-                        </div>
-                      ) : (
-                        <div className="space-y-3">
-                          <p className="text-sm text-[#6b7280]">Sign in to manage settings and API tokens.</p>
-                          <button
-                            type="button"
-                            onClick={() => openAuth("signIn")}
-                            className="px-4 py-2 bg-[#111827] text-white text-xs font-bold rounded-sm-ds hover:bg-black transition-colors"
-                          >
-                            Sign In
-                          </button>
-                        </div>
-                      )}
-                    </section>
-
-                    <section className="rounded-md-ds border border-[#e5e7eb] bg-white p-6 space-y-4">
-                      <h3 className="text-sm font-bold uppercase tracking-widest text-[#6b7280]">API Access Model</h3>
-                      <div className="space-y-2 text-sm text-[#6b7280]">
-                        <p>Tokens never expire automatically.</p>
-                        <p>Tokens stay active until revoked by you.</p>
-                        <p>`can_write=false` tokens can only perform read operations.</p>
-                      </div>
-                      <a
-                        href={settingsUrl("api")}
-                        onClick={(event) => {
-                          event.preventDefault();
-                          setSettingsSectionAndHistory("api");
-                        }}
-                        className="inline-flex items-center gap-2 rounded-sm-ds bg-[#06B6D4] px-4 py-2 text-xs font-bold uppercase tracking-wide text-white hover:bg-cyan-600 transition-colors"
-                      >
-                        <KeyRound size={14} />
-                        Open API Access
-                      </a>
-                    </section>
-                  </div>
-                ) : (
-                  <>
-                    {latestCreatedTokenValue ? (
-                      <section className="rounded-md-ds border border-cyan-100 bg-cyan-50 p-4 space-y-3">
-                        <div className="flex items-center justify-between gap-3">
-                          <div>
-                            <p className="text-sm font-semibold text-[#111827]">
-                              New token created{latestCreatedTokenName ? `: ${latestCreatedTokenName}` : ""}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                      <section className="rounded-md-ds border border-[#e5e7eb] bg-white p-6 space-y-4">
+                        <h3 className="text-sm font-bold uppercase tracking-widest text-[#6b7280]">Account</h3>
+                        {isAuthenticated ? (
+                          <div className="space-y-1">
+                            <p className="text-sm text-[#111827]">
+                              Signed in as <span className="font-mono font-bold">@{currentUserHandle}</span>
                             </p>
                             <p className="text-xs text-[#6b7280]">
-                              Copy this token now. You will not be able to view it again later.
+                              Your API tokens inherit your account permissions and can access all of your projects.
                             </p>
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => copyValueAndNotify(latestCreatedTokenValue, "Token copied.")}
-                            className="inline-flex items-center gap-2 rounded-sm-ds border border-[#e5e7eb] bg-white px-3 py-1.5 text-xs font-bold text-[#111827] hover:bg-[#f3f4f6]"
-                          >
-                            <Copy size={14} />
-                            Copy
-                          </button>
-                        </div>
-                        <code className="block w-full overflow-x-auto rounded-sm-ds border border-[#e5e7eb] bg-white px-3 py-2 text-xs text-[#111827]">
-                          {latestCreatedTokenValue}
-                        </code>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setLatestCreatedTokenValue("");
-                            setLatestCreatedTokenName("");
-                          }}
-                          className="text-[10px] font-mono font-bold uppercase text-[#6b7280] hover:text-[#111827]"
-                        >
-                          Dismiss
-                        </button>
+                        ) : (
+                          <div className="space-y-3">
+                            <p className="text-sm text-[#6b7280]">Sign in to manage settings and API tokens.</p>
+                            <button
+                              type="button"
+                              onClick={() => openAuth("signIn")}
+                              className="px-4 py-2 bg-[#111827] text-white text-xs font-bold rounded-sm-ds hover:bg-black transition-colors"
+                            >
+                              Sign In
+                            </button>
+                          </div>
+                        )}
                       </section>
-                    ) : null}
 
-                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                      <section className="rounded-md-ds border border-[#e5e7eb] bg-white p-6 space-y-5">
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <h3 className="text-sm font-bold uppercase tracking-widest text-[#6b7280]">
-                              Token Management
-                            </h3>
-                            <p className="text-xs text-[#6b7280] mt-2">
-                              Tokens are global for your account and remain valid until revoked.
-                            </p>
-                          </div>
+                      <section className="rounded-md-ds border border-[#e5e7eb] bg-white p-6 space-y-4">
+                        <h3 className="text-sm font-bold uppercase tracking-widest text-[#6b7280]">API Access Model</h3>
+                        <div className="space-y-2 text-sm text-[#6b7280]">
+                          <p>Tokens never expire automatically.</p>
+                          <p>Tokens stay active until revoked by you.</p>
+                          <p>`can_write=false` tokens can only perform read operations.</p>
+                        </div>
+                        <a
+                          href={settingsUrl("api")}
+                          onClick={(event) => {
+                            event.preventDefault();
+                            setSettingsSectionAndHistory("api");
+                          }}
+                          className="inline-flex items-center gap-2 rounded-sm-ds bg-[#06B6D4] px-4 py-2 text-xs font-bold uppercase tracking-wide text-white hover:bg-cyan-600 transition-colors"
+                        >
+                          <KeyRound size={14} />
+                          Open API Access
+                        </a>
+                      </section>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="p-4 border-b border-[#e5e7eb] bg-white md:hidden">
+                    {settingsMobileNavigation}
+                  </div>
+                  <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
+                    <section className="flex-1 flex flex-col min-w-0 bg-white md:border-r border-[#e5e7eb]">
+                      <div className="p-6 border-b border-[#e5e7eb] space-y-4">
+                        <div className="flex items-start justify-between gap-4">
+                          <h1 className="text-xl font-bold tracking-tight text-[#111827]">API Access Tokens</h1>
                           <button
                             type="button"
                             onClick={openCreateApiTokenModal}
-                            className="inline-flex items-center gap-2 rounded-sm-ds bg-[#06B6D4] px-3 py-2 text-xs font-bold uppercase tracking-wide text-white hover:bg-cyan-600"
+                            className="px-4 py-2 bg-[#06B6D4] text-white text-xs font-bold rounded-sm-ds hover:bg-cyan-600 transition-colors uppercase tracking-wide flex items-center gap-2 shadow-sm"
                           >
                             <Plus size={14} />
                             Create Token
                           </button>
                         </div>
-
+                        <p className="text-sm text-[#6b7280]">
+                          Generate unique API tokens to access FeatureRequest from external tools and agents.
+                          Tokens remain active until you revoke them.
+                        </p>
                         {apiTokenFeedback ? (
                           <p
                             className={cls(
@@ -3734,154 +3741,215 @@ export default function App() {
                             {apiTokenFeedback}
                           </p>
                         ) : null}
+                        {latestCreatedTokenValue ? (
+                          <div className="rounded-sm-ds border border-cyan-100 bg-cyan-50 p-3 space-y-2">
+                            <div className="flex items-center justify-between gap-3">
+                              <p className="text-[11px] text-[#0f172a]">
+                                New token{latestCreatedTokenName ? ` (${latestCreatedTokenName})` : ""} generated.
+                                Copy it now; it will not be shown again.
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() => copyValueAndNotify(latestCreatedTokenValue, "Token copied.")}
+                                className="inline-flex items-center gap-1 rounded-sm-ds border border-[#e5e7eb] bg-white px-2 py-1 text-[10px] font-bold text-[#111827] hover:bg-[#f3f4f6]"
+                              >
+                                <Copy size={12} />
+                                Copy
+                              </button>
+                            </div>
+                            <code className="block w-full overflow-x-auto rounded-sm-ds bg-white border border-[#e5e7eb] px-2 py-1 text-[11px] text-[#111827]">
+                              {latestCreatedTokenValue}
+                            </code>
+                          </div>
+                        ) : null}
+                      </div>
 
+                      <div className="flex-1 overflow-y-auto">
                         {!isAuthenticated ? (
-                          <div className="rounded-sm-ds border border-[#e5e7eb] bg-[#f9fafb] px-4 py-5 space-y-3">
-                            <p className="text-sm text-[#6b7280]">Sign in to create or revoke API tokens.</p>
-                            <button
-                              type="button"
-                              onClick={() => openAuth("signIn")}
-                              className="px-4 py-2 bg-[#111827] text-white text-xs font-bold rounded-sm-ds hover:bg-black transition-colors"
-                            >
-                              Sign In
-                            </button>
+                          <div className="p-6">
+                            <div className="rounded-sm-ds border border-[#e5e7eb] bg-[#f9fafb] p-4 space-y-3">
+                              <p className="text-sm text-[#6b7280]">Sign in to create and manage API tokens.</p>
+                              <button
+                                type="button"
+                                onClick={() => openAuth("signIn")}
+                                className="px-4 py-2 bg-[#111827] text-white text-xs font-bold rounded-sm-ds hover:bg-black transition-colors"
+                              >
+                                Sign In
+                              </button>
+                            </div>
                           </div>
                         ) : isApiTokensLoading ? (
-                          <p className="text-sm text-[#6b7280]">Loading tokens...</p>
-                        ) : !apiTokens.length ? (
-                          <div className="rounded-sm-ds border border-dashed border-[#d1d5db] bg-[#f9fafb] px-4 py-5">
-                            <p className="text-sm text-[#6b7280]">No active tokens yet.</p>
-                          </div>
+                          <p className="p-6 text-sm text-[#6b7280]">Loading tokens...</p>
                         ) : (
-                          <div className="space-y-2">
-                            {apiTokens.map((token) => {
-                              const hasSecret = Boolean(apiTokenSecrets[token.id]);
-                              const isRevoking = revokingApiTokenId === token.id;
-                              return (
-                                <div
-                                  key={token.id}
-                                  className="rounded-sm-ds border border-[#e5e7eb] px-4 py-3 bg-white space-y-2"
-                                >
-                                  <div className="flex items-start justify-between gap-3">
-                                    <div>
-                                      <p className="text-sm font-semibold text-[#111827]">{token.name}</p>
-                                      <p className="text-[11px] text-[#6b7280] font-mono">{token.token_prefix}...</p>
-                                    </div>
-                                    <span
-                                      className={cls(
-                                        "px-2 py-1 rounded-sm-ds border text-[10px] font-mono font-bold uppercase",
-                                        token.can_write
-                                          ? "border-emerald-100 text-emerald-700 bg-emerald-50"
-                                          : "border-zinc-200 text-zinc-700 bg-zinc-50",
-                                      )}
-                                    >
-                                      {token.can_write ? "Can write" : "Read-only"}
-                                    </span>
-                                  </div>
-                                  <div className="grid grid-cols-2 gap-2 text-[11px] text-[#6b7280]">
-                                    <span>Created: {formatLongDate(token.created_at)}</span>
-                                    <span>Last used: {token.last_used_at ? formatRelativeDate(token.last_used_at) : "-"}</span>
-                                  </div>
-                                  <div className="flex items-center gap-2">
-                                    <button
-                                      type="button"
-                                      onClick={() => handleCopyApiToken(token.id)}
-                                      disabled={!hasSecret}
-                                      className="inline-flex items-center gap-1 rounded-sm-ds border border-[#e5e7eb] px-3 py-1.5 text-xs font-bold text-[#111827] hover:bg-[#f3f4f6] disabled:opacity-45"
-                                      title={
-                                        hasSecret
-                                          ? "Copy token"
-                                          : "Token value is only available when created in this session."
-                                      }
-                                    >
-                                      <Copy size={13} />
-                                      Copy
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleRevokeApiToken(token)}
-                                      disabled={isRevoking}
-                                      className="inline-flex items-center gap-1 rounded-sm-ds border border-rose-200 px-3 py-1.5 text-xs font-bold text-[#dc2626] hover:bg-rose-50 disabled:opacity-45"
-                                    >
-                                      <Trash2 size={13} />
-                                      {isRevoking ? "Revoking..." : "Revoke"}
-                                    </button>
-                                  </div>
-                                </div>
-                              );
-                            })}
+                          <div className="overflow-x-auto">
+                          <table className="min-w-full divide-y divide-[#e5e7eb]">
+                              <thead className="bg-[#f9fafb] border-b border-[#e5e7eb]">
+                                  <tr>
+                                    <th className="px-6 py-3 text-left text-[10px] font-mono font-bold text-[#6b7280] uppercase tracking-wider">
+                                      Name
+                                    </th>
+                                    <th className="px-6 py-3 text-left text-[10px] font-mono font-bold text-[#6b7280] uppercase tracking-wider">
+                                      Key
+                                    </th>
+                                    <th className="px-6 py-3 text-center text-[10px] font-mono font-bold text-[#6b7280] uppercase tracking-wider">
+                                      Write
+                                    </th>
+                                    <th className="px-6 py-3 text-left text-[10px] font-mono font-bold text-[#6b7280] uppercase tracking-wider">
+                                      Created
+                                    </th>
+                                  <th className="px-6 py-3 text-right text-[10px] font-mono font-bold text-[#6b7280] uppercase tracking-wider">
+                                    Actions
+                                  </th>
+                                </tr>
+                              </thead>
+                              <tbody className="bg-white divide-y divide-[#e5e7eb]">
+                                {!apiTokens.length ? (
+                                  <tr>
+                                    <td colSpan={5} className="px-6 py-6 text-sm text-[#6b7280]">
+                                      No active tokens yet.
+                                    </td>
+                                  </tr>
+                                ) : (
+                                  apiTokens.map((token) => {
+                                    const hasSecret = Boolean(apiTokenSecrets[token.id]);
+                                    const isRevoking = revokingApiTokenId === token.id;
+                                    return (
+                                  <tr key={token.id} className="group hover:bg-[#f9fafb] transition-colors">
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-[#111827]">
+                                      <div>
+                                        <p>{token.name}</p>
+                                      </div>
+                                    </td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                          <div className="flex items-center gap-2">
+                                            <code className="bg-[#f3f4f6] px-2 py-0.5 rounded-sm-ds font-mono text-xs text-[#6b7280]">
+                                              {token.token_prefix}••••••••
+                                            </code>
+                                            <button
+                                              type="button"
+                                              onClick={() => handleCopyApiToken(token.id)}
+                                              disabled={!hasSecret}
+                                              title={hasSecret ? "Copy Token" : "Token value unavailable"}
+                                              className={cls(
+                                                "text-[#9ca3af] hover:text-[#06B6D4] transition-all",
+                                                hasSecret
+                                                  ? "opacity-0 group-hover:opacity-100"
+                                                  : "opacity-35 cursor-not-allowed",
+                                              )}
+                                            >
+                                              <Copy size={14} />
+                                            </button>
+                                          </div>
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-center text-sm">
+                                          <span
+                                            className={cls(
+                                              "inline-flex items-center justify-center text-xs font-mono font-bold rounded-sm-ds w-6 h-6",
+                                              token.can_write ? "text-[#16a34a] bg-[#f0fdf4]" : "text-[#dc2626] bg-[#fef2f2]",
+                                            )}
+                                            aria-label={token.can_write ? "Writable token" : "Read-only token"}
+                                          >
+                                            {token.can_write ? "✓" : "✕"}
+                                          </span>
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-xs text-[#6b7280] font-mono">
+                                          {formatLongDate(token.created_at)}
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
+                                          <button
+                                            type="button"
+                                            onClick={() => handleRevokeApiToken(token)}
+                                            disabled={isRevoking}
+                                            className="text-[#9ca3af] hover:text-[#dc2626] transition-colors p-1 disabled:opacity-45"
+                                            title="Revoke Token"
+                                          >
+                                            <Trash2 size={14} />
+                                          </button>
+                                        </td>
+                                      </tr>
+                                    );
+                                  })
+                                )}
+                              </tbody>
+                            </table>
                           </div>
                         )}
-                      </section>
+                      </div>
+                    </section>
 
-                      <section className="rounded-md-ds border border-[#e5e7eb] bg-white p-6 space-y-5">
-                        <h3 className="text-sm font-bold uppercase tracking-widest text-[#6b7280]">API Quickstart</h3>
-                        <div className="space-y-2">
-                          <p className="text-[10px] font-mono font-bold uppercase text-[#6b7280]">Base URL</p>
-                          <div className="flex items-center gap-2">
-                            <code className="flex-1 rounded-sm-ds border border-[#e5e7eb] bg-[#f9fafb] px-3 py-2 text-xs text-[#111827] break-all">
-                              {apiBaseUrl}
-                            </code>
-                            <button
-                              type="button"
-                              onClick={() => copyValueAndNotify(apiBaseUrl, "Base URL copied.")}
-                              className="rounded-sm-ds border border-[#e5e7eb] px-3 py-2 text-xs font-bold text-[#111827] hover:bg-[#f3f4f6]"
-                            >
-                              Copy
-                            </button>
-                          </div>
-                        </div>
-
-                        <div className="space-y-2">
-                          <p className="text-[10px] font-mono font-bold uppercase text-[#6b7280]">Auth Header</p>
-                          <div className="flex items-center gap-2">
-                            <code className="flex-1 rounded-sm-ds border border-[#e5e7eb] bg-[#f9fafb] px-3 py-2 text-xs text-[#111827] break-all">
-                              Authorization: Bearer &lt;API_TOKEN&gt;
-                            </code>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                copyValueAndNotify("Authorization: Bearer <API_TOKEN>", "Auth header copied.")
-                              }
-                              className="rounded-sm-ds border border-[#e5e7eb] px-3 py-2 text-xs font-bold text-[#111827] hover:bg-[#f3f4f6]"
-                            >
-                              Copy
-                            </button>
-                          </div>
-                        </div>
-
+                    <aside className="w-full md:w-[460px] flex flex-col bg-[#f9fafb] border-t border-[#e5e7eb] md:border-t-0">
+                      <div className="p-6 border-b border-[#e5e7eb] bg-white">
+                        <h2 className="text-sm font-bold uppercase tracking-widest text-[#6b7280] flex items-center gap-2">
+                          <KeyRound size={14} />
+                          API Quickstart
+                        </h2>
+                      </div>
+                      <div className="flex-1 overflow-y-auto p-6 space-y-6">
                         <div className="space-y-3">
-                          {apiQuickstartEndpoints.map((item) => (
-                            <div key={item.path} className="rounded-sm-ds border border-[#e5e7eb] p-3 space-y-2">
-                              <div className="flex items-center justify-between gap-2">
-                                <div className="flex items-center gap-2">
-                                  <span className="px-1.5 py-0.5 rounded-sm-ds border border-cyan-100 bg-cyan-50 text-[10px] font-mono font-bold text-[#06B6D4]">
-                                    {item.method}
-                                  </span>
-                                  <code className="text-xs text-[#111827]">{item.path}</code>
-                                </div>
-                              </div>
-                              <p className="text-xs text-[#6b7280]">{item.description}</p>
-                              <div className="flex items-start gap-2">
-                                <code className="flex-1 rounded-sm-ds border border-[#e5e7eb] bg-[#f9fafb] px-3 py-2 text-[11px] text-[#111827] break-all">
-                                  {item.curl}
-                                </code>
-                                <button
-                                  type="button"
-                                  onClick={() => copyValueAndNotify(item.curl, `${item.method} example copied.`)}
-                                  className="rounded-sm-ds border border-[#e5e7eb] px-3 py-2 text-xs font-bold text-[#111827] hover:bg-[#f3f4f6]"
-                                >
-                                  Copy
-                                </button>
-                              </div>
-                            </div>
-                          ))}
+                          <h3 className="text-xs font-bold uppercase font-mono text-[#6b7280] tracking-wider">
+                            Endpoint URL
+                          </h3>
+                          <div className="bg-[#111827] text-white p-3 rounded-sm-ds font-mono text-xs break-all">
+                            {apiBaseUrl}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => copyValueAndNotify(apiBaseUrl, "Base URL copied.")}
+                            className="text-[10px] font-mono font-bold uppercase text-[#6b7280] hover:text-[#111827]"
+                          >
+                            Copy base URL
+                          </button>
                         </div>
-                      </section>
-                    </div>
-                  </>
-                )}
-              </div>
+
+                        <div className="space-y-4">
+                          <h3 className="text-xs font-bold uppercase font-mono text-[#6b7280] tracking-wider">
+                            Authentication
+                          </h3>
+                          <p className="text-xs text-[#6b7280] leading-relaxed">
+                            Include your API token in the <code className="bg-[#e5e7eb] px-1 rounded text-[#111827]">Authorization</code>{" "}
+                            header as a Bearer token.
+                          </p>
+                          <div className="bg-[#111827] text-gray-300 p-3 rounded-sm-ds font-mono text-[11px] overflow-x-auto">
+                            curl -H "Authorization: Bearer YOUR_TOKEN" \
+                            {"\n"}
+                            {apiBaseUrl}/api/projects
+                          </div>
+                        </div>
+
+                        <div className="space-y-4">
+                          <h3 className="text-xs font-bold uppercase font-mono text-[#6b7280] tracking-wider">
+                            Common Endpoints
+                          </h3>
+                          <div className="space-y-2">
+                            {apiQuickstartEndpoints.slice(0, 3).map((item) => (
+                              <div
+                                key={`summary-${item.path}`}
+                                className="flex items-center justify-between text-[11px] font-mono border-b border-[#e5e7eb] pb-2"
+                              >
+                                <span className={cls("font-bold", methodTone(item.method))}>{item.method}</span>
+                                <span className="text-[#111827]">{item.path.replace("<token_id>", ":token_id")}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="bg-white border border-[#e5e7eb] p-4 rounded-md-ds space-y-2">
+                          <p className="text-[11px] text-[#6b7280]">Need the full API spec?</p>
+                          <a
+                            href="/api/docs"
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-xs font-bold text-[#06B6D4] hover:underline flex items-center gap-1"
+                          >
+                            View Full Docs
+                            <ExternalLink size={12} />
+                          </a>
+                        </div>
+                      </div>
+                    </aside>
+                  </div>
+                </>
+              )}
             </div>
           ) : view === "projectSettings" ? (
             <div className="flex-1 bg-white flex flex-col overflow-y-auto">
@@ -4197,60 +4265,79 @@ export default function App() {
             }
           }}
         >
-          <div className="bg-white rounded-md-ds shadow-2xl max-w-md w-full overflow-hidden">
+          <div className="bg-white rounded-md-ds shadow-xl max-w-md w-full border border-[#e5e7eb] overflow-hidden">
             <form onSubmit={handleCreateApiToken}>
-              <div className="p-6 space-y-4">
+              <div className="px-6 py-4 border-b border-[#e5e7eb] flex items-center justify-between">
                 <div>
                   <h3 className="text-lg font-bold text-[#111827]">Create API Token</h3>
-                  <p className="text-sm text-[#6b7280]">
-                    Token stays active until you revoke it.
-                  </p>
+                  <p className="text-xs text-[#6b7280] mt-0.5">Generate a new bearer token</p>
                 </div>
+                <button
+                  type="button"
+                  onClick={closeCreateApiTokenModal}
+                  className="text-[#9ca3af] hover:text-[#111827]"
+                  aria-label="Close"
+                  disabled={isApiTokenSubmitting}
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              <div className="p-6 space-y-4">
 
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-mono font-bold text-[#6b7280] uppercase">Token Name</label>
+                  <label className="text-xs font-bold uppercase font-mono text-[#6b7280]">Token Name</label>
                   <input
                     type="text"
                     value={apiTokenNameDraft}
                     onChange={(event) => setApiTokenNameDraft(event.target.value)}
                     className="w-full px-3 py-2 border border-[#e5e7eb] rounded-sm-ds text-sm focus:ring-1 focus:ring-[#06B6D4] outline-none"
-                    placeholder="Agent token"
+                    placeholder="e.g. CI/CD Integration"
                     autoFocus
                   />
+                  <p className="text-[10px] text-[#9ca3af]">Used to identify the token in your list.</p>
                 </div>
 
-                <label className="flex items-start gap-3 rounded-sm-ds border border-[#e5e7eb] bg-[#f9fafb] px-3 py-2">
-                  <input
-                    type="checkbox"
-                    checked={apiTokenCanWriteDraft}
-                    onChange={(event) => setApiTokenCanWriteDraft(event.target.checked)}
-                    className="mt-0.5"
-                  />
-                  <span className="text-sm text-[#111827]">
-                    Allow write access (`can_write`)
-                  </span>
-                </label>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold uppercase font-mono text-[#6b7280]">Permission</label>
+                  <label className="flex items-start gap-3 rounded-sm-ds border border-[#e5e7eb] bg-white px-3 py-2">
+                    <input
+                      type="checkbox"
+                      checked={apiTokenCanWriteDraft}
+                      onChange={(event) => setApiTokenCanWriteDraft(event.target.checked)}
+                      className="mt-0.5"
+                    />
+                    <span className="text-sm text-[#111827]">Allow write operations (`can_write`)</span>
+                  </label>
+                </div>
+
+                <div className="bg-amber-50 border border-amber-100 p-3 rounded-sm-ds flex items-start gap-3">
+                  <AlertTriangle size={14} className="text-amber-700 mt-0.5 shrink-0" />
+                  <p className="text-[11px] text-amber-800 leading-tight">
+                    Token secrets are shown only at creation time. Store them securely after generating.
+                  </p>
+                </div>
 
                 {apiTokenCreateFeedback ? (
                   <p className="text-xs text-[#dc2626]">{apiTokenCreateFeedback}</p>
                 ) : null}
               </div>
 
-              <div className="bg-[#f9fafb] px-6 py-4 flex justify-end gap-3">
+              <div className="px-6 py-4 bg-[#f9fafb] border-t border-[#e5e7eb] flex justify-end gap-3">
                 <button
                   type="button"
                   onClick={closeCreateApiTokenModal}
-                  className="px-4 py-2 text-sm font-bold text-[#6b7280] hover:text-[#111827]"
+                  className="px-4 py-2 text-xs font-bold text-[#6b7280] hover:text-[#111827] uppercase tracking-wide"
                   disabled={isApiTokenSubmitting}
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-[#06B6D4] text-white text-sm font-bold rounded-sm-ds hover:bg-cyan-600 transition-all shadow-sm disabled:opacity-45"
+                  className="px-4 py-2 bg-[#06B6D4] text-white text-xs font-bold rounded-sm-ds hover:bg-cyan-600 transition-colors uppercase tracking-wide shadow-sm disabled:opacity-45"
                   disabled={isApiTokenSubmitting}
                 >
-                  {isApiTokenSubmitting ? "Creating..." : "Create Token"}
+                  {isApiTokenSubmitting ? "Creating..." : "Generate Token"}
                 </button>
               </div>
             </form>
