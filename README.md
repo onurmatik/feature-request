@@ -1,6 +1,6 @@
 # FeatureRequest
 
-FeatureRequest is a monorepo-style web application with a Django backend API and a Vite + React frontend.
+FeatureRequest helps indie builders manage feedback for all their projects in one place. Receive feature requests and bug reports for multiple projects, let your users contact you directly, and connect with other indie founders to share ideas, learn from each other, and keep shipping faster.
 
 ## Tech Stack
 
