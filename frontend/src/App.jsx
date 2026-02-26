@@ -13,6 +13,8 @@ import {
   ChevronDown,
   Settings,
 } from "lucide-react";
+import AuthModal from "./components/AuthModal.jsx";
+import { authSignInEndpoint, csrfTokenFromCookie, getPostAuthRedirect } from "./utils/authClient.js";
 
 const TYPE_OPTIONS = [
   { value: "", label: "All Types" },
@@ -320,58 +322,6 @@ function parseBootstrap() {
     subscriptionStatus: String(value.subscription_status || "").toLowerCase(),
     projectLimit: Number(value.project_limit || 1),
   };
-}
-
-function csrfTokenFromCookie() {
-  const tokenPart = document.cookie
-    .split(";")
-    .map((item) => item.trim())
-    .find((item) => item.startsWith("csrftoken="));
-
-  return tokenPart ? decodeURIComponent(tokenPart.slice("csrftoken=".length)) : "";
-}
-
-function getPostAuthRedirect(handle) {
-  const safeHandle = String(handle || "").trim();
-  const routeState = getMessagesRouteState();
-  const defaultRedirect = routeState.isMessagesRoute
-    ? `${window.location.pathname}${window.location.search}${window.location.hash}`
-    : safeHandle
-      ? `/${safeHandle}/`
-      : "/";
-  const params = new URLSearchParams(window.location.search);
-  const next = params.get("next");
-
-  if (!next) {
-    return defaultRedirect;
-  }
-
-  try {
-    const nextUrl = new URL(next, window.location.origin);
-    if (nextUrl.origin !== window.location.origin) {
-      return defaultRedirect;
-    }
-
-    return `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`;
-  } catch {
-    return defaultRedirect;
-  }
-}
-
-function authSignInEndpoint() {
-  const next = new URLSearchParams(window.location.search).get("next");
-  if (!next) {
-    const routeState = getMessagesRouteState();
-    if (routeState.isMessagesRoute) {
-      const currentPath = `${window.location.pathname}${window.location.search}${window.location.hash}`;
-      return `/auth/sign-in?next=${encodeURIComponent(currentPath)}`;
-    }
-
-    return "/auth/sign-in";
-  }
-
-  const encoded = encodeURIComponent(next);
-  return `/auth/sign-in?next=${encoded}`;
 }
 
 function toReadableStatus(status) {
@@ -1202,7 +1152,8 @@ export default function App() {
 
     try {
       await ensureCsrfCookie();
-      const response = await fetch(authSignInEndpoint(), {
+      const routeState = getMessagesRouteState();
+      const response = await fetch(authSignInEndpoint({ useCurrentPathAsNext: routeState.isMessagesRoute }), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -1233,7 +1184,9 @@ export default function App() {
       setSubscriptionTier(String(payload.subscription_tier || "free").toLowerCase());
       setSubscriptionStatus(String(payload.subscription_status || "").toLowerCase());
       setProjectLimit(Number(payload.project_limit || 1));
-      window.location.assign(getPostAuthRedirect(handle));
+      window.location.assign(
+        getPostAuthRedirect(handle, { useCurrentPathAsFallback: routeState.isMessagesRoute }),
+      );
     } catch {
       setAuthFeedback("Sign in failed. Please try again.");
     } finally {
@@ -2878,86 +2831,88 @@ export default function App() {
                       </div>
                     </header>
 
-                    <div className="flex-1 overflow-y-auto px-8 py-6 space-y-8">
-                      <div>
-                        <h1 className="text-2xl font-bold text-[#111827] mb-4">{selectedIssue.title}</h1>
-                        <div className="text-[#6b7280]">
-                          <MarkdownContent
-                            value={selectedIssue.description}
-                            fallback="No description provided."
-                          />
+                    <div className="flex-1 overflow-hidden flex flex-col">
+                      <div className="flex-1 overflow-y-auto px-8 py-6 space-y-8">
+                        <div>
+                          <h1 className="text-2xl font-bold text-[#111827] mb-4">{selectedIssue.title}</h1>
+                          <div className="text-[#6b7280]">
+                            <MarkdownContent
+                              value={selectedIssue.description}
+                              fallback="No description provided."
+                            />
+                          </div>
+                        </div>
+
+                        <div className="border-t border-[#e5e7eb] pt-8">
+                          <h4 className="text-xs font-bold text-[#6b7280] uppercase tracking-widest mb-6">
+                            Activity & Comments ({comments.length})
+                          </h4>
+
+                          <div className="space-y-6">
+                            {comments.length === 0 ? (
+                              <p className="text-sm text-[#6b7280]">No comments yet.</p>
+                            ) : (
+                              comments.map((comment) => (
+                                <div key={comment.id} className="flex gap-4">
+                                  <UserAvatar
+                                    imageUrl={comment.author_avatar_url}
+                                    label={comment.author_handle}
+                                    sizeClass="w-8 h-8"
+                                    fallbackTextClassName="text-[10px] font-bold"
+                                  />
+                                  <div className="flex-1">
+                                    <div className="flex items-center justify-between mb-1">
+                                      <span className="text-xs font-bold">@{comment.author_handle}</span>
+                                      <span className="text-[10px] font-mono text-[#d1d5db]">
+                                        {formatRelativeDate(comment.created_at)}
+                                      </span>
+                                    </div>
+                                    <div className="p-3 bg-[#f9fafb] border border-[#e5e7eb] rounded-sm-ds text-sm text-[#6b7280]">
+                                      <MarkdownContent value={comment.body} />
+                                    </div>
+                                  </div>
+                                </div>
+                              ))
+                            )}
+                          </div>
                         </div>
                       </div>
 
-                      <div className="border-t border-[#e5e7eb] pt-8">
-                        <h4 className="text-xs font-bold text-[#6b7280] uppercase tracking-widest mb-6">
-                          Activity & Comments ({comments.length})
-                        </h4>
-
-                        <div className="space-y-6 mb-8">
-                          {comments.length === 0 ? (
-                            <p className="text-sm text-[#6b7280]">No comments yet.</p>
-                          ) : (
-                            comments.map((comment) => (
-                              <div key={comment.id} className="flex gap-4">
-                                <UserAvatar
-                                  imageUrl={comment.author_avatar_url}
-                                  label={comment.author_handle}
-                                  sizeClass="w-8 h-8"
-                                  fallbackTextClassName="text-[10px] font-bold"
-                                />
-                                <div className="flex-1">
-                                  <div className="flex items-center justify-between mb-1">
-                                    <span className="text-xs font-bold">@{comment.author_handle}</span>
-                                    <span className="text-[10px] font-mono text-[#d1d5db]">
-                                      {formatRelativeDate(comment.created_at)}
-                                    </span>
-                                  </div>
-                                  <div className="p-3 bg-[#f9fafb] border border-[#e5e7eb] rounded-sm-ds text-sm text-[#6b7280]">
-                                    <MarkdownContent value={comment.body} />
-                                  </div>
-                                </div>
-                              </div>
-                            ))
-                          )}
-                        </div>
-
-                        <div className="bg-[#f9fafb] border border-[#e5e7eb] rounded-md-ds p-4">
-                          <textarea
-                            rows={3}
-                            value={commentDraft}
-                            onChange={(event) => setCommentDraft(event.target.value)}
-                            className="w-full bg-white border border-[#e5e7eb] rounded-sm-ds p-3 text-sm focus:ring-1 focus:ring-[#06B6D4] outline-none resize-none mb-3"
-                            placeholder={isAuthenticated ? "Type your comment..." : "Login to post a comment."}
-                            disabled={!isAuthenticated || isCommentSubmitting}
-                          />
-                          <div className="flex items-center justify-between">
-                            {commentFeedback ? (
-                              <span
-                                className={`text-[10px] font-mono ${
-                                  commentFeedback.toLowerCase().includes("rejected by moderation")
-                                    ? "text-[#b91c1c]"
-                                    : "text-[#d1d5db]"
-                                }`}
-                              >
-                                {commentFeedback}
-                              </span>
-                            ) : String(selectedIssue?.status || "").toLowerCase() === "closed" ? (
-                              <span className="text-[10px] font-mono text-[#b45309]">
-                                This item is closed. You can still post here but I suggest creating a new request.
-                              </span>
-                            ) : (
-                              <span className="text-[10px] font-mono text-[#d1d5db]">Markdown supported</span>
-                            )}
-                            <button
-                              type="button"
-                              onClick={handlePostComment}
-                              disabled={!isAuthenticated || isCommentSubmitting || !commentDraft.trim()}
-                              className="px-4 py-1.5 bg-[#111827] text-white text-xs font-bold rounded-sm-ds hover:bg-black transition-colors disabled:opacity-45 disabled:cursor-not-allowed"
+                      <div className="border-t border-[#e5e7eb] bg-[#f9fafb] p-4 space-y-3">
+                        <textarea
+                          rows={3}
+                          value={commentDraft}
+                          onChange={(event) => setCommentDraft(event.target.value)}
+                          className="w-full bg-white border border-[#e5e7eb] rounded-sm-ds p-3 text-sm focus:ring-1 focus:ring-[#06B6D4] outline-none resize-none"
+                          placeholder={isAuthenticated ? "Type your comment..." : "Login to post a comment."}
+                          disabled={!isAuthenticated || isCommentSubmitting}
+                        />
+                        <div className="flex items-center justify-between">
+                          {commentFeedback ? (
+                            <span
+                              className={`text-[10px] font-mono ${
+                                commentFeedback.toLowerCase().includes("rejected by moderation")
+                                  ? "text-[#b91c1c]"
+                                  : "text-[#d1d5db]"
+                              }`}
                             >
-                              Post Comment
-                            </button>
-                          </div>
+                              {commentFeedback}
+                            </span>
+                          ) : String(selectedIssue?.status || "").toLowerCase() === "closed" ? (
+                            <span className="text-[10px] font-mono text-[#b45309]">
+                              This item is closed. You can still post here but I suggest creating a new request.
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-mono text-[#d1d5db]">Markdown supported</span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={handlePostComment}
+                            disabled={!isAuthenticated || isCommentSubmitting || !commentDraft.trim()}
+                            className="px-4 py-1.5 bg-[#111827] text-white text-xs font-bold rounded-sm-ds hover:bg-black transition-colors disabled:opacity-45 disabled:cursor-not-allowed"
+                          >
+                            Post Comment
+                          </button>
                         </div>
                       </div>
                     </div>
@@ -3454,132 +3409,24 @@ export default function App() {
         </div>
       ) : null}
 
-      {authMode ? (
-        <div
-          className="fixed inset-0 z-[120] flex items-center justify-center bg-[#111827]/60 p-4"
-          onClick={(event) => {
-            if (event.target === event.currentTarget) {
-              closeAuth();
-            }
-          }}
-        >
-          <div className="w-full max-w-md overflow-hidden rounded-md-ds border border-[#e5e7eb] bg-white shadow-2xl">
-            <div className="border-b border-[#e5e7eb] bg-[#f9fafb] p-3">
-              <div className="grid grid-cols-2 gap-2 rounded-sm-ds bg-white p-1">
-                <button
-                  type="button"
-                  onClick={() => openAuth("signIn")}
-                  className={cls(
-                    "rounded-sm-ds px-3 py-2 text-xs font-bold uppercase tracking-wide",
-                    authMode === "signIn" ? "bg-[#111827] text-white" : "text-[#6b7280] hover:text-[#111827]",
-                  )}
-                >
-                  Sign In
-                </button>
-                <button
-                  type="button"
-                  onClick={() => openAuth("signUp")}
-                  className={cls(
-                    "rounded-sm-ds px-3 py-2 text-xs font-bold uppercase tracking-wide",
-                    authMode === "signUp" ? "bg-[#111827] text-white" : "text-[#6b7280] hover:text-[#111827]",
-                  )}
-                >
-                  Sign Up
-                </button>
-              </div>
-            </div>
-
-            <div className="flex min-h-[374px] flex-col">
-              {authMode === "signIn" ? (
-                <form className="flex flex-1 flex-col" onSubmit={onSignInSubmit}>
-                  <div className="flex-1 space-y-4 p-6">
-                    <h3 className="text-lg font-bold text-[#111827]">Welcome back</h3>
-                    <p className="text-sm text-[#6b7280]">Use your email or handle to continue.</p>
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-mono font-bold uppercase tracking-wider text-[#6b7280]">
-                        Email or Handle
-                      </label>
-                      <input
-                        type="text"
-                        value={signInIdentity}
-                        onChange={(event) => setSignInIdentity(event.target.value)}
-                        className="w-full rounded-sm-ds border border-[#e5e7eb] px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-[#06B6D4]"
-                        autoFocus
-                      />
-                    </div>
-                    {authFeedback ? <p className="text-xs text-[#6b7280]">{authFeedback}</p> : null}
-                  </div>
-                  <div className="flex justify-end gap-3 border-t border-[#e5e7eb] bg-[#f9fafb] p-3">
-                    <button
-                      type="button"
-                      onClick={closeAuth}
-                      className="px-4 py-2 text-sm font-bold text-[#6b7280] hover:text-[#111827]"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={isAuthSubmitting}
-                      className="rounded-sm-ds bg-[#06B6D4] px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-cyan-600 disabled:opacity-50"
-                    >
-                      Continue
-                    </button>
-                  </div>
-                </form>
-              ) : (
-                <form className="flex flex-1 flex-col" onSubmit={onSignUpSubmit}>
-                  <div className="flex-1 space-y-4 p-6">
-                    <h3 className="text-lg font-bold text-[#111827]">Create your account</h3>
-                    <p className="text-sm text-[#6b7280]">Set a public handle, then publish your first board.</p>
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-mono font-bold uppercase tracking-wider text-[#6b7280]">
-                        Handle
-                      </label>
-                      <input
-                        type="text"
-                        value={signUpHandle}
-                        onChange={(event) => setSignUpHandle(event.target.value)}
-                        className="w-full rounded-sm-ds border border-[#e5e7eb] px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-[#06B6D4]"
-                        placeholder="your_team"
-                        autoFocus
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-mono font-bold uppercase tracking-wider text-[#6b7280]">
-                        Email
-                      </label>
-                      <input
-                        type="email"
-                        value={signUpEmail}
-                        onChange={(event) => setSignUpEmail(event.target.value)}
-                        className="w-full rounded-sm-ds border border-[#e5e7eb] px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-[#06B6D4]"
-                        placeholder="you@company.com"
-                      />
-                    </div>
-                    {authFeedback ? <p className="text-xs text-[#6b7280]">{authFeedback}</p> : null}
-                  </div>
-                  <div className="flex justify-end gap-3 border-t border-[#e5e7eb] bg-[#f9fafb] p-3">
-                    <button
-                      type="button"
-                      onClick={closeAuth}
-                      className="px-4 py-2 text-sm font-bold text-[#6b7280] hover:text-[#111827]"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={isAuthSubmitting}
-                      className="rounded-sm-ds bg-[#111827] px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-black disabled:opacity-50"
-                    >
-                      Create Account
-                    </button>
-                  </div>
-                </form>
-              )}
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <AuthModal
+        authMode={authMode}
+        onOpenAuth={openAuth}
+        onClose={closeAuth}
+        onSignInSubmit={onSignInSubmit}
+        onSignUpSubmit={onSignUpSubmit}
+        signInIdentity={signInIdentity}
+        onSignInIdentityChange={(event) => setSignInIdentity(event.target.value)}
+        signUpHandle={signUpHandle}
+        onSignUpHandleChange={(event) => setSignUpHandle(event.target.value)}
+        signUpEmail={signUpEmail}
+        onSignUpEmailChange={(event) => setSignUpEmail(event.target.value)}
+        authFeedback={authFeedback}
+        isAuthSubmitting={isAuthSubmitting}
+        signUpHandlePlaceholder="your_team"
+        signUpEmailPlaceholder="you@company.com"
+        overlayClassName="z-[120]"
+      />
 
       {isUpgradePlanOpen ? (
         <div
