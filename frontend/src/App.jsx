@@ -342,6 +342,42 @@ function toReadableType(value) {
   return value === "bug" ? "Bug" : "Feature";
 }
 
+function getProjectListMetaText(project) {
+  const tagline = String(project?.tagline || "").trim();
+  if (tagline) {
+    return tagline;
+  }
+
+  const projectUrl = String(project?.url || "").trim();
+  if (!projectUrl) {
+    return "";
+  }
+
+  return projectUrl.replace(/^https?:\/\//i, "").replace(/\/+$/, "");
+}
+
+function toReadablePriority(priority) {
+  const map = {
+    1: "Low",
+    2: "Medium",
+    3: "High",
+    4: "Critical",
+  };
+
+  return map[Number(priority)] || "Priority";
+}
+
+function priorityTone(priority) {
+  const map = {
+    1: "border-emerald-100 text-emerald-700",
+    2: "border-blue-100 text-blue-700",
+    3: "border-amber-100 text-amber-700",
+    4: "border-rose-100 text-rose-700",
+  };
+
+  return map[Number(priority)] || "border-gray-100 text-gray-500";
+}
+
 
 function statusTone(status) {
   const map = {
@@ -2285,7 +2321,11 @@ export default function App() {
           <ProjectSidebarIcon faviconUrl={project.favicon_url} projectName={project.name} />
           <span className="flex-1 min-w-0 text-left">
             <span className="block font-medium leading-tight pr-12 truncate">{project.name}</span>
-            {project.tagline ? <span className="block w-full text-[11px] leading-tight text-[#6b7280] pt-2">{project.tagline}</span> : null}
+            {getProjectListMetaText(project) ? (
+              <span className="block w-full text-[11px] leading-tight text-[#6b7280] pt-2">
+                {getProjectListMetaText(project)}
+              </span>
+            ) : null}
           </span>
         </button>
         <span className="absolute top-2 right-2 flex items-center gap-1">
@@ -2364,9 +2404,9 @@ export default function App() {
               <ProjectSidebarIcon faviconUrl={project.favicon_url} projectName={project.name} />
               <span className="flex-1 min-w-0 text-left">
                 <span className="block font-medium leading-tight pr-10 truncate">{project.name}</span>
-                {project.tagline ? (
+                {getProjectListMetaText(project) ? (
                   <span className="block w-full text-[11px] leading-tight text-[#6b7280] pt-2">
-                    {project.tagline}
+                    {getProjectListMetaText(project)}
                   </span>
                 ) : null}
               </span>
@@ -2661,6 +2701,14 @@ export default function App() {
                               )}
                             >
                               {toReadableType(issue.issue_type)}
+                            </span>
+                            <span
+                              className={cls(
+                                "px-1.5 py-0.5 bg-white border text-[9px] font-mono font-bold rounded uppercase",
+                                priorityTone(issue.priority),
+                              )}
+                            >
+                              {toReadablePriority(issue.priority)}
                             </span>
                             <span
                               className={cls(
