@@ -5,9 +5,7 @@ import {
   ArrowBigUpDash,
   Folder,
   MessageCircle,
-  LayoutGrid,
   ListTodo,
-  Mail,
   LogOut,
   ExternalLink,
   Plus,
@@ -89,6 +87,88 @@ function UserAvatar({
       alt={`${safeLabel || "user"} avatar`}
       className={cls(sizeClass, "rounded-full object-cover shrink-0", imageClassName)}
     />
+  );
+}
+
+function SidebarProjectsHeader({ title, isOwnerViewer, ownerHandle, onCreateProject, onContactOwner }) {
+  return (
+    <div className="px-3 pb-2 flex items-center justify-between relative">
+      <h3 className="text-[10px] font-mono font-bold text-[#9ca3af] uppercase tracking-wider">{title}</h3>
+      {isOwnerViewer ? (
+        <button
+          type="button"
+          onClick={onCreateProject}
+          className="text-[#9ca3af] hover:text-[#111827] p-1 rounded-sm-ds transition-colors"
+          aria-label="Add new project"
+          title="Add new project"
+        >
+          <Plus size={14} />
+        </button>
+      ) : ownerHandle ? (
+        <button
+          type="button"
+          onClick={onContactOwner}
+          className="text-[#9ca3af] hover:text-[#111827] p-1 rounded-sm-ds transition-colors"
+          aria-label={`Contact @${ownerHandle}`}
+          title={`Contact @${ownerHandle}`}
+        >
+          <MessageCircle size={14} />
+        </button>
+      ) : null}
+      <span className="pointer-events-none absolute left-[-0.5rem] right-[-0.5rem] bottom-0 h-px bg-[#e5e7eb]" />
+    </div>
+  );
+}
+
+function ProfileMenu({
+  menuRef,
+  isOpen,
+  onToggle,
+  currentUserHandle,
+  currentUserAvatarUrl,
+  canCreateProject,
+  onCreateProject,
+  onLogout,
+}) {
+  return (
+    <div ref={menuRef} className="relative">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex items-center gap-2 rounded-sm-ds border border-transparent px-2 py-1 transition-colors hover:border-[#e5e7eb] hover:bg-[#f8fafc]"
+      >
+        <span className="text-xs font-mono text-[#6b7280]">{currentUserHandle || "user"}</span>
+        <UserAvatar
+          imageUrl={currentUserAvatarUrl}
+          label={currentUserHandle || "user"}
+          sizeClass="w-8 h-8"
+        />
+        <ChevronDown size={14} className="text-[#6b7280]" />
+      </button>
+
+      {isOpen ? (
+        <div className="absolute right-0 top-full mt-2 w-44 rounded-sm-ds border border-[#e5e7eb] bg-white shadow-sm overflow-hidden z-50">
+          {canCreateProject ? (
+            <button
+              type="button"
+              onClick={onCreateProject}
+              className="flex w-full items-center gap-2 px-3 py-2 text-sm text-[#111827] hover:bg-[#f3f4f6]"
+            >
+              <Plus size={16} />
+              New Project
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={onLogout}
+            className="flex w-full items-center gap-2 px-3 py-2 text-sm text-[#111827] hover:bg-[#f3f4f6]"
+          >
+            <LogOut size={16} />
+            Logout
+          </button>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -859,6 +939,42 @@ export default function App() {
     return getHandleFromThreadId(selectedMessageThreadId);
   }, [selectedMessageThread, selectedMessageThreadId]);
 
+  const messageSidebarProjectsOwnerHandle = useMemo(() => {
+    const routeState = getMessagesRouteState();
+    const routeHandle = normalizeHandle(routeState.selectedMessageHandle || "");
+    return routeHandle || normalizeHandle(currentUserHandle);
+  }, [currentUserHandle, selectedMessageThreadId]);
+
+  const sidebarProjectsOwnerHandle = useMemo(() => {
+    if (view === "messages") {
+      return normalizeHandle(messageSidebarProjectsOwnerHandle);
+    }
+
+    return normalizeHandle(bootstrap.ownerHandle);
+  }, [bootstrap.ownerHandle, messageSidebarProjectsOwnerHandle, view]);
+
+  const isSidebarOwnerViewer = useMemo(
+    () =>
+      isAuthenticated &&
+      normalizeHandle(currentUserHandle) === sidebarProjectsOwnerHandle,
+    [currentUserHandle, isAuthenticated, sidebarProjectsOwnerHandle],
+  );
+  const workspaceOwnerHandle =
+    normalizeHandle(currentUserHandle) || normalizeHandle(bootstrap.ownerHandle);
+  const canCreateWorkspaceProject = Boolean(isAuthenticated && workspaceOwnerHandle);
+
+  const sidebarProjectsTitle = useMemo(() => {
+    if (isSidebarOwnerViewer) {
+      return "My projects";
+    }
+
+    if (sidebarProjectsOwnerHandle) {
+      return `${sidebarProjectsOwnerHandle}'s projects`;
+    }
+
+    return "Projects";
+  }, [isSidebarOwnerViewer, sidebarProjectsOwnerHandle]);
+
   const canSendDirectMessage = useMemo(() => {
     const correspondentHandle = normalizeHandle(selectedMessageHandle);
     return Boolean(
@@ -867,6 +983,8 @@ export default function App() {
       correspondentHandle !== normalizeHandle(currentUserHandle),
     );
   }, [currentUserHandle, isAuthenticated, selectedMessageHandle]);
+
+  const messagesNavbarHandle = normalizeHandle(getMessagesRouteState().selectedMessageHandle);
 
   useEffect(() => {
     if (selectedMessageThreadId || !messageThreads.length) {
@@ -1339,8 +1457,7 @@ export default function App() {
       return;
     }
 
-    const correspondentHandle = normalizeHandle(selectedMessageHandle);
-    if (!correspondentHandle) {
+    if (!messageSidebarProjectsOwnerHandle) {
       setMessageSidebarProjects([]);
       setIsMessageSidebarProjectsLoading(false);
       return;
@@ -1352,7 +1469,7 @@ export default function App() {
     async function loadMessageSidebarProjects() {
       try {
         const response = await fetch(
-          `/api/owners/${encodeURIComponent(correspondentHandle)}/projects`,
+          `/api/owners/${encodeURIComponent(messageSidebarProjectsOwnerHandle)}/projects`,
         );
 
         if (!response.ok) {
@@ -1381,7 +1498,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [selectedMessageHandle, view]);
+  }, [messageSidebarProjectsOwnerHandle, view]);
 
   useEffect(() => {
     if (!bootstrap.ownerHandle) {
@@ -1548,11 +1665,41 @@ export default function App() {
     }
   }
 
-  function openMessagesForOwnerContact() {
-    const ownerHandle = normalizeHandle(bootstrap.ownerHandle);
-    const initialThreadId = isOwnerViewer ? "" : messageThreadIdFromHandle(ownerHandle);
+  function openProjectFormForHandle(handle) {
+    const ownerHandle = normalizeHandle(handle);
+    if (!ownerHandle) {
+      return;
+    }
 
-    setMessagesThreadAndHistory(initialThreadId);
+    const targetUrl = `/${ownerHandle}/projects/new/`;
+    if (ownerHandle !== normalizeHandle(bootstrap.ownerHandle)) {
+      window.location.assign(targetUrl);
+      return;
+    }
+
+    if (shouldShowUpgradeForProjects) {
+      openUpgradePlanModal();
+      return;
+    }
+
+    setProjectNameDraft("");
+    setProjectTaglineDraft("");
+    setProjectUrlDraft("");
+    setNewProjectFeedback("");
+    setNewProjectFeedbackTone("");
+    setView("newProject");
+    if (window.location.pathname !== targetUrl) {
+      window.history.pushState({ slug: "projects", isProjectForm: true }, "", targetUrl);
+    }
+  }
+
+  function openMessagesForContactHandle(handle) {
+    const ownerHandle = normalizeHandle(handle);
+    if (!ownerHandle) {
+      return;
+    }
+
+    setMessagesThreadAndHistory(messageThreadIdFromHandle(ownerHandle));
     if (!isAuthenticated) {
       return;
     }
@@ -1560,6 +1707,10 @@ export default function App() {
     refreshMessages().catch(() => {
       setStatus("Messages could not be loaded.", true);
     });
+  }
+
+  function openMessagesForOwnerContact() {
+    openMessagesForContactHandle(bootstrap.ownerHandle);
   }
 
   async function handleIssuePatch(payload) {
@@ -1882,43 +2033,17 @@ export default function App() {
     }
   }
 
-  function handleProjectMenuNavigation(event) {
+  function handleProfileProjectCreation() {
     setIsProfileMenuOpen(false);
-    if (shouldShowUpgradeForProjects) {
-      event.preventDefault();
-      openUpgradePlanModal();
+    if (!workspaceOwnerHandle) {
       return;
     }
-
-    event.preventDefault();
-    setProjectNameDraft("");
-    setProjectTaglineDraft("");
-    setProjectUrlDraft("");
-    setNewProjectFeedback("");
-    setNewProjectFeedbackTone("");
-    setView("newProject");
-    if (window.location.pathname !== projectFormUrl) {
-      window.history.pushState({ slug: "projects", isProjectForm: true }, "", projectFormUrl);
-    }
+    openProjectFormForHandle(workspaceOwnerHandle);
   }
 
   function handleProjectFormNavigation(event) {
-    if (shouldShowUpgradeForProjects) {
-      event.preventDefault();
-      openUpgradePlanModal();
-      return;
-    }
-
     event.preventDefault();
-    setProjectNameDraft("");
-    setProjectTaglineDraft("");
-    setProjectUrlDraft("");
-    setNewProjectFeedback("");
-    setNewProjectFeedbackTone("");
-    setView("newProject");
-    if (window.location.pathname !== projectFormUrl) {
-      window.history.pushState({ slug: "projects", isProjectForm: true }, "", projectFormUrl);
-    }
+    openProjectFormForHandle(bootstrap.ownerHandle);
   }
 
   function closeNewProjectForm() {
@@ -2182,143 +2307,146 @@ export default function App() {
     );
   }
 
-  const projectButtons = (
-    <>
-      <button
-        type="button"
-        data-project="All Projects"
-        onClick={() => setProjectSlugAndHistory("")}
-        className={cls(
-          "sidebar-project-btn w-full flex items-center gap-3 px-3 py-2 rounded-sm-ds font-medium text-sm transition-colors",
-          !selectedProjectSlug
-            ? "bg-cyan-50 text-[#06B6D4]"
-            : "text-[#6b7280] hover:bg-[#f3f4f6]",
-        )}
-      >
-        <LayoutGrid size={18} />
-        All Projects
-      </button>
-      <div className="space-y-1">
-        <h3 className="px-3 text-[10px] font-mono font-bold text-[#9ca3af] uppercase tracking-wider mb-2">
-          Projects
-        </h3>
-        {projects.map((project) => (
-          <div key={project.id} className="relative">
+  function renderNoProjectsFound() {
+    return <p className="px-3 text-xs text-[#6b7280]">No public projects found.</p>;
+  }
+
+  function renderBoardProjectsList() {
+    if (!projects.length) {
+      return renderNoProjectsFound();
+    }
+
+    return projects.map((project) => (
+      <div key={project.id} className="relative">
+        <button
+          type="button"
+          data-project={project.slug}
+          onClick={() => setProjectSlugAndHistory(project.slug)}
+          className={cls(
+            "sidebar-project-btn w-full flex items-start gap-3 px-3 py-2 rounded-sm-ds font-medium text-sm transition-colors",
+            selectedProjectSlug === project.slug
+              ? "bg-cyan-50 text-[#06B6D4]"
+              : "text-[#6b7280] hover:bg-[#f3f4f6]",
+          )}
+        >
+          <ProjectSidebarIcon faviconUrl={project.favicon_url} projectName={project.name} />
+          <span className="flex-1 min-w-0 text-left">
+            <span className="block font-medium leading-tight pr-12 truncate">{project.name}</span>
+            {project.tagline ? <span className="block w-full text-[11px] leading-tight text-[#6b7280] pt-2">{project.tagline}</span> : null}
+          </span>
+        </button>
+        <span className="absolute top-2 right-2 flex items-center gap-1">
+          {isOwnerViewer ? (
             <button
               type="button"
-              data-project={project.slug}
-              onClick={() => setProjectSlugAndHistory(project.slug)}
-              className={cls(
-                "sidebar-project-btn w-full flex items-start gap-3 px-3 py-2 rounded-sm-ds font-medium text-sm transition-colors",
-                selectedProjectSlug === project.slug
-                  ? "bg-cyan-50 text-[#06B6D4]"
-                  : "text-[#6b7280] hover:bg-[#f3f4f6]",
-              )}
+              onClick={(event) => {
+                event.stopPropagation();
+                setProjectSlugAndHistory(project.slug);
+                setView("settings");
+              }}
+              className="text-[#9ca3af] hover:text-[#111827] p-1 rounded-sm-ds transition-colors"
+              title="Project Settings"
+              aria-label={`Project settings for ${project.name}`}
+            >
+              <Settings size={16} />
+            </button>
+          ) : null}
+          {project.url ? (
+            <a
+              href={project.url}
+              target="_blank"
+              rel="noreferrer"
+              onClick={(event) => event.stopPropagation()}
+              className="text-[#9ca3af] hover:text-[#111827] p-1 rounded-sm-ds transition-colors"
+              aria-label={`Open ${project.name} website`}
+              title="Open project site"
+            >
+              <ExternalLink size={16} />
+            </a>
+          ) : null}
+        </span>
+      </div>
+    ));
+  }
+
+  function renderBoardProjectsSection() {
+    return (
+      <div className="space-y-1">
+        <SidebarProjectsHeader
+          title={sidebarProjectsTitle}
+          isOwnerViewer={isSidebarOwnerViewer}
+          ownerHandle={sidebarProjectsOwnerHandle}
+          onCreateProject={() => openProjectFormForHandle(sidebarProjectsOwnerHandle)}
+          onContactOwner={() => openMessagesForContactHandle(sidebarProjectsOwnerHandle)}
+        />
+        {renderBoardProjectsList()}
+      </div>
+    );
+  }
+
+  const projectButtons = renderBoardProjectsSection();
+
+  const messageProjectButtons = (
+    <div className="space-y-1">
+      <SidebarProjectsHeader
+        title={sidebarProjectsTitle}
+        isOwnerViewer={isSidebarOwnerViewer}
+        ownerHandle={sidebarProjectsOwnerHandle}
+        onCreateProject={() => openProjectFormForHandle(sidebarProjectsOwnerHandle)}
+        onContactOwner={() => openMessagesForContactHandle(sidebarProjectsOwnerHandle)}
+      />
+      {!messageSidebarProjectsOwnerHandle ? (
+        <p className="px-3 text-xs text-[#6b7280]">
+          {isAuthenticated ? "No projects found." : "Sign in to see your projects."}
+        </p>
+      ) : isMessageSidebarProjectsLoading ? (
+        <p className="px-3 text-xs text-[#6b7280]">Loading projects...</p>
+      ) : messageSidebarProjects.length ? (
+        messageSidebarProjects.map((project) => (
+          <div key={project.id} className="relative">
+            <a
+              href={`/${messageSidebarProjectsOwnerHandle}/${project.slug}/`}
+              className="sidebar-project-btn w-full flex items-start gap-3 px-3 py-2 rounded-sm-ds font-medium text-sm transition-colors text-[#6b7280] hover:bg-[#f3f4f6]"
             >
               <ProjectSidebarIcon faviconUrl={project.favicon_url} projectName={project.name} />
               <span className="flex-1 min-w-0 text-left">
-                <span className="block font-medium leading-tight pr-12 truncate">{project.name}</span>
-                {project.tagline ? <span className="block w-full text-[11px] leading-tight text-[#6b7280] pt-2">{project.tagline}</span> : null}
+                <span className="block font-medium leading-tight pr-10 truncate">{project.name}</span>
+                {project.tagline ? (
+                  <span className="block w-full text-[11px] leading-tight text-[#6b7280] pt-2">
+                    {project.tagline}
+                  </span>
+                ) : null}
               </span>
-            </button>
-            <span className="absolute top-2 right-2 flex items-center gap-1">
-              {isOwnerViewer ? (
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    setProjectSlugAndHistory(project.slug);
-                    setView((current) => (current === "issues" ? "settings" : "issues"));
-                  }}
-                  className="text-[#9ca3af] hover:text-[#111827] p-1 rounded-sm-ds transition-colors"
-                  title="Project Settings"
-                  aria-label={`Project settings for ${project.name}`}
-                >
-                  <Settings size={16} />
-                </button>
-              ) : null}
-              {project.url ? (
+            </a>
+            {project.url ? (
+              <span className="absolute top-2 right-2">
                 <a
                   href={project.url}
                   target="_blank"
                   rel="noreferrer"
-                  onClick={(event) => event.stopPropagation()}
                   className="text-[#9ca3af] hover:text-[#111827] p-1 rounded-sm-ds transition-colors"
                   aria-label={`Open ${project.name} website`}
                   title="Open project site"
                 >
                   <ExternalLink size={16} />
                 </a>
-              ) : null}
-            </span>
+              </span>
+            ) : null}
           </div>
-        ))}
-      </div>
-    </>
+        ))
+      ) : renderNoProjectsFound()}
+    </div>
   );
 
-  const messageProjectsOwnerHandle = normalizeHandle(selectedMessageHandle);
-  const messageProjectButtons = (
-    <>
-      <a
-        href={messageProjectsOwnerHandle ? `/${messageProjectsOwnerHandle}/` : "/messages/"}
-        className={cls(
-          "sidebar-project-btn w-full flex items-center gap-3 px-3 py-2 rounded-sm-ds font-medium text-sm transition-colors",
-          messageProjectsOwnerHandle
-            ? "text-[#6b7280] hover:bg-[#f3f4f6]"
-            : "bg-cyan-50 text-[#06B6D4]",
-        )}
-      >
-        <LayoutGrid size={18} />
-        All Projects
-      </a>
-      <div className="space-y-1">
-        <h3 className="px-3 text-[10px] font-mono font-bold text-[#9ca3af] uppercase tracking-wider mb-2">
-          Projects
-        </h3>
-        {!messageProjectsOwnerHandle ? (
-          <p className="px-3 text-xs text-[#6b7280]">Select a conversation to see projects.</p>
-        ) : isMessageSidebarProjectsLoading ? (
-          <p className="px-3 text-xs text-[#6b7280]">Loading projects...</p>
-        ) : messageSidebarProjects.length ? (
-          messageSidebarProjects.map((project) => (
-            <div key={project.id} className="relative">
-              <a
-                href={`/${messageProjectsOwnerHandle}/${project.slug}/`}
-                className="sidebar-project-btn w-full flex items-start gap-3 px-3 py-2 rounded-sm-ds font-medium text-sm transition-colors text-[#6b7280] hover:bg-[#f3f4f6]"
-              >
-                <ProjectSidebarIcon faviconUrl={project.favicon_url} projectName={project.name} />
-                <span className="flex-1 min-w-0 text-left">
-                  <span className="block font-medium leading-tight pr-10 truncate">{project.name}</span>
-                  {project.tagline ? (
-                    <span className="block w-full text-[11px] leading-tight text-[#6b7280] pt-2">
-                      {project.tagline}
-                    </span>
-                  ) : null}
-                </span>
-              </a>
-              {project.url ? (
-                <span className="absolute top-2 right-2">
-                  <a
-                    href={project.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-[#9ca3af] hover:text-[#111827] p-1 rounded-sm-ds transition-colors"
-                    aria-label={`Open ${project.name} website`}
-                    title="Open project site"
-                  >
-                    <ExternalLink size={16} />
-                  </a>
-                </span>
-              ) : null}
-            </div>
-          ))
-        ) : (
-          <p className="px-3 text-xs text-[#6b7280]">No public projects found.</p>
-        )}
-      </div>
-    </>
-  );
+  const sidebarBottomActionLabel = isSidebarOwnerViewer
+    ? "+ add new project"
+    : sidebarProjectsOwnerHandle
+      ? `Contact @${sidebarProjectsOwnerHandle}`
+      : "Contact";
+
+  const sidebarBottomActionIcon = isSidebarOwnerViewer ? <Plus size={18} /> : <MessageCircle size={18} />;
+
+  const projectButtonsMobile = renderBoardProjectsSection();
 
   return (
     <div className="h-screen flex flex-col bg-[#f3f4f6] text-[#111827]">
@@ -2334,20 +2462,32 @@ export default function App() {
           </div>
 
           <nav className="hidden md:flex items-center text-sm font-medium text-[#6b7280] gap-2 truncate">
-            {view === "messages" && !bootstrap.ownerHandle ? (
-              <span className="text-[#111827] font-semibold">messages</span>
-            ) : (
+            {view === "messages" && messagesNavbarHandle ? (
               <>
-                <a
-                  href={`/${bootstrap.ownerHandle || ""}/`}
-                  className="hover:text-[#111827]"
-                >
-                  {bootstrap.ownerHandle || "owner"}
+                <a href={`/${messagesNavbarHandle}/`} className="hover:text-[#111827]">
+                  {messagesNavbarHandle}
                 </a>
                 <span className="text-[#d1d5db] font-mono">/</span>
-                <span className="text-[#111827] font-semibold truncate">
-                  {selectedProject ? selectedProject.name : "All Projects"}
-                </span>
+                <span className="text-[#111827] font-semibold truncate">Contact</span>
+              </>
+            ) : (
+              <>
+                {view === "messages" ? (
+                  <span className="text-[#111827] font-semibold">messages</span>
+                ) : (
+                  <>
+                    <a
+                      href={`/${bootstrap.ownerHandle || ""}/`}
+                      className="hover:text-[#111827]"
+                    >
+                      {bootstrap.ownerHandle || "owner"}
+                    </a>
+                    <span className="text-[#d1d5db] font-mono">/</span>
+                    <span className="text-[#111827] font-semibold truncate">
+                      {selectedProject ? selectedProject.name : "All Projects"}
+                    </span>
+                  </>
+                )}
                 {isOwnerViewer ? (
                   <a
                     href={projectFormUrl}
@@ -2377,49 +2517,19 @@ export default function App() {
             </a>
           ) : null}
           {isAuthenticated ? (
-            <div ref={profileMenuRef} className="relative">
-              <button
-                type="button"
-                onClick={() => setIsProfileMenuOpen((value) => !value)}
-                className="flex items-center gap-2 rounded-sm-ds border border-transparent px-2 py-1 transition-colors hover:border-[#e5e7eb] hover:bg-[#f8fafc]"
-              >
-                <span className="text-xs font-mono text-[#6b7280]">{currentUserHandle || "user"}</span>
-                <UserAvatar
-                  imageUrl={currentUserAvatarUrl}
-                  label={currentUserHandle || "user"}
-                  sizeClass="w-8 h-8"
-                />
-                <ChevronDown size={14} className="text-[#6b7280]" />
-              </button>
-
-              {isProfileMenuOpen ? (
-                <div className="absolute right-0 top-full mt-2 w-44 rounded-sm-ds border border-[#e5e7eb] bg-white shadow-sm overflow-hidden z-50">
-                  {isOwnerViewer ? (
-                    <a
-                      href={projectFormUrl}
-                      onClick={(event) => {
-                        handleProjectMenuNavigation(event);
-                      }}
-                      className="flex w-full items-center gap-2 px-3 py-2 text-sm text-[#111827] hover:bg-[#f3f4f6]"
-                    >
-                      <Plus size={16} />
-                      New Project
-                    </a>
-                  ) : null}
-                  <button
-                    type="button"
-                    onClick={handleLogout}
-                    className="flex w-full items-center gap-2 px-3 py-2 text-sm text-[#111827] hover:bg-[#f3f4f6]"
-                  >
-                    <LogOut size={16} />
-                    Logout
-                  </button>
-                </div>
-              ) : null}
-            </div>
-          ) : (
-            <div className="flex items-center gap-2">
-              <button
+            <ProfileMenu
+              menuRef={profileMenuRef}
+              isOpen={isProfileMenuOpen}
+              onToggle={() => setIsProfileMenuOpen((value) => !value)}
+              currentUserHandle={currentUserHandle}
+              currentUserAvatarUrl={currentUserAvatarUrl}
+              canCreateProject={canCreateWorkspaceProject}
+              onCreateProject={handleProfileProjectCreation}
+              onLogout={handleLogout}
+            />
+            ) : (
+              <div className="flex items-center gap-2">
+                <button
                 type="button"
                 onClick={() => openAuth("signIn")}
                 className="rounded-sm-ds px-3 py-2 text-xs font-bold uppercase tracking-wide text-[#6b7280] transition-colors hover:text-[#111827]"
@@ -2440,7 +2550,7 @@ export default function App() {
 
       <div className="flex-1 flex overflow-hidden">
         {bootstrap.ownerHandle || view === "messages" ? (
-          <aside className="w-60 bg-white border-r border-[#e5e7eb] flex-col shrink-0 hidden md:flex">
+          <aside className="w-72 bg-white border-r border-[#e5e7eb] flex-col shrink-0 hidden md:flex">
             <div className="flex-1 p-2 space-y-4 overflow-y-auto">
               {view === "messages" ? messageProjectButtons : projectButtons}
             </div>
@@ -2449,10 +2559,15 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => {
+                  if (isSidebarOwnerViewer) {
+                    openProjectFormForHandle(sidebarProjectsOwnerHandle);
+                    return;
+                  }
+
                   setContactFeedback("");
                   setContactFeedbackTone("");
-                  if (view === "messages") {
-                    setMessagesThreadAndHistory(messageThreadIdFromHandle(selectedMessageHandle));
+                  if (sidebarProjectsOwnerHandle) {
+                    openMessagesForContactHandle(sidebarProjectsOwnerHandle);
                     return;
                   }
 
@@ -2460,14 +2575,8 @@ export default function App() {
                 }}
                 className="w-full flex items-center gap-3 px-3 py-2 rounded-sm-ds text-[#6b7280] hover:bg-[#f3f4f6] font-medium text-sm transition-colors"
               >
-                {isOwnerViewer ? <MessageCircle size={18} /> : <Mail size={18} />}
-                {view === "messages"
-                  ? selectedMessageHandle
-                    ? `Contact @${selectedMessageHandle}`
-                    : "Messages"
-                  : isOwnerViewer
-                    ? "Messages"
-                    : `Contact @${bootstrap.ownerHandle || "owner"}`}
+                {sidebarBottomActionIcon}
+                {sidebarBottomActionLabel}
               </button>
             </div>
           </aside>
@@ -2478,7 +2587,7 @@ export default function App() {
                 <div className="flex-1 flex overflow-hidden">
                   <section className="w-full md:w-[380px] border-r border-[#e5e7eb] bg-white flex flex-col shrink-0">
                 <div className="p-4 border-b border-[#e5e7eb] space-y-3">
-                  <div className="md:hidden space-y-3">{projectButtons}</div>
+                  <div className="md:hidden space-y-3">{projectButtonsMobile}</div>
 
                   <div className="flex items-center justify-between">
                     <h2 className="text-sm font-bold uppercase tracking-widest text-[#6b7280]">Requests</h2>
