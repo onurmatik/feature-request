@@ -2,9 +2,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
-  ArrowBigUpDash,
+  ThumbsUp,
   Folder,
   MessageCircle,
+  LayoutDashboard,
   ListTodo,
   LogOut,
   ExternalLink,
@@ -130,8 +131,13 @@ function ProfileMenu({
   currentUserAvatarUrl,
   canCreateProject,
   onCreateProject,
+  onClose,
   onLogout,
 }) {
+  const handleMenuClose = typeof onClose === "function" ? onClose : () => {};
+  const dashboardHandle = String(currentUserHandle || "").trim();
+  const dashboardUrl = dashboardHandle ? `/${dashboardHandle.toLowerCase()}` : "";
+
   return (
     <div ref={menuRef} className="relative">
       <button
@@ -150,6 +156,24 @@ function ProfileMenu({
 
       {isOpen ? (
         <div className="absolute right-0 top-full mt-2 w-44 rounded-sm-ds border border-[#e5e7eb] bg-white shadow-sm overflow-hidden z-50">
+          {dashboardUrl ? (
+            <a
+              href={dashboardUrl}
+              onClick={handleMenuClose}
+              className="flex w-full items-center gap-2 px-3 py-2 text-sm text-[#111827] hover:bg-[#f3f4f6]"
+            >
+              <LayoutDashboard size={16} />
+              Dashboard
+            </a>
+          ) : null}
+          <a
+            href="/messages"
+            onClick={handleMenuClose}
+            className="flex w-full items-center gap-2 px-3 py-2 text-sm text-[#111827] hover:bg-[#f3f4f6]"
+          >
+            <MessageCircle size={16} />
+            Messages
+          </a>
           {canCreateProject ? (
             <button
               type="button"
@@ -160,6 +184,7 @@ function ProfileMenu({
               New Project
             </button>
           ) : null}
+          <div className="h-px bg-[#e5e7eb] my-1" />
           <button
             type="button"
             onClick={onLogout}
@@ -2432,7 +2457,7 @@ export default function App() {
   );
 
   const sidebarBottomActionLabel = isSidebarOwnerViewer
-    ? "+ add new project"
+    ? "Add new project"
     : sidebarProjectsOwnerHandle
       ? `Contact @${sidebarProjectsOwnerHandle}`
       : "Contact";
@@ -2518,6 +2543,7 @@ export default function App() {
               currentUserAvatarUrl={currentUserAvatarUrl}
               canCreateProject={canCreateWorkspaceProject}
               onCreateProject={handleProfileProjectCreation}
+              onClose={() => setIsProfileMenuOpen(false)}
               onLogout={handleLogout}
             />
             ) : (
@@ -2719,8 +2745,8 @@ export default function App() {
                               {toReadableStatus(issue.status)}
                             </span>
                             <div className="flex-1" />
-                            <div className="flex items-center gap-1 text-[#6b7280]">
-                              <ArrowBigUpDash size={14} />
+                          <div className="flex items-center gap-1 text-[#6b7280]">
+                              <ThumbsUp size={14} />
                               <span className="text-[10px] font-mono font-bold">{issue.upvotes_count}</span>
                             </div>
                           </div>
@@ -2825,7 +2851,7 @@ export default function App() {
                           disabled={isIssueUpdating}
                           className="flex items-center gap-1.5 px-3 py-1.5 border border-[#e5e7eb] rounded-sm-ds text-[#111827] font-semibold text-xs hover:bg-[#f3f4f6] transition-colors disabled:opacity-50"
                         >
-                  <ArrowBigUpDash size={18} className="text-[#06B6D4]" />
+                  <ThumbsUp size={18} className="text-[#06B6D4]" />
                   Upvote ({selectedIssue.upvotes_count})
                 </button>
                 <div className="h-4 w-[1px] bg-[#e5e7eb]" />

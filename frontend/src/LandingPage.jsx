@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import {
-  ArrowBigUpDash,
+  ThumbsUp,
   ArrowRight,
   Link2,
   ListTodo,
@@ -527,7 +527,7 @@ export default function LandingPage({ initialAuthMode = null }) {
           <div className="max-w-7xl mx-auto px-4 grid grid-cols-1 md:grid-cols-3 gap-12">
             <div className="space-y-4">
               <div className="w-12 h-12 bg-[#f3f4f6] rounded-sm-ds flex items-center justify-center text-[#111827]">
-                <ArrowBigUpDash size={22} />
+                <ThumbsUp size={22} />
               </div>
               <h3 className="font-bold text-lg">Community Prioritization</h3>
               <p className="text-sm text-[#6b7280] leading-relaxed">
