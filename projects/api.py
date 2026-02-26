@@ -389,8 +389,21 @@ def _moderate_issue_submission(issue_type: str, title: str, description: str):
     _moderate_board_content("Issue", content, issue_type="issue")
 
 
-def _moderate_comment_submission(body: str):
-    _moderate_board_content("Comment", body, issue_type=None)
+def _moderate_comment_submission(body: str, issue: Issue):
+    recent_comments = issue.comments.order_by("-created_at").values_list("body", flat=True)[:3]
+    context_lines = [
+        f"issue_title: {issue.title}",
+        f"issue_description: {issue.description or '(empty)'}",
+    ]
+
+    if recent_comments:
+        context_lines.append("recent_comments:")
+        for idx, comment_body in enumerate(recent_comments, start=1):
+            context_lines.append(f"{idx}. {comment_body[:360]}")
+
+    context = "\n".join(context_lines)
+    content = f"comment:\n{body}\n\nthread_context:\n{context}"
+    _moderate_board_content("Comment", content, issue_type=None)
 
 
 def _moderate_board_content(label: str, content: str, issue_type: str | None = None):
@@ -404,8 +417,11 @@ def _moderate_board_content(label: str, content: str, issue_type: str | None = N
         "Reject empty, nonsensical, spam, abusive, or unrelated posts."
         if issue_type == "issue"
         else (
-            "Allow only constructive, relevant comments related to the issue. "
-            "Reject empty, nonsensical, spam, abusive, promotional, or unrelated posts."
+            "Allow comments that are constructive and related to the issue context, "
+            "including concise agreement/disagreement, clarifying questions, suggestions, "
+            "and relevant source references. "
+            "Reject empty, nonsensical, spam, abusive, promotional, or clearly unrelated posts. "
+            "When uncertain, choose ALLOW."
         )
     )
 
@@ -933,7 +949,7 @@ def create_issue_comment(request, issue_id: int, payload: CommentCreateIn):
     user = _require_auth_user(request)
     issue = get_object_or_404(Issue.objects.select_related("project"), id=issue_id)
     body = _clean_non_empty(payload.body, "Comment body")
-    _moderate_comment_submission(body)
+    _moderate_comment_submission(body, issue)
 
     comment = IssueComment.objects.create(
         issue=issue,
