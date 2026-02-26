@@ -1037,7 +1037,7 @@ export default function App() {
     }
 
     if (bootstrap.ownerHandle && !selectedProjectSlug) {
-      return `${bootstrap.ownerHandle}'s all projects | ${APP_NAME}`;
+      return `${bootstrap.ownerHandle}'s projects | ${APP_NAME}`;
     }
 
     if (selectedProjectSlug) {
