@@ -1,6 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.contrib.auth.forms import UserChangeForm, UserCreationForm
+from django.db.models import Count
 
 from .models import ApiToken, User
 
@@ -27,6 +28,8 @@ class UserAdmin(BaseUserAdmin):
         "email",
         "handle",
         "display_name",
+        "project_count",
+        "request_count",
         "is_staff",
         "is_active",
         "date_joined",
@@ -36,6 +39,21 @@ class UserAdmin(BaseUserAdmin):
     list_filter = ("is_staff", "is_superuser", "is_active")
     search_fields = ("email", "handle", "display_name")
     ordering = ("id",)
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        return qs.annotate(
+            _project_count=Count("projects", distinct=True),
+            _request_count=Count("issues", distinct=True),
+        )
+
+    @admin.display(ordering="_project_count", description="Projects")
+    def project_count(self, obj):
+        return obj._project_count
+
+    @admin.display(ordering="_request_count", description="Requests")
+    def request_count(self, obj):
+        return obj._request_count
 
     fieldsets = (
         (None, {"fields": ("email", "password")}),
