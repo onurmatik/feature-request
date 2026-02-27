@@ -278,7 +278,7 @@ function buildAgentPromptText(baseUrl, tokenValue) {
     "",
     `API token: ${tokenValue}`,
     "",
-    `If no skill added yet, read from ${baseUrl}/SKILL.md`,
+    `If no skill added yet, read from ${baseUrl}/static/SKILL.md`,
   ].join("\n");
 }
 

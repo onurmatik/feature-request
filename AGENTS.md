@@ -60,7 +60,7 @@ It applies to all files unless a deeper `AGENTS.md` is added in a subfolder.
     - limits/rate assumptions
     - documentation URL pointer
 - Keep one root `AGENTS.md` (this file) for global policy.
-- Use one root `SKILL.md` for all skill definitions (single document).
+  - Use `static/SKILL.md` as the single skill definition document.
 - Per-skill sections in `SKILL.md` must include:
   - trigger and scope
   - required inputs
