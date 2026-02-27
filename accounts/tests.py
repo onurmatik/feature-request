@@ -5,6 +5,8 @@ from django.contrib.auth import get_user_model
 from django.conf import settings
 from django.test import TestCase
 
+from .models import ApiToken
+
 
 class SessionApiTest(TestCase):
     def setUp(self):
@@ -88,6 +90,8 @@ class AuthEntryApiTest(TestCase):
         self.assertTrue(
             get_user_model().objects.filter(email__iexact="new-user@example.com").exists()
         )
+        user = get_user_model().objects.get(email__iexact="new-user@example.com")
+        self.assertIsNotNone(ApiToken.resolve_active_agent(user))
 
         me_response = self.client.get("/auth/me")
         self.assertEqual(me_response.status_code, 200)
@@ -191,3 +195,85 @@ class AuthEntryApiTest(TestCase):
                 email="reserved-manager@example.com",
                 handle="messages",
             )
+
+
+class AgentTokenApiTest(TestCase):
+    def setUp(self):
+        user_model = get_user_model()
+        self.user = user_model.objects.create_user(
+            email="agent-user@example.com",
+            handle="agent_user",
+            password="test-pass-123",
+        )
+
+    def test_agent_token_endpoints_require_authentication(self):
+        self.assertEqual(self.client.get("/api/auth/agent-token").status_code, 401)
+        self.assertEqual(self.client.post("/api/auth/agent-token/connect").status_code, 401)
+        self.assertEqual(self.client.post("/api/auth/agent-token/refresh").status_code, 401)
+
+    def test_connect_creates_agent_token_and_returns_prompt(self):
+        self.client.force_login(self.user)
+        response = self.client.post("/api/auth/agent-token/connect")
+        self.assertEqual(response.status_code, 200)
+
+        payload = response.json()
+        self.assertTrue(payload["created"])
+        self.assertTrue(payload["can_write"])
+        self.assertTrue(payload["token"].startswith("fr_"))
+        self.assertIn(payload["token"], payload["prompt"])
+        self.assertIn("/SKILL.md", payload["prompt"])
+
+        token = ApiToken.resolve_active_agent(self.user)
+        self.assertIsNotNone(token)
+        self.assertTrue(token.is_agent)
+        self.assertTrue(token.can_write)
+
+    def test_connect_rotates_existing_agent_token_without_new_row(self):
+        self.client.force_login(self.user)
+        first = self.client.post("/api/auth/agent-token/connect")
+        self.assertEqual(first.status_code, 200)
+        first_payload = first.json()
+
+        first_token = ApiToken.resolve_active_agent(self.user)
+        self.assertIsNotNone(first_token)
+        first_id = first_token.id
+        first_hash = first_token.token_hash
+
+        second = self.client.post("/api/auth/agent-token/connect")
+        self.assertEqual(second.status_code, 200)
+        second_payload = second.json()
+
+        self.assertFalse(second_payload["created"])
+        self.assertNotEqual(first_payload["token"], second_payload["token"])
+        self.assertEqual(
+            ApiToken.objects.filter(user=self.user, is_agent=True, revoked_at__isnull=True).count(),
+            1,
+        )
+
+        rotated = ApiToken.resolve_active_agent(self.user)
+        self.assertEqual(rotated.id, first_id)
+        self.assertNotEqual(rotated.token_hash, first_hash)
+
+    def test_refresh_rotates_agent_token(self):
+        self.client.force_login(self.user)
+        connect_response = self.client.post("/api/auth/agent-token/connect")
+        self.assertEqual(connect_response.status_code, 200)
+        first_payload = connect_response.json()
+
+        refresh_response = self.client.post("/api/auth/agent-token/refresh")
+        self.assertEqual(refresh_response.status_code, 200)
+        second_payload = refresh_response.json()
+
+        self.assertNotEqual(first_payload["token"], second_payload["token"])
+        self.assertEqual(first_payload["id"], second_payload["id"])
+        self.assertFalse(second_payload["created"])
+
+    def test_status_auto_creates_agent_token(self):
+        self.client.force_login(self.user)
+
+        response = self.client.get("/api/auth/agent-token")
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["exists"])
+        self.assertTrue(payload["can_write"])
+        self.assertEqual(payload["name"], ApiToken.AGENT_TOKEN_NAME)

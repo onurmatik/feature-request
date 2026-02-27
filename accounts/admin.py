@@ -104,6 +104,7 @@ class ApiTokenAdmin(admin.ModelAdmin):
         "id",
         "user",
         "name",
+        "is_agent",
         "can_write",
         "token_prefix",
         "created_at",
@@ -116,7 +117,7 @@ class ApiTokenAdmin(admin.ModelAdmin):
         "name",
         "token_prefix",
     )
-    list_filter = ("can_write", "revoked_at", "created_at")
+    list_filter = ("is_agent", "can_write", "revoked_at", "created_at")
     readonly_fields = (
         "token_prefix",
         "token_hash",

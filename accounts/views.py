@@ -18,7 +18,7 @@ import stripe
 from sesame.utils import get_query_string
 
 from .handles import is_reserved_handle
-from .models import User
+from .models import ApiToken, User
 
 HANDLE_REGEX = re.compile(r"^[a-z0-9_]+$")
 
@@ -337,6 +337,7 @@ def sign_up_view(request):
         handle=handle,
         display_name=display_name,
     )
+    ApiToken.ensure_agent_token(user)
     _notify_admins_on_sign_up(user)
     magic_link = _magic_link_url(request, user)
     _send_magic_link_email(

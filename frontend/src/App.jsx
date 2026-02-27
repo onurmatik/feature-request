@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
+  Bot,
   ThumbsUp,
   Copy,
   Folder,
@@ -15,8 +16,6 @@ import {
   Search,
   ChevronDown,
   Settings,
-  Trash2,
-  X,
 } from "lucide-react";
 import AuthModal from "./components/AuthModal.jsx";
 import { authSignInEndpoint, csrfTokenFromCookie, getPostAuthRedirect } from "./utils/authClient.js";
@@ -170,14 +169,9 @@ function ProfileMenu({
               Dashboard
             </a>
           ) : null}
-          <a
-            href="/settings/"
-            onClick={handleMenuClose}
-            className="flex w-full items-center gap-2 px-3 py-2 text-sm text-[#111827] hover:bg-[#f3f4f6]"
-          >
-            <Settings size={16} />
-            Settings
-          </a>
+          <div className="px-3 pt-2 pb-1">
+            <p className="text-[10px] font-mono font-bold text-[#9ca3af] uppercase tracking-wider">settings</p>
+          </div>
           <a
             href="/settings/api"
             onClick={handleMenuClose}
@@ -186,6 +180,15 @@ function ProfileMenu({
             <KeyRound size={16} />
             API Access
           </a>
+          <a
+            href="/settings/connect-agent"
+            onClick={handleMenuClose}
+            className="flex w-full items-center gap-2 px-3 py-2 text-sm text-[#111827] hover:bg-[#f3f4f6]"
+          >
+            <Bot size={16} />
+            Agent Integration
+          </a>
+          <div className="h-px bg-[#e5e7eb] my-1" />
           <a
             href="/messages"
             onClick={handleMenuClose}
@@ -232,6 +235,52 @@ const ADMIN_PATH = (() => {
 })();
 const ADMIN_PATH_PARTS = ADMIN_PATH.split("/").filter(Boolean).map((segment) => normalizeHandle(segment));
 const RESERVED_HANDLES = new Set(["messages", "settings", ADMIN_PATH_PARTS[0]].filter(Boolean));
+const SETTINGS_SECTIONS = new Set(["general", "api", "connect-agent"]);
+
+function settingsSectionToView(section) {
+  if (section === "api") {
+    return "settingsApi";
+  }
+  if (section === "connect-agent") {
+    return "settingsConnectAgent";
+  }
+  return "settingsGeneral";
+}
+
+function agentTokenStorageKey(handle) {
+  const normalized = normalizeHandle(handle || "anonymous");
+  return `fr_agent_token_secret:${normalized}`;
+}
+
+function readStoredAgentToken(handle) {
+  try {
+    return String(window.localStorage.getItem(agentTokenStorageKey(handle)) || "");
+  } catch {
+    return "";
+  }
+}
+
+function writeStoredAgentToken(handle, tokenValue) {
+  const value = String(tokenValue || "").trim();
+  if (!value) {
+    return;
+  }
+  try {
+    window.localStorage.setItem(agentTokenStorageKey(handle), value);
+  } catch {
+    // ignore storage failures
+  }
+}
+
+function buildAgentPromptText(baseUrl, tokenValue) {
+  return [
+    "Please manage the projects and requests using FeatureRequest skill as requested.",
+    "",
+    `API token: ${tokenValue}`,
+    "",
+    `If no skill added yet, read from ${baseUrl}/SKILL.md`,
+  ].join("\n");
+}
 
 function isValidHandle(value) {
   return HANDLE_REGEX.test(normalizeHandle(value));
@@ -291,10 +340,10 @@ function parseRoute(pathname = window.location.pathname) {
       };
     }
 
-    if (pathParts.length === 2 && normalizeHandle(pathParts[1]) === "api") {
+    if (pathParts.length === 2 && SETTINGS_SECTIONS.has(normalizeHandle(pathParts[1]))) {
       return {
         kind: "settings",
-        section: "api",
+        section: normalizeHandle(pathParts[1]),
       };
     }
 
@@ -378,9 +427,7 @@ function parseBootstrap() {
     initialView: isMessagesRoute
       ? "messages"
       : isSettingsRoute
-        ? route.section === "api"
-          ? "settingsApi"
-          : "settingsGeneral"
+        ? settingsSectionToView(route.section)
         : isBoardRoute && route.isProjectFormRoute
           ? "newProject"
           : "issues",
@@ -872,14 +919,9 @@ export default function App() {
   const [isApiTokensLoading, setIsApiTokensLoading] = useState(false);
   const [apiTokenFeedback, setApiTokenFeedback] = useState("");
   const [apiTokenFeedbackTone, setApiTokenFeedbackTone] = useState("");
-  const [isCreateApiTokenOpen, setIsCreateApiTokenOpen] = useState(false);
-  const [apiTokenNameDraft, setApiTokenNameDraft] = useState("Agent token");
-  const [apiTokenCanWriteDraft, setApiTokenCanWriteDraft] = useState(true);
-  const [apiTokenCreateFeedback, setApiTokenCreateFeedback] = useState("");
-  const [isApiTokenSubmitting, setIsApiTokenSubmitting] = useState(false);
-  const [revokingApiTokenId, setRevokingApiTokenId] = useState(null);
   const [latestCreatedTokenValue, setLatestCreatedTokenValue] = useState("");
-  const [latestCreatedTokenName, setLatestCreatedTokenName] = useState("");
+  const [agentPromptValue, setAgentPromptValue] = useState("");
+  const [isAgentRefreshSubmitting, setIsAgentRefreshSubmitting] = useState(false);
 
   const [isContactOpen, setIsContactOpen] = useState(false);
   const [contactSenderName, setContactSenderName] = useState("");
@@ -1075,10 +1117,24 @@ export default function App() {
   const workspaceOwnerHandle =
     normalizeHandle(currentUserHandle) || normalizeHandle(bootstrap.ownerHandle);
   const canCreateWorkspaceProject = Boolean(isAuthenticated && workspaceOwnerHandle);
-  const isGlobalSettingsView = view === "settingsGeneral" || view === "settingsApi";
+  const isGlobalSettingsView =
+    view === "settingsGeneral" || view === "settingsApi" || view === "settingsConnectAgent";
   const isApiAccessView = view === "settingsApi";
+  const isConnectAgentView = view === "settingsConnectAgent";
   const isSettingsGeneralView = view === "settingsGeneral";
   const apiBaseUrl = useMemo(() => window.location.origin.replace(/\/+$/, ""), []);
+  const activeAgentToken = useMemo(
+    () => (Array.isArray(apiTokens) && apiTokens.length ? apiTokens[0] : null),
+    [apiTokens],
+  );
+  const activeAgentTokenSecret = activeAgentToken ? String(apiTokenSecrets[activeAgentToken.id] || "") : "";
+  const visibleAgentTokenValue =
+    activeAgentTokenSecret ||
+    latestCreatedTokenValue ||
+    (activeAgentToken ? `${activeAgentToken.token_prefix}••••••••` : "");
+  const canCopyActiveAgentToken = Boolean(activeAgentTokenSecret);
+  const promptTextValue =
+    String(agentPromptValue || "").trim();
 
   const sidebarProjectsTitle = useMemo(() => {
     if (isSidebarOwnerViewer) {
@@ -1126,6 +1182,10 @@ export default function App() {
       return `API Access | ${APP_NAME}`;
     }
 
+    if (view === "settingsConnectAgent") {
+      return `Connect Agent | ${APP_NAME}`;
+    }
+
     if (view === "settingsGeneral") {
       return `Settings | ${APP_NAME}`;
     }
@@ -1168,6 +1228,10 @@ export default function App() {
 
     if (view === "settingsApi") {
       return "Manage API bearer tokens and endpoint quickstart guides for agent integrations.";
+    }
+
+    if (view === "settingsConnectAgent") {
+      return "Connect your agent, rotate token, and copy integration prompt.";
     }
 
     if (view === "settingsGeneral") {
@@ -1259,7 +1323,13 @@ export default function App() {
   }, []);
 
   const settingsUrl = useCallback((section = "general") => {
-    return section === "api" ? "/settings/api" : "/settings/";
+    if (section === "api") {
+      return "/settings/api";
+    }
+    if (section === "connect-agent") {
+      return "/settings/connect-agent";
+    }
+    return "/settings/";
   }, []);
 
   const setStatus = useCallback((text, isError = false) => {
@@ -1313,12 +1383,14 @@ export default function App() {
   const refreshApiTokens = useCallback(async () => {
     if (!isAuthenticated) {
       setApiTokens([]);
+      setLatestCreatedTokenValue("");
+      setAgentPromptValue("");
       return;
     }
 
     setIsApiTokensLoading(true);
     try {
-      const response = await fetch("/api/auth/tokens");
+      const response = await fetch("/api/auth/agent-token");
       if (!response.ok) {
         setApiTokens([]);
         setApiTokenFeedback("API tokens could not be loaded.");
@@ -1327,13 +1399,107 @@ export default function App() {
       }
 
       const data = await response.json();
-      setApiTokens(Array.isArray(data) ? data : []);
-      setApiTokenFeedback("");
-      setApiTokenFeedbackTone("");
+      if (data && data.exists) {
+        setApiTokens([
+          {
+            id: data.id,
+            name: data.name,
+            can_write: Boolean(data.can_write),
+            token_prefix: data.token_prefix,
+            created_at: data.created_at,
+            last_used_at: data.last_used_at,
+          },
+        ]);
+        const storedTokenValue = readStoredAgentToken(currentUserHandle);
+        if (storedTokenValue && storedTokenValue.slice(0, 12) === String(data.token_prefix || "")) {
+          setApiTokenSecrets((previous) => ({ ...previous, [data.id]: storedTokenValue }));
+          setLatestCreatedTokenValue(storedTokenValue);
+          setAgentPromptValue(buildAgentPromptText(apiBaseUrl, storedTokenValue));
+        } else {
+          await ensureCsrfCookie();
+          const connectResponse = await fetch("/api/auth/agent-token/connect", {
+            method: "POST",
+            headers: {
+              "X-CSRFToken": csrfTokenFromCookie(),
+            },
+          });
+          const connectPayload = await connectResponse.json().catch(() => ({}));
+          if (!connectResponse.ok) {
+            setApiTokenFeedback("Agent token could not be loaded.");
+            setApiTokenFeedbackTone("error");
+            setLatestCreatedTokenValue("");
+            setAgentPromptValue("");
+            return;
+          }
+
+          const tokenRow = {
+            id: connectPayload.id,
+            name: connectPayload.name,
+            can_write: Boolean(connectPayload.can_write),
+            token_prefix: connectPayload.token_prefix,
+            created_at: connectPayload.created_at,
+            last_used_at: connectPayload.last_used_at,
+          };
+          const tokenValue = String(connectPayload.token || "");
+          setApiTokens([tokenRow]);
+          setLatestCreatedTokenValue(tokenValue);
+          if (tokenValue) {
+            writeStoredAgentToken(currentUserHandle, tokenValue);
+            setApiTokenSecrets((previous) => ({ ...previous, [tokenRow.id]: tokenValue }));
+            setAgentPromptValue(buildAgentPromptText(apiBaseUrl, tokenValue));
+          } else {
+            setAgentPromptValue("");
+          }
+        }
+      } else {
+        await ensureCsrfCookie();
+        const connectResponse = await fetch("/api/auth/agent-token/connect", {
+          method: "POST",
+          headers: {
+            "X-CSRFToken": csrfTokenFromCookie(),
+          },
+        });
+        const connectPayload = await connectResponse.json().catch(() => ({}));
+        if (!connectResponse.ok) {
+          setApiTokens([]);
+          const detail =
+            typeof connectPayload.detail === "string"
+              ? connectPayload.detail
+              : "Agent token could not be created.";
+          setApiTokenFeedback(detail);
+          setApiTokenFeedbackTone("error");
+          return;
+        }
+
+        const tokenRow = {
+          id: connectPayload.id,
+          name: connectPayload.name,
+          can_write: Boolean(connectPayload.can_write),
+          token_prefix: connectPayload.token_prefix,
+          created_at: connectPayload.created_at,
+          last_used_at: connectPayload.last_used_at,
+        };
+        const tokenValue = String(connectPayload.token || "");
+        setApiTokens([tokenRow]);
+        setLatestCreatedTokenValue(tokenValue);
+        if (tokenValue) {
+          writeStoredAgentToken(currentUserHandle, tokenValue);
+          setApiTokenSecrets((previous) => ({ ...previous, [tokenRow.id]: tokenValue }));
+          setAgentPromptValue(buildAgentPromptText(apiBaseUrl, tokenValue));
+        } else {
+          setAgentPromptValue("");
+        }
+        setApiTokenFeedback("");
+        setApiTokenFeedbackTone("");
+      }
+      if (data && data.exists) {
+        setApiTokenFeedback("");
+        setApiTokenFeedbackTone("");
+      }
     } finally {
       setIsApiTokensLoading(false);
     }
-  }, [isAuthenticated]);
+  }, [apiBaseUrl, currentUserHandle, isAuthenticated]);
 
   async function ensureCsrfCookie() {
     await fetch("/auth/me");
@@ -1618,7 +1784,7 @@ export default function App() {
   }, [isAuthenticated, refreshMessages, setStatus, view]);
 
   useEffect(() => {
-    if (!isApiAccessView) {
+    if (!isApiAccessView && !isConnectAgentView) {
       return;
     }
 
@@ -1626,6 +1792,7 @@ export default function App() {
       setApiTokens([]);
       setApiTokenFeedback("");
       setApiTokenFeedbackTone("");
+      setAgentPromptValue("");
       return;
     }
 
@@ -1633,7 +1800,7 @@ export default function App() {
       setApiTokenFeedback("API tokens could not be loaded.");
       setApiTokenFeedbackTone("error");
     });
-  }, [isApiAccessView, isAuthenticated, refreshApiTokens]);
+  }, [isApiAccessView, isAuthenticated, isConnectAgentView, refreshApiTokens]);
 
   useEffect(() => {
     if (view !== "messages") {
@@ -1774,7 +1941,7 @@ export default function App() {
 
       if (route.kind === "settings") {
         setIsRouteNotFound(false);
-        setView(route.section === "api" ? "settingsApi" : "settingsGeneral");
+        setView(settingsSectionToView(route.section));
         return;
       }
 
@@ -1829,8 +1996,8 @@ export default function App() {
   }, [selectedProject]);
 
   function setSettingsSectionAndHistory(section, replaceHistory = false) {
-    const normalizedSection = section === "api" ? "api" : "general";
-    const nextView = normalizedSection === "api" ? "settingsApi" : "settingsGeneral";
+    const normalizedSection = SETTINGS_SECTIONS.has(section) ? section : "general";
+    const nextView = settingsSectionToView(normalizedSection);
     setView(nextView);
 
     const nextUrl = settingsUrl(normalizedSection);
@@ -2382,24 +2549,54 @@ export default function App() {
     }
   }
 
-  function openCreateApiTokenModal() {
+  async function handleRefreshAgentToken() {
     if (!isAuthenticated) {
       openAuth("signIn");
       return;
     }
 
-    setApiTokenNameDraft("Agent token");
-    setApiTokenCanWriteDraft(true);
-    setApiTokenCreateFeedback("");
-    setIsCreateApiTokenOpen(true);
-  }
+    setIsAgentRefreshSubmitting(true);
+    setApiTokenFeedback("");
+    setApiTokenFeedbackTone("");
 
-  function closeCreateApiTokenModal() {
-    if (isApiTokenSubmitting) {
-      return;
+    try {
+      await ensureCsrfCookie();
+      const response = await fetch("/api/auth/agent-token/refresh", {
+        method: "POST",
+        headers: {
+          "X-CSRFToken": csrfTokenFromCookie(),
+        },
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const detail = typeof data.detail === "string" ? data.detail : "Token refresh failed.";
+        setApiTokenFeedback(detail);
+        setApiTokenFeedbackTone("error");
+        return;
+      }
+
+      const tokenRow = {
+        id: data.id,
+        name: data.name,
+        can_write: Boolean(data.can_write),
+        token_prefix: data.token_prefix,
+        created_at: data.created_at,
+        last_used_at: data.last_used_at,
+      };
+      const tokenValue = String(data.token || "");
+      setApiTokens([tokenRow]);
+      if (tokenValue) {
+        writeStoredAgentToken(currentUserHandle, tokenValue);
+        setApiTokenSecrets((previous) => ({ ...previous, [tokenRow.id]: tokenValue }));
+      }
+      setLatestCreatedTokenValue(tokenValue);
+      setAgentPromptValue(buildAgentPromptText(apiBaseUrl, tokenValue));
+      setApiTokenFeedback("Agent token refreshed.");
+      setApiTokenFeedbackTone("success");
+    } finally {
+      setIsAgentRefreshSubmitting(false);
     }
-    setIsCreateApiTokenOpen(false);
-    setApiTokenCreateFeedback("");
   }
 
   async function copyValueAndNotify(value, successText) {
@@ -2414,118 +2611,15 @@ export default function App() {
     setApiTokenFeedbackTone("success");
   }
 
-  async function handleCreateApiToken(event) {
-    event.preventDefault();
-    if (!isAuthenticated) {
-      openAuth("signIn");
-      return;
-    }
-
-    const name = String(apiTokenNameDraft || "").trim() || "Agent token";
-    setIsApiTokenSubmitting(true);
-    setApiTokenCreateFeedback("");
-
-    try {
-      await ensureCsrfCookie();
-      const response = await fetch("/api/auth/tokens", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-CSRFToken": csrfTokenFromCookie(),
-        },
-        body: JSON.stringify({
-          name,
-          can_write: Boolean(apiTokenCanWriteDraft),
-        }),
-      });
-
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        const detail = typeof data.detail === "string" ? data.detail : "Token could not be created.";
-        setApiTokenCreateFeedback(detail);
-        return;
-      }
-
-      const tokenValue = String(data.token || "");
-      const tokenRow = {
-        id: data.id,
-        name: data.name,
-        can_write: Boolean(data.can_write),
-        token_prefix: data.token_prefix,
-        created_at: data.created_at,
-        last_used_at: data.last_used_at,
-      };
-
-      setApiTokens((previous) => [tokenRow, ...previous.filter((token) => token.id !== tokenRow.id)]);
-      if (tokenValue) {
-        setApiTokenSecrets((previous) => ({ ...previous, [tokenRow.id]: tokenValue }));
-        setLatestCreatedTokenValue(tokenValue);
-        setLatestCreatedTokenName(tokenRow.name);
-      }
-      setApiTokenFeedback("Token created.");
-      setApiTokenFeedbackTone("success");
-      setIsCreateApiTokenOpen(false);
-      setApiTokenNameDraft("Agent token");
-      setApiTokenCanWriteDraft(true);
-      setApiTokenCreateFeedback("");
-    } finally {
-      setIsApiTokenSubmitting(false);
-    }
-  }
-
   async function handleCopyApiToken(tokenId) {
     const tokenValue = apiTokenSecrets[tokenId];
     if (!tokenValue) {
-      setApiTokenFeedback("Token value is only available after creation. Create a new token to copy.");
+      setApiTokenFeedback("Token value is only available after connect/refresh. Refresh token to copy.");
       setApiTokenFeedbackTone("error");
       return;
     }
 
     await copyValueAndNotify(tokenValue, "Token copied.");
-  }
-
-  async function handleRevokeApiToken(token) {
-    if (!isAuthenticated) {
-      openAuth("signIn");
-      return;
-    }
-
-    const confirmed = window.confirm(`Revoke token "${token.name}"?`);
-    if (!confirmed) {
-      return;
-    }
-
-    setRevokingApiTokenId(token.id);
-    setApiTokenFeedback("");
-    setApiTokenFeedbackTone("");
-    try {
-      await ensureCsrfCookie();
-      const response = await fetch(`/api/auth/tokens/${token.id}`, {
-        method: "DELETE",
-        headers: {
-          "X-CSRFToken": csrfTokenFromCookie(),
-        },
-      });
-
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        const detail = typeof data.detail === "string" ? data.detail : "Token revoke failed.";
-        setApiTokenFeedback(detail);
-        setApiTokenFeedbackTone("error");
-        return;
-      }
-
-      setApiTokens((previous) => previous.filter((item) => item.id !== token.id));
-      setApiTokenSecrets((previous) => {
-        const next = { ...previous };
-        delete next[token.id];
-        return next;
-      });
-      setApiTokenFeedback("Token revoked.");
-      setApiTokenFeedbackTone("success");
-    } finally {
-      setRevokingApiTokenId(null);
-    }
   }
 
   async function handleSaveProjectSettings() {
@@ -2792,6 +2886,7 @@ export default function App() {
   const settingsNavItems = [
     { key: "general", label: "General", href: settingsUrl("general"), icon: Settings },
     { key: "api", label: "API Access", href: settingsUrl("api"), icon: KeyRound },
+    { key: "connect-agent", label: "Agent Integration", href: settingsUrl("connect-agent"), icon: Bot },
   ];
   const settingsBackHref = workspaceOwnerHandle ? `/${workspaceOwnerHandle}/` : "/";
 
@@ -2816,21 +2911,21 @@ export default function App() {
     },
     {
       method: "GET",
-      path: "/api/auth/tokens",
-      description: "List active API tokens",
-      curl: `curl -X GET "${apiBaseUrl}/api/auth/tokens" -H "Authorization: Bearer <API_TOKEN>"`,
+      path: "/api/auth/agent-token",
+      description: "Get single agent-token status",
+      curl: `curl -X GET "${apiBaseUrl}/api/auth/agent-token" -H "Authorization: Bearer <API_TOKEN>"`,
     },
     {
       method: "POST",
-      path: "/api/auth/tokens",
-      description: "Create a new API token",
-      curl: `curl -X POST "${apiBaseUrl}/api/auth/tokens" -H "Authorization: Bearer <API_TOKEN>" -H "Content-Type: application/json" -d '{"name":"Agent token","can_write":true}'`,
+      path: "/api/auth/agent-token/connect",
+      description: "Create single token if missing (or rotate existing)",
+      curl: `curl -X POST "${apiBaseUrl}/api/auth/agent-token/connect" -H "Authorization: Bearer <API_TOKEN>"`,
     },
     {
-      method: "DELETE",
-      path: "/api/auth/tokens/<token_id>",
-      description: "Revoke an API token",
-      curl: `curl -X DELETE "${apiBaseUrl}/api/auth/tokens/<token_id>" -H "Authorization: Bearer <API_TOKEN>"`,
+      method: "POST",
+      path: "/api/auth/agent-token/refresh",
+      description: "Rotate existing agent token",
+      curl: `curl -X POST "${apiBaseUrl}/api/auth/agent-token/refresh" -H "Authorization: Bearer <API_TOKEN>"`,
     },
   ];
 
@@ -2848,7 +2943,10 @@ export default function App() {
         </div>
         <div className="space-y-1 px-1">
           {settingsNavItems.map((item) => {
-            const isActive = item.key === "api" ? isApiAccessView : isSettingsGeneralView;
+            const isActive =
+              (item.key === "api" && isApiAccessView) ||
+              (item.key === "connect-agent" && isConnectAgentView) ||
+              (item.key === "general" && isSettingsGeneralView);
             const Icon = item.icon;
             return (
               <a
@@ -2876,9 +2974,12 @@ export default function App() {
   const settingsMobileNavigation = (
     <div className="space-y-2 md:hidden">
       <p className="text-[10px] font-mono font-bold uppercase tracking-widest text-[#9ca3af]">Settings</p>
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
         {settingsNavItems.map((item) => {
-          const isActive = item.key === "api" ? isApiAccessView : isSettingsGeneralView;
+          const isActive =
+            (item.key === "api" && isApiAccessView) ||
+            (item.key === "connect-agent" && isConnectAgentView) ||
+            (item.key === "general" && isSettingsGeneralView);
           const Icon = item.icon;
           return (
             <a
@@ -2937,7 +3038,7 @@ export default function App() {
                 </a>
                 <span className="text-[#d1d5db] font-mono">/</span>
                 <span className="text-[#111827] font-semibold truncate">
-                  {isApiAccessView ? "api access" : "general"}
+                  {isApiAccessView ? "api access" : isConnectAgentView ? "connect agent" : "general"}
                 </span>
               </>
             ) : view === "messages" && messagesNavbarHandle ? (
@@ -3656,7 +3757,7 @@ export default function App() {
                 <div className="flex-1 overflow-y-auto">
                   <div className="max-w-6xl mx-auto w-full px-6 md:px-8 py-10 space-y-8">
                     {settingsMobileNavigation}
-                    <div>
+                <div>
                       <h2 className="text-2xl font-bold text-[#111827] mb-2">General Settings</h2>
                       <p className="text-sm text-[#6b7280]">
                         Global workspace settings live here. API access applies to all of your projects.
@@ -3665,15 +3766,26 @@ export default function App() {
 
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                       <section className="rounded-md-ds border border-[#e5e7eb] bg-white p-6 space-y-4">
-                        <h3 className="text-sm font-bold uppercase tracking-widest text-[#6b7280]">Account</h3>
+                        <h3 className="text-sm font-bold uppercase tracking-widest text-[#6b7280]">API Access</h3>
                         {isAuthenticated ? (
                           <div className="space-y-1">
                             <p className="text-sm text-[#111827]">
-                              Signed in as <span className="font-mono font-bold">@{currentUserHandle}</span>
+                              Generate and manage tokens for programmatic access.
                             </p>
                             <p className="text-xs text-[#6b7280]">
                               Your API tokens inherit your account permissions and can access all of your projects.
                             </p>
+                            <a
+                              href={settingsUrl("api")}
+                              onClick={(event) => {
+                                event.preventDefault();
+                                setSettingsSectionAndHistory("api");
+                              }}
+                              className="inline-flex items-center gap-2 rounded-sm-ds bg-[#111827] px-4 py-2 text-xs font-bold uppercase tracking-wide text-white hover:bg-black transition-colors"
+                            >
+                              <KeyRound size={14} />
+                              Open API Access
+                            </a>
                           </div>
                         ) : (
                           <div className="space-y-3">
@@ -3690,21 +3802,21 @@ export default function App() {
                       </section>
 
                       <section className="rounded-md-ds border border-[#e5e7eb] bg-white p-6 space-y-4">
-                        <h3 className="text-sm font-bold uppercase tracking-widest text-[#6b7280]">API Access Model</h3>
+                        <h3 className="text-sm font-bold uppercase tracking-widest text-[#6b7280]">Agent Integration</h3>
                         <div className="space-y-2 text-sm text-[#6b7280]">
-                          <p>Tokens never expire automatically.</p>
-                          <p>Tokens stay active until revoked by you.</p>
+                          <p>One agent token is maintained per user.</p>
+                          <p>It is write-enabled and only rotates when you refresh it.</p>
                         </div>
                         <a
-                          href={settingsUrl("api")}
+                          href={settingsUrl("connect-agent")}
                           onClick={(event) => {
                             event.preventDefault();
-                            setSettingsSectionAndHistory("api");
+                            setSettingsSectionAndHistory("connect-agent");
                           }}
                           className="inline-flex items-center gap-2 rounded-sm-ds bg-[#06B6D4] px-4 py-2 text-xs font-bold uppercase tracking-wide text-white hover:bg-cyan-600 transition-colors"
                         >
-                          <KeyRound size={14} />
-                          Open API Access
+                          <Bot size={14} />
+                          Open Agent Integration
                         </a>
                       </section>
                     </div>
@@ -3717,22 +3829,63 @@ export default function App() {
                   </div>
                   <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
                     <section className="flex-1 flex flex-col min-w-0 bg-white md:border-r border-[#e5e7eb]">
-                      <div className="p-6 border-b border-[#e5e7eb] space-y-4">
+                      <div className={cls("p-6 space-y-4", isConnectAgentView ? "" : "border-b border-[#e5e7eb]")}>
                         <div className="flex items-start justify-between gap-4">
-                          <h1 className="text-xl font-bold tracking-tight text-[#111827]">API Access Tokens</h1>
-                          <button
-                            type="button"
-                            onClick={openCreateApiTokenModal}
-                            className="px-4 py-2 bg-[#06B6D4] text-white text-xs font-bold rounded-sm-ds hover:bg-cyan-600 transition-colors uppercase tracking-wide flex items-center gap-2 shadow-sm"
-                          >
-                            <Plus size={14} />
-                            Create Token
-                          </button>
+                          <h1 className="text-xl font-bold tracking-tight text-[#111827]">
+                            {isConnectAgentView ? "Connect Agent" : "API Access"}
+                          </h1>
                         </div>
-                        <p className="text-sm text-[#6b7280]">
-                          Generate unique API tokens to access FeatureRequest from external tools and agents.
-                          Tokens remain active until you revoke them.
-                        </p>
+                        {isConnectAgentView ? (
+                          <>
+                            <p className="text-sm text-[#6b7280]">
+                              Connect your agent once so it can work with your feature requests automatically.
+                            </p>
+                            <div className="rounded-sm-ds border border-[#fde68a] bg-[#fffbeb] p-3 text-sm text-[#92400e] flex items-start gap-2">
+                              <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+                              <span>
+                                The agents can act on your behalf without any permission restriction. In other words, they can do
+                                whatever you can do on this platform. Only use agents you trust.
+                              </span>
+                            </div>
+                            <div className="rounded-sm-ds border border-[#e5e7eb] bg-[#f9fafb] p-3 space-y-2">
+                              <p className="text-[10px] font-mono font-bold uppercase tracking-wider text-[#6b7280]">
+                                Agent Token
+                              </p>
+                              <div className="flex flex-col md:flex-row md:items-center gap-2">
+                                <code className="flex-1 block w-full overflow-x-auto rounded-sm-ds bg-white border border-[#e5e7eb] px-2 py-1 text-[11px] text-[#111827]">
+                                  {visibleAgentTokenValue || "Preparing token..."}
+                                </code>
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => copyValueAndNotify(activeAgentTokenSecret, "Token copied.")}
+                                    disabled={!canCopyActiveAgentToken}
+                                    className="inline-flex items-center gap-1 rounded-sm-ds border border-[#e5e7eb] bg-white px-2 py-1 text-[10px] font-bold text-[#111827] hover:bg-[#f3f4f6] disabled:opacity-45"
+                                    title={canCopyActiveAgentToken ? "Copy token" : "Refresh token to copy"}
+                                  >
+                                    <Copy size={12} />
+                                    Copy
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={handleRefreshAgentToken}
+                                    disabled={!isAuthenticated || isApiTokensLoading || isAgentRefreshSubmitting}
+                                    className="inline-flex items-center gap-1 rounded-sm-ds border border-[#e5e7eb] bg-white px-2 py-1 text-[10px] font-bold text-[#111827] hover:bg-[#f3f4f6] disabled:opacity-45"
+                                  >
+                                    {isAgentRefreshSubmitting ? "Refreshing..." : "Refresh"}
+                                  </button>
+                                </div>
+                              </div>
+                              <p className="text-[11px] text-[#6b7280]">
+                                The token does not expire. Refresh if you want to revoke the current token and issue a new one.
+                              </p>
+                            </div>
+                          </>
+                        ) : (
+                          <p className="text-sm text-[#6b7280]">
+                            Manage API endpoints and authentication details for integrations.
+                          </p>
+                        )}
                         {apiTokenFeedback ? (
                           <p
                             className={cls(
@@ -3747,49 +3900,29 @@ export default function App() {
                             {apiTokenFeedback}
                           </p>
                         ) : null}
-                        {latestCreatedTokenValue ? (
-                          <div className="rounded-sm-ds border border-cyan-100 bg-cyan-50 p-3 space-y-2">
-                            <div className="flex items-center justify-between gap-3">
-                              <p className="text-[11px] text-[#0f172a]">
-                                New token{latestCreatedTokenName ? ` (${latestCreatedTokenName})` : ""} generated.
-                                Copy it now; it will not be shown again.
-                              </p>
-                              <button
-                                type="button"
-                                onClick={() => copyValueAndNotify(latestCreatedTokenValue, "Token copied.")}
-                                className="inline-flex items-center gap-1 rounded-sm-ds border border-[#e5e7eb] bg-white px-2 py-1 text-[10px] font-bold text-[#111827] hover:bg-[#f3f4f6]"
-                              >
-                                <Copy size={12} />
-                                Copy
-                              </button>
-                            </div>
-                            <code className="block w-full overflow-x-auto rounded-sm-ds bg-white border border-[#e5e7eb] px-2 py-1 text-[11px] text-[#111827]">
-                              {latestCreatedTokenValue}
-                            </code>
-                          </div>
-                        ) : null}
                       </div>
 
                       <div className="flex-1 overflow-y-auto">
-                        {!isAuthenticated ? (
-                          <div className="p-6">
-                            <div className="rounded-sm-ds border border-[#e5e7eb] bg-[#f9fafb] p-4 space-y-3">
-                              <p className="text-sm text-[#6b7280]">Sign in to create and manage API tokens.</p>
-                              <button
-                                type="button"
-                                onClick={() => openAuth("signIn")}
-                                className="px-4 py-2 bg-[#111827] text-white text-xs font-bold rounded-sm-ds hover:bg-black transition-colors"
-                              >
-                                Sign In
-                              </button>
+                        {isConnectAgentView ? null : (
+                          !isAuthenticated ? (
+                            <div className="p-6">
+                              <div className="rounded-sm-ds border border-[#e5e7eb] bg-[#f9fafb] p-4 space-y-3">
+                                <p className="text-sm text-[#6b7280]">Sign in to manage your API tokens.</p>
+                                <button
+                                  type="button"
+                                  onClick={() => openAuth("signIn")}
+                                  className="px-4 py-2 bg-[#111827] text-white text-xs font-bold rounded-sm-ds hover:bg-black transition-colors"
+                                >
+                                  Sign In
+                                </button>
+                              </div>
                             </div>
-                          </div>
-                        ) : isApiTokensLoading ? (
-                          <p className="p-6 text-sm text-[#6b7280]">Loading tokens...</p>
-                        ) : (
-                          <div className="overflow-x-auto">
-                          <table className="min-w-full divide-y divide-[#e5e7eb]">
-                              <thead className="bg-[#f9fafb] border-b border-[#e5e7eb]">
+                          ) : isApiTokensLoading ? (
+                            <p className="p-6 text-sm text-[#6b7280]">Loading tokens...</p>
+                          ) : (
+                            <div className="overflow-x-auto">
+                              <table className="min-w-full divide-y divide-[#e5e7eb]">
+                                <thead className="bg-[#f9fafb] border-b border-[#e5e7eb]">
                                   <tr>
                                     <th className="px-6 py-3 text-left text-[10px] font-mono font-bold text-[#6b7280] uppercase tracking-wider">
                                       Name
@@ -3803,82 +3936,70 @@ export default function App() {
                                     <th className="px-6 py-3 text-left text-[10px] font-mono font-bold text-[#6b7280] uppercase tracking-wider">
                                       Created
                                     </th>
-                                  <th className="px-6 py-3 text-right text-[10px] font-mono font-bold text-[#6b7280] uppercase tracking-wider">
-                                    Actions
-                                  </th>
-                                </tr>
-                              </thead>
-                              <tbody className="bg-white divide-y divide-[#e5e7eb]">
-                                {!apiTokens.length ? (
-                                  <tr>
-                                    <td colSpan={5} className="px-6 py-6 text-sm text-[#6b7280]">
-                                      No active tokens yet.
-                                    </td>
                                   </tr>
-                                ) : (
-                                  apiTokens.map((token) => {
-                                    const hasSecret = Boolean(apiTokenSecrets[token.id]);
-                                    const isRevoking = revokingApiTokenId === token.id;
-                                    return (
-                                  <tr key={token.id} className="group hover:bg-[#f9fafb] transition-colors">
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-[#111827]">
-                                      <div>
-                                        <p>{token.name}</p>
-                                      </div>
-                                    </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm">
-                                          <div className="flex items-center gap-2">
-                                            <code className="bg-[#f3f4f6] px-2 py-0.5 rounded-sm-ds font-mono text-xs text-[#6b7280]">
-                                              {token.token_prefix}••••••••
-                                            </code>
-                                            <button
-                                              type="button"
-                                              onClick={() => handleCopyApiToken(token.id)}
-                                              disabled={!hasSecret}
-                                              title={hasSecret ? "Copy Token" : "Token value unavailable"}
+                                </thead>
+                                <tbody className="bg-white divide-y divide-[#e5e7eb]">
+                                  {!apiTokens.length ? (
+                                    <tr>
+                                      <td colSpan={4} className="px-6 py-6 text-sm text-[#6b7280]">
+                                        No API tokens yet.
+                                      </td>
+                                    </tr>
+                                  ) : (
+                                    apiTokens.map((token) => {
+                                      const hasSecret = Boolean(apiTokenSecrets[token.id]);
+                                      return (
+                                        <tr key={token.id} className="group hover:bg-[#f9fafb] transition-colors">
+                                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-[#111827]">
+                                            <div>
+                                              <p>{token.name}</p>
+                                            </div>
+                                          </td>
+                                          <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                            <div className="flex items-center gap-2">
+                                              <code className="bg-[#f3f4f6] px-2 py-0.5 rounded-sm-ds font-mono text-xs text-[#6b7280]">
+                                                {token.token_prefix}••••••••
+                                              </code>
+                                              <button
+                                                type="button"
+                                                onClick={() => handleCopyApiToken(token.id)}
+                                                disabled={!hasSecret}
+                                                title={hasSecret ? "Copy Token" : "Token value unavailable"}
+                                                className={cls(
+                                                  "text-[#9ca3af] hover:text-[#06B6D4] transition-all",
+                                                  hasSecret
+                                                    ? "opacity-0 group-hover:opacity-100"
+                                                    : "opacity-35 cursor-not-allowed",
+                                                )}
+                                              >
+                                                <Copy size={14} />
+                                              </button>
+                                            </div>
+                                          </td>
+                                          <td className="px-6 py-4 whitespace-nowrap text-center text-sm">
+                                            <span
                                               className={cls(
-                                                "text-[#9ca3af] hover:text-[#06B6D4] transition-all",
-                                                hasSecret
-                                                  ? "opacity-0 group-hover:opacity-100"
-                                                  : "opacity-35 cursor-not-allowed",
+                                                "inline-flex items-center justify-center text-xs font-mono font-bold rounded-sm-ds w-6 h-6",
+                                                token.can_write
+                                                  ? "text-[#16a34a] bg-[#f0fdf4]"
+                                                  : "text-[#dc2626] bg-[#fef2f2]",
                                               )}
+                                              aria-label={token.can_write ? "Writable token" : "Read-only token"}
                                             >
-                                              <Copy size={14} />
-                                            </button>
-                                          </div>
-                                        </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-center text-sm">
-                                          <span
-                                            className={cls(
-                                              "inline-flex items-center justify-center text-xs font-mono font-bold rounded-sm-ds w-6 h-6",
-                                              token.can_write ? "text-[#16a34a] bg-[#f0fdf4]" : "text-[#dc2626] bg-[#fef2f2]",
-                                            )}
-                                            aria-label={token.can_write ? "Writable token" : "Read-only token"}
-                                          >
-                                            {token.can_write ? "✓" : "✕"}
-                                          </span>
-                                        </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-xs text-[#6b7280] font-mono">
-                                          {formatLongDate(token.created_at)}
-                                        </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
-                                          <button
-                                            type="button"
-                                            onClick={() => handleRevokeApiToken(token)}
-                                            disabled={isRevoking}
-                                            className="text-[#9ca3af] hover:text-[#dc2626] transition-colors p-1 disabled:opacity-45"
-                                            title="Revoke Token"
-                                          >
-                                            <Trash2 size={14} />
-                                          </button>
-                                        </td>
-                                      </tr>
-                                    );
-                                  })
-                                )}
-                              </tbody>
-                            </table>
-                          </div>
+                                              {token.can_write ? "✓" : "✕"}
+                                            </span>
+                                          </td>
+                                          <td className="px-6 py-4 whitespace-nowrap text-xs text-[#6b7280] font-mono">
+                                            {formatLongDate(token.created_at)}
+                                          </td>
+                                        </tr>
+                                      );
+                                    })
+                                  )}
+                                </tbody>
+                              </table>
+                            </div>
+                          )
                         )}
                       </div>
                     </section>
@@ -3887,71 +4008,94 @@ export default function App() {
                       <div className="p-6 border-b border-[#e5e7eb] bg-white">
                         <h2 className="text-sm font-bold uppercase tracking-widest text-[#6b7280] flex items-center gap-2">
                           <KeyRound size={14} />
-                          API Quickstart
+                          {isConnectAgentView ? "Agent Prompt" : "API Quickstart"}
                         </h2>
                       </div>
-                      <div className="flex-1 overflow-y-auto p-6 space-y-6">
-                        <div className="space-y-3">
-                          <h3 className="text-xs font-bold uppercase font-mono text-[#6b7280] tracking-wider">
-                            Endpoint URL
-                          </h3>
-                          <div className="bg-[#111827] text-white p-3 rounded-sm-ds font-mono text-xs break-all">
-                            {apiBaseUrl}
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => copyValueAndNotify(apiBaseUrl, "Base URL copied.")}
-                            className="text-[10px] font-mono font-bold uppercase text-[#6b7280] hover:text-[#111827]"
-                          >
-                            Copy base URL
-                          </button>
-                        </div>
-
-                        <div className="space-y-4">
-                          <h3 className="text-xs font-bold uppercase font-mono text-[#6b7280] tracking-wider">
-                            Authentication
-                          </h3>
-                          <p className="text-xs text-[#6b7280] leading-relaxed">
-                            Include your API token in the <code className="bg-[#e5e7eb] px-1 rounded text-[#111827]">Authorization</code>{" "}
-                            header as a Bearer token.
+                      {isConnectAgentView ? (
+                        <div className="flex-1 overflow-y-auto p-6 space-y-4">
+                          <p className="text-sm text-[#6b7280]">
+                            Give this prompt to your agent to manage your feature requests.
                           </p>
-                          <div className="bg-[#111827] text-gray-300 p-3 rounded-sm-ds font-mono text-[11px] overflow-x-auto">
-                            curl -H "Authorization: Bearer YOUR_TOKEN" \
-                            {"\n"}
-                            {apiBaseUrl}/api/projects
-                          </div>
-                        </div>
-
-                        <div className="space-y-4">
-                          <h3 className="text-xs font-bold uppercase font-mono text-[#6b7280] tracking-wider">
-                            Common Endpoints
-                          </h3>
-                          <div className="space-y-2">
-                            {apiQuickstartEndpoints.slice(0, 3).map((item) => (
-                              <div
-                                key={`summary-${item.path}`}
-                                className="flex items-center justify-between text-[11px] font-mono border-b border-[#e5e7eb] pb-2"
+                          <div className="rounded-sm-ds border border-[#e5e7eb] bg-white p-3 space-y-3">
+                            <pre className="block w-full overflow-x-auto whitespace-pre-wrap rounded-sm-ds bg-[#f9fafb] border border-[#e5e7eb] px-2 py-2 text-[11px] text-[#111827]">
+                              {promptTextValue}
+                            </pre>
+                            <div className="flex justify-end">
+                              <button
+                                type="button"
+                                onClick={() => copyValueAndNotify(promptTextValue, "Agent prompt copied.")}
+                                className="inline-flex items-center gap-1 rounded-sm-ds border border-[#e5e7eb] bg-white px-2 py-1 text-[10px] font-bold text-[#111827] hover:bg-[#f3f4f6]"
                               >
-                                <span className={cls("font-bold", methodTone(item.method))}>{item.method}</span>
-                                <span className="text-[#111827]">{item.path.replace("<token_id>", ":token_id")}</span>
-                              </div>
-                            ))}
+                                <Copy size={12} />
+                                Copy Prompt
+                              </button>
+                            </div>
                           </div>
                         </div>
+                      ) : (
+                        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                          <div className="space-y-3">
+                            <h3 className="text-xs font-bold uppercase font-mono text-[#6b7280] tracking-wider">
+                              Endpoint URL
+                            </h3>
+                            <div className="bg-[#111827] text-white p-3 rounded-sm-ds font-mono text-xs break-all">
+                              {apiBaseUrl}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => copyValueAndNotify(apiBaseUrl, "Base URL copied.")}
+                              className="text-[10px] font-mono font-bold uppercase text-[#6b7280] hover:text-[#111827]"
+                            >
+                              Copy base URL
+                            </button>
+                          </div>
 
-                        <div className="bg-white border border-[#e5e7eb] p-4 rounded-md-ds space-y-2">
-                          <p className="text-[11px] text-[#6b7280]">Need the full API spec?</p>
-                          <a
-                            href="/api/docs"
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-xs font-bold text-[#06B6D4] hover:underline flex items-center gap-1"
-                          >
-                            View Full Docs
-                            <ExternalLink size={12} />
-                          </a>
+                          <div className="space-y-4">
+                            <h3 className="text-xs font-bold uppercase font-mono text-[#6b7280] tracking-wider">
+                              Authentication
+                            </h3>
+                            <p className="text-xs text-[#6b7280] leading-relaxed">
+                              Include your API token in the <code className="bg-[#e5e7eb] px-1 rounded text-[#111827]">Authorization</code>{" "}
+                              header as a Bearer token.
+                            </p>
+                            <div className="bg-[#111827] text-gray-300 p-3 rounded-sm-ds font-mono text-[11px] overflow-x-auto">
+                              curl -H "Authorization: Bearer YOUR_TOKEN" \
+                              {"\n"}
+                              {apiBaseUrl}/api/projects
+                            </div>
+                          </div>
+
+                          <div className="space-y-4">
+                            <h3 className="text-xs font-bold uppercase font-mono text-[#6b7280] tracking-wider">
+                              Common Endpoints
+                            </h3>
+                            <div className="space-y-2">
+                              {apiQuickstartEndpoints.slice(0, 3).map((item) => (
+                                <div
+                                  key={`summary-${item.path}`}
+                                  className="flex items-center justify-between text-[11px] font-mono border-b border-[#e5e7eb] pb-2"
+                                >
+                                  <span className={cls("font-bold", methodTone(item.method))}>{item.method}</span>
+                                  <span className="text-[#111827]">{item.path.replace("<token_id>", ":token_id")}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className="bg-white border border-[#e5e7eb] p-4 rounded-md-ds space-y-2">
+                            <p className="text-[11px] text-[#6b7280]">Need the full API spec?</p>
+                            <a
+                              href="/api/docs"
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-xs font-bold text-[#06B6D4] hover:underline flex items-center gap-1"
+                            >
+                              View Full Docs
+                              <ExternalLink size={12} />
+                            </a>
+                          </div>
                         </div>
-                      </div>
+                      )}
                     </aside>
                   </div>
                 </>
@@ -4258,95 +4402,6 @@ export default function App() {
                 Send Message
               </button>
             </div>
-          </div>
-        </div>
-      ) : null}
-
-      {isCreateApiTokenOpen ? (
-        <div
-          className="fixed inset-0 bg-[#111827]/60 backdrop-blur-[2px] z-[110] flex items-center justify-center p-4"
-          onClick={(event) => {
-            if (event.target === event.currentTarget) {
-              closeCreateApiTokenModal();
-            }
-          }}
-        >
-          <div className="bg-white rounded-md-ds shadow-xl max-w-md w-full border border-[#e5e7eb] overflow-hidden">
-            <form onSubmit={handleCreateApiToken}>
-              <div className="px-6 py-4 border-b border-[#e5e7eb] flex items-center justify-between">
-                <div>
-                  <h3 className="text-lg font-bold text-[#111827]">Create API Token</h3>
-                  <p className="text-xs text-[#6b7280] mt-0.5">Generate a new bearer token</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={closeCreateApiTokenModal}
-                  className="text-[#9ca3af] hover:text-[#111827]"
-                  aria-label="Close"
-                  disabled={isApiTokenSubmitting}
-                >
-                  <X size={16} />
-                </button>
-              </div>
-
-              <div className="p-6 space-y-4">
-
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold uppercase font-mono text-[#6b7280]">Token Name</label>
-                  <input
-                    type="text"
-                    value={apiTokenNameDraft}
-                    onChange={(event) => setApiTokenNameDraft(event.target.value)}
-                    className="w-full px-3 py-2 border border-[#e5e7eb] rounded-sm-ds text-sm focus:ring-1 focus:ring-[#06B6D4] outline-none"
-                    placeholder="e.g. CI/CD Integration"
-                    autoFocus
-                  />
-                  <p className="text-[10px] text-[#9ca3af]">Used to identify the token in your list.</p>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold uppercase font-mono text-[#6b7280]">Permission</label>
-                  <label className="flex items-start gap-3 rounded-sm-ds border border-[#e5e7eb] bg-white px-3 py-2">
-                    <input
-                      type="checkbox"
-                      checked={apiTokenCanWriteDraft}
-                      onChange={(event) => setApiTokenCanWriteDraft(event.target.checked)}
-                      className="mt-0.5"
-                    />
-                    <span className="text-sm text-[#111827]">Allow write operations (`can_write`)</span>
-                  </label>
-                </div>
-
-                <div className="bg-amber-50 border border-amber-100 p-3 rounded-sm-ds flex items-start gap-3">
-                  <AlertTriangle size={14} className="text-amber-700 mt-0.5 shrink-0" />
-                  <p className="text-[11px] text-amber-800 leading-tight">
-                    Token secrets are shown only at creation time. Store them securely after generating.
-                  </p>
-                </div>
-
-                {apiTokenCreateFeedback ? (
-                  <p className="text-xs text-[#dc2626]">{apiTokenCreateFeedback}</p>
-                ) : null}
-              </div>
-
-              <div className="px-6 py-4 bg-[#f9fafb] border-t border-[#e5e7eb] flex justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={closeCreateApiTokenModal}
-                  className="px-4 py-2 text-xs font-bold text-[#6b7280] hover:text-[#111827] uppercase tracking-wide"
-                  disabled={isApiTokenSubmitting}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-[#06B6D4] text-white text-xs font-bold rounded-sm-ds hover:bg-cyan-600 transition-colors uppercase tracking-wide shadow-sm disabled:opacity-45"
-                  disabled={isApiTokenSubmitting}
-                >
-                  {isApiTokenSubmitting ? "Creating..." : "Generate Token"}
-                </button>
-              </div>
-            </form>
           </div>
         </div>
       ) : null}

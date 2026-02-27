@@ -1,0 +1,343 @@
+{
+  "name": "FeatureRequest",
+  "description": "Public feature request and feedback API for projects and issues.",
+  "version": "0.1.0",
+  "api": {
+    "base_path": "/api",
+    "docs_url": "http://127.0.0.1:8000/api/docs",
+    "api_base_examples": {
+      "local": "http://127.0.0.1:8000",
+      "web": "https://featurerequest.io"
+    },
+    "stack": "Django + Django Ninja"
+  },
+  "auth": {
+    "modes": [
+      {
+        "type": "bearer_token",
+        "location": "Authorization header",
+        "format": "Bearer <token>",
+        "issuer": "POST /api/auth/tokens",
+        "scopes": [
+          {
+            "name": "read",
+            "description": "Read all API resources."
+          },
+          {
+            "name": "write",
+            "description": "Write operations (POST/PATCH/DELETE) require write-enabled token."
+          }
+        ],
+        "notes": [
+          "Token is created as `fr_<secret>`; only token_prefix is returned in list responses.",
+          "Read-only tokens (`can_write=false`) are rejected with 403 on write methods.",
+          "Use HTTPS in production."
+        ]
+      },
+      {
+        "type": "session",
+        "location": "Django session cookie",
+        "scope": "all routes that check `request.user.is_authenticated`",
+        "notes": [
+          "Primarily used by web authentication routes and normal browser sessions.",
+          "CSRF still applies for state-changing endpoints."
+        ]
+      }
+    ]
+  },
+  "limits": {
+    "rate_limiting": {
+      "status": "not_enforced",
+      "note": "No explicit request-rate limit middleware is configured in repository code."
+    },
+    "project_limit": {
+      "free": 1,
+      "pro_30": 30
+    },
+    "timeouts": {
+      "favicon_resolution_seconds": 5,
+      "openai_moderation_timeout": "provider-defined"
+    },
+    "payload": {
+      "issue": {
+        "issue_type": "enum(feature,bug) as defined in Issue.Type",
+        "priority": "enum(1=low,2=medium,3=high,4=critical)"
+      }
+    },
+    "dependency_risks": [
+      "OpenAI key required for some moderation flows; moderation failures can return 503.",
+      "Stripe is optional until billing routes are used."
+    ]
+  },
+  "tools": [
+    {
+      "name": "health",
+      "method": "GET",
+      "path": "/api/health",
+      "auth": "none",
+      "description": "API health check"
+    },
+    {
+      "name": "list_billing_plans",
+      "method": "GET",
+      "path": "/api/billing/plans",
+      "auth": "none",
+      "description": "Return free/pro plan catalog."
+    },
+    {
+      "name": "create_checkout_session",
+      "method": "POST",
+      "path": "/api/billing/checkout",
+      "auth": "session_or_token",
+      "required_body": {
+        "plan_id": "string"
+      },
+      "errors": [
+        400,
+        500
+      ],
+      "description": "Create a Stripe checkout session for pro plan."
+    },
+    {
+      "name": "list_api_tokens",
+      "method": "GET",
+      "path": "/api/auth/tokens",
+      "auth": "session_or_token",
+      "description": "List active API tokens for current user."
+    },
+    {
+      "name": "create_api_token",
+      "method": "POST",
+      "path": "/api/auth/tokens",
+      "auth": "session_or_token",
+      "required_body": {
+        "name": "string (optional)",
+        "can_write": "boolean (optional, default true)"
+      },
+      "description": "Create API token; full token shown once at creation.",
+      "sensitive_output": [
+        "token"
+      ]
+    },
+    {
+      "name": "revoke_api_token",
+      "method": "DELETE",
+      "path": "/api/auth/tokens/{token_id}",
+      "auth": "session_or_token",
+      "description": "Revoke a token by id."
+    },
+    {
+      "name": "get_agent_token_status",
+      "method": "GET",
+      "path": "/api/auth/agent-token",
+      "auth": "session_or_token",
+      "description": "Read single-agent token status for current user."
+    },
+    {
+      "name": "connect_agent_token",
+      "method": "POST",
+      "path": "/api/auth/agent-token/connect",
+      "auth": "session_or_token",
+      "description": "Create agent token if missing, otherwise rotate and return fresh token + prompt.",
+      "sensitive_output": [
+        "token",
+        "prompt"
+      ]
+    },
+    {
+      "name": "refresh_agent_token",
+      "method": "POST",
+      "path": "/api/auth/agent-token/refresh",
+      "auth": "session_or_token",
+      "description": "Rotate existing single agent token and return fresh token + prompt.",
+      "sensitive_output": [
+        "token",
+        "prompt"
+      ]
+    },
+    {
+      "name": "list_my_projects",
+      "method": "GET",
+      "path": "/api/projects",
+      "auth": "session_or_token",
+      "description": "List projects owned by current authenticated user."
+    },
+    {
+      "name": "create_project",
+      "method": "POST",
+      "path": "/api/projects",
+      "auth": "session_or_token",
+      "required_body": {
+        "name": "string",
+        "tagline": "string",
+        "url": "string"
+      },
+      "description": "Create project. Returns 403 if owner reached plan limit."
+    },
+    {
+      "name": "get_project",
+      "method": "GET",
+      "path": "/api/projects/{project_id}",
+      "auth": "session_or_token",
+      "description": "Get a project by ID; only if owner."
+    },
+    {
+      "name": "update_project",
+      "method": "PATCH",
+      "path": "/api/projects/{project_id}",
+      "auth": "session_or_token",
+      "description": "Update name/tagline/url for owned project only."
+    },
+    {
+      "name": "delete_project",
+      "method": "DELETE",
+      "path": "/api/projects/{project_id}",
+      "auth": "session_or_token",
+      "description": "Delete owned project."
+    },
+    {
+      "name": "list_owner_projects",
+      "method": "GET",
+      "path": "/api/owners/{owner_handle}/projects",
+      "auth": "none",
+      "description": "List all projects for a public owner."
+    },
+    {
+      "name": "list_featured_projects",
+      "method": "GET",
+      "path": "/api/public/featured-projects",
+      "auth": "none",
+      "description": "List featured projects by issue volume, `limit` capped at 12."
+    },
+    {
+      "name": "list_owner_issues",
+      "method": "GET",
+      "path": "/api/owners/{owner_handle}/issues",
+      "auth": "none",
+      "description": "List issues for an owner, optional filters: project_slug, issue_type, status, priority.",
+      "notes": [
+        "Issue/project-specific filters are validated by enum/range."
+      ]
+    },
+    {
+      "name": "list_project_issues",
+      "method": "GET",
+      "path": "/api/projects/{owner_handle}/{project_slug}/issues",
+      "auth": "none",
+      "description": "List issues for owner/project with optional filters."
+    },
+    {
+      "name": "create_issue",
+      "method": "POST",
+      "path": "/api/projects/{owner_handle}/{project_slug}/issues",
+      "auth": "session_or_token",
+      "required_body": {
+        "issue_type": "string",
+        "title": "string",
+        "description": "string",
+        "priority": "integer"
+      },
+      "description": "Create issue and run moderation."
+    },
+    {
+      "name": "get_issue",
+      "method": "GET",
+      "path": "/api/issues/{issue_id}",
+      "auth": "none",
+      "description": "Get issue detail by id."
+    },
+    {
+      "name": "update_issue",
+      "method": "PATCH",
+      "path": "/api/issues/{issue_id}",
+      "auth": "session_or_token",
+      "description": "Update issue title/description/status/priority. Only owner or author."
+    },
+    {
+      "name": "toggle_issue_upvote",
+      "method": "POST",
+      "path": "/api/issues/{issue_id}/upvote/toggle",
+      "auth": "session_or_token",
+      "description": "Toggle issue upvote by authenticated user."
+    },
+    {
+      "name": "list_issue_comments",
+      "method": "GET",
+      "path": "/api/issues/{issue_id}/comments",
+      "auth": "none",
+      "description": "List comments for a given issue."
+    },
+    {
+      "name": "create_issue_comment",
+      "method": "POST",
+      "path": "/api/issues/{issue_id}/comments",
+      "auth": "session_or_token",
+      "required_body": {
+        "body": "string"
+      },
+      "description": "Create comment and run moderation."
+    },
+    {
+      "name": "create_owner_message",
+      "method": "POST",
+      "path": "/api/owners/{owner_handle}/messages",
+      "auth": "none",
+      "required_body": {
+        "body": "string",
+        "project_slug": "string (optional)",
+        "sender_name": "string (optional when signed in)",
+        "sender_email": "string (optional when signed in)"
+      },
+      "description": "Send message to owner inbox; moderation applies."
+    },
+    {
+      "name": "list_my_messages",
+      "method": "GET",
+      "path": "/api/me/messages",
+      "auth": "session_or_token",
+      "description": "List inbox messages sent to or sent by current user."
+    },
+    {
+      "name": "web_sign_in",
+      "method": "POST",
+      "path": "/auth/sign-in",
+      "auth": "none",
+      "description": "Sign in by email/handle or request passwordless email link."
+    },
+    {
+      "name": "web_sign_up",
+      "method": "POST",
+      "path": "/auth/sign-up",
+      "auth": "none",
+      "description": "Create account and send signup magic link."
+    },
+    {
+      "name": "web_sign_out",
+      "method": "POST",
+      "path": "/auth/logout",
+      "auth": "session",
+      "description": "Logout current session."
+    },
+    {
+      "name": "web_me",
+      "method": "GET",
+      "path": "/auth/me",
+      "auth": "session",
+      "description": "Return current session profile."
+    },
+    {
+      "name": "stripe_webhook",
+      "method": "POST",
+      "path": "/stripe/webhook",
+      "auth": "webhook_secret",
+      "description": "Stripe event handler for subscription lifecycle."
+    },
+    {
+      "name": "web_magic_link",
+      "method": "GET",
+      "path": "/auth/magic-link",
+      "auth": "none",
+      "description": "Consumes sesame magic-link token and logs user in."
+    }
+  ]
+}

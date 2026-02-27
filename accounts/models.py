@@ -134,6 +134,8 @@ class User(AbstractBaseUser, PermissionsMixin):
 
 
 class ApiToken(models.Model):
+    AGENT_TOKEN_NAME = "Agent token"
+
     user = models.ForeignKey(
         User,
         on_delete=models.CASCADE,
@@ -141,6 +143,7 @@ class ApiToken(models.Model):
     )
     name = models.CharField(max_length=120, default="Agent token")
     can_write = models.BooleanField(default=True)
+    is_agent = models.BooleanField(default=False, db_index=True)
     token_prefix = models.CharField(max_length=16, db_index=True)
     token_hash = models.CharField(max_length=64, unique=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -155,19 +158,84 @@ class ApiToken(models.Model):
         normalized = str(raw_token or "").strip()
         return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
+    @staticmethod
+    def _generate_raw_token() -> str:
+        return f"fr_{secrets.token_urlsafe(32)}"
+
     @classmethod
-    def issue(cls, user, name: str = "", can_write: bool = True):
-        raw_secret = secrets.token_urlsafe(32)
-        raw_token = f"fr_{raw_secret}"
+    def issue(
+        cls,
+        user,
+        name: str = "",
+        can_write: bool = True,
+        is_agent: bool = False,
+    ):
+        raw_token = cls._generate_raw_token()
         clean_name = (name or "").strip() or "Agent token"
         token = cls.objects.create(
             user=user,
             name=clean_name,
             can_write=bool(can_write),
+            is_agent=bool(is_agent),
             token_prefix=raw_token[:12],
             token_hash=cls._hash_token(raw_token),
         )
         return token, raw_token
+
+    @classmethod
+    def resolve_active_agent(cls, user):
+        tokens = list(
+            cls.objects.filter(
+                user=user,
+                is_agent=True,
+                revoked_at__isnull=True,
+            ).order_by("-created_at", "-id")
+        )
+        if not tokens:
+            return None
+
+        primary = tokens[0]
+        extras = tokens[1:]
+        if extras:
+            cls.objects.filter(id__in=[token.id for token in extras]).update(
+                revoked_at=timezone.now()
+            )
+        return primary
+
+    @classmethod
+    def ensure_agent_token(cls, user):
+        token = cls.resolve_active_agent(user)
+        if token is None:
+            token, raw_token = cls.issue(
+                user=user,
+                name=cls.AGENT_TOKEN_NAME,
+                can_write=True,
+                is_agent=True,
+            )
+            return token, raw_token, True
+
+        updated_fields = []
+        if token.name != cls.AGENT_TOKEN_NAME:
+            token.name = cls.AGENT_TOKEN_NAME
+            updated_fields.append("name")
+        if not token.can_write:
+            token.can_write = True
+            updated_fields.append("can_write")
+        if not token.is_agent:
+            token.is_agent = True
+            updated_fields.append("is_agent")
+        if updated_fields:
+            token.save(update_fields=updated_fields)
+
+        return token, None, False
+
+    def rotate_secret(self):
+        raw_token = self._generate_raw_token()
+        self.token_prefix = raw_token[:12]
+        self.token_hash = self._hash_token(raw_token)
+        self.can_write = True
+        self.save(update_fields=["token_prefix", "token_hash", "can_write"])
+        return raw_token
 
     @classmethod
     def resolve_active(cls, raw_token: str):

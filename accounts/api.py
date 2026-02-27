@@ -47,6 +47,21 @@ class ApiTokenCreateOut(ApiTokenOut):
     token: str
 
 
+class AgentTokenStatusOut(Schema):
+    exists: bool
+    id: int | None = None
+    name: str | None = None
+    can_write: bool | None = None
+    token_prefix: str | None = None
+    created_at: str | None = None
+    last_used_at: str | None = None
+
+
+class AgentTokenConnectOut(ApiTokenCreateOut):
+    created: bool
+    prompt: str
+
+
 def _require_auth_user(request):
     user = request.user
     if not user.is_authenticated:
@@ -95,6 +110,17 @@ def _api_token_to_dict(api_token: ApiToken):
             api_token.last_used_at.isoformat() if api_token.last_used_at else None
         ),
     }
+
+
+def _agent_prompt(request, raw_token: str):
+    skills_url = request.build_absolute_uri("/SKILL.md")
+    return "\n\n".join(
+        [
+            "Please manage the projects and requests using FeatureRequest skill as requested.",
+            f"API token: {raw_token}",
+            f"If no skill added yet, read from {skills_url}",
+        ]
+    )
 
 
 @router.get("/billing/plans", response=list[BillingPlanOut])
@@ -186,6 +212,7 @@ def create_api_token(request, payload: ApiTokenCreateIn):
         user=user,
         name=payload.name,
         can_write=payload.can_write,
+        is_agent=False,
     )
     response = _api_token_to_dict(token)
     response["token"] = raw_token
@@ -203,3 +230,41 @@ def revoke_api_token(request, token_id: int):
     )
     token.revoke()
     return 204, None
+
+
+@router.get("/auth/agent-token", response=AgentTokenStatusOut)
+def get_agent_token_status(request):
+    user = _require_auth_user(request)
+    token, _raw_token, _created = ApiToken.ensure_agent_token(user)
+
+    payload = _api_token_to_dict(token)
+    payload["exists"] = True
+    return AgentTokenStatusOut(**payload)
+
+
+@router.post("/auth/agent-token/connect", response=AgentTokenConnectOut)
+def connect_agent_token(request):
+    user = _require_auth_user(request)
+    token, raw_token, created = ApiToken.ensure_agent_token(user)
+    if not raw_token:
+        raw_token = token.rotate_secret()
+
+    payload = _api_token_to_dict(token)
+    payload["token"] = raw_token
+    payload["created"] = created
+    payload["prompt"] = _agent_prompt(request, raw_token)
+    return AgentTokenConnectOut(**payload)
+
+
+@router.post("/auth/agent-token/refresh", response=AgentTokenConnectOut)
+def refresh_agent_token(request):
+    user = _require_auth_user(request)
+    token, raw_token, created = ApiToken.ensure_agent_token(user)
+    if not raw_token:
+        raw_token = token.rotate_secret()
+
+    payload = _api_token_to_dict(token)
+    payload["token"] = raw_token
+    payload["created"] = created
+    payload["prompt"] = _agent_prompt(request, raw_token)
+    return AgentTokenConnectOut(**payload)

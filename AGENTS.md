@@ -54,20 +54,20 @@ It applies to all files unless a deeper `AGENTS.md` is added in a subfolder.
 ## Tooling and Automation Policy
 
 - Agent flow documentation should be centralized and deterministic:
-  - Keep a single manifest file at `agent.json` in repository root:
+  - Keep a single manifest file at `agents.json` in repository root:
     - tool surface
     - supported auth modes/scopes
     - limits/rate assumptions
     - documentation URL pointer
 - Keep one root `AGENTS.md` (this file) for global policy.
-- Use one `SKILL.md` per skill directory (not one monolithic `Skills.md`).
-- Skill docs must include:
+- Use one root `SKILL.md` for all skill definitions (single document).
+- Per-skill sections in `SKILL.md` must include:
   - trigger and scope
   - required inputs
   - exact command/task flow
   - expected output format
   - failure handling and fallback behavior
-- Treat any `SKILL.md` or `agent.json` as part of the public contract for agents and keep updates backward compatible.
+- Treat `SKILL.md` and `agents.json` as part of the public contract for agents and keep updates backward compatible.
 
 ## Tests and Task Evaluations
 
