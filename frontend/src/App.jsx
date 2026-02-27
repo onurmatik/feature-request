@@ -169,6 +169,7 @@ function ProfileMenu({
               Dashboard
             </a>
           ) : null}
+          {dashboardUrl ? <div className="h-px bg-[#e5e7eb] my-1" /> : null}
           <div className="px-3 pt-2 pb-1">
             <p className="text-[10px] font-mono font-bold text-[#9ca3af] uppercase tracking-wider">settings</p>
           </div>
@@ -919,6 +920,8 @@ export default function App() {
   const [isApiTokensLoading, setIsApiTokensLoading] = useState(false);
   const [apiTokenFeedback, setApiTokenFeedback] = useState("");
   const [apiTokenFeedbackTone, setApiTokenFeedbackTone] = useState("");
+  const [agentPromptCopyFeedback, setAgentPromptCopyFeedback] = useState("");
+  const [agentPromptCopyFeedbackTone, setAgentPromptCopyFeedbackTone] = useState("");
   const [latestCreatedTokenValue, setLatestCreatedTokenValue] = useState("");
   const [agentPromptValue, setAgentPromptValue] = useState("");
   const [isAgentRefreshSubmitting, setIsAgentRefreshSubmitting] = useState(false);
@@ -1135,6 +1138,11 @@ export default function App() {
   const canCopyActiveAgentToken = Boolean(activeAgentTokenSecret);
   const promptTextValue =
     String(agentPromptValue || "").trim();
+
+  useEffect(() => {
+    setAgentPromptCopyFeedback("");
+    setAgentPromptCopyFeedbackTone("");
+  }, [promptTextValue]);
 
   const sidebarProjectsTitle = useMemo(() => {
     if (isSidebarOwnerViewer) {
@@ -2611,6 +2619,18 @@ export default function App() {
     setApiTokenFeedbackTone("success");
   }
 
+  async function handleCopyAgentPrompt() {
+    const copied = await copyToClipboard(promptTextValue);
+    if (!copied) {
+      setAgentPromptCopyFeedback("Copy failed. Please copy manually.");
+      setAgentPromptCopyFeedbackTone("error");
+      return;
+    }
+
+    setAgentPromptCopyFeedback("Agent prompt copied.");
+    setAgentPromptCopyFeedbackTone("success");
+  }
+
   async function handleCopyApiToken(tokenId) {
     const tokenValue = apiTokenSecrets[tokenId];
     if (!tokenValue) {
@@ -4020,10 +4040,25 @@ export default function App() {
                             <pre className="block w-full overflow-x-auto whitespace-pre-wrap rounded-sm-ds bg-[#f9fafb] border border-[#e5e7eb] px-2 py-2 text-[11px] text-[#111827]">
                               {promptTextValue}
                             </pre>
-                            <div className="flex justify-end">
+                            <div
+                              className={cls(
+                                "flex items-center border-t border-[#e5e7eb] pt-2",
+                                agentPromptCopyFeedback ? "justify-between" : "justify-end",
+                              )}
+                            >
+                              {agentPromptCopyFeedback ? (
+                                <p
+                                  className={cls(
+                                    "text-[11px]",
+                                    agentPromptCopyFeedbackTone === "error" ? "text-[#dc2626]" : "text-[#16a34a]",
+                                  )}
+                                >
+                                  {agentPromptCopyFeedback}
+                                </p>
+                              ) : null}
                               <button
                                 type="button"
-                                onClick={() => copyValueAndNotify(promptTextValue, "Agent prompt copied.")}
+                                onClick={handleCopyAgentPrompt}
                                 className="inline-flex items-center gap-1 rounded-sm-ds border border-[#e5e7eb] bg-white px-2 py-1 text-[10px] font-bold text-[#111827] hover:bg-[#f3f4f6]"
                               >
                                 <Copy size={12} />
