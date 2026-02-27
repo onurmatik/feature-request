@@ -62,6 +62,9 @@ class AgentTokenConnectOut(ApiTokenCreateOut):
     prompt: str
 
 
+FEATURE_REQUEST_SKILL_PATH = "/.agents/skills/feature-request/SKILL.md"
+
+
 def _require_auth_user(request):
     user = request.user
     if not user.is_authenticated:
@@ -113,7 +116,7 @@ def _api_token_to_dict(api_token: ApiToken):
 
 
 def _agent_prompt(request, raw_token: str):
-    skills_url = request.build_absolute_uri("/SKILL.md")
+    skills_url = request.build_absolute_uri(FEATURE_REQUEST_SKILL_PATH)
     return "\n\n".join(
         [
             "Please manage the projects and requests using FeatureRequest skill as requested.",

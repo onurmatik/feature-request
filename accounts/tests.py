@@ -221,7 +221,7 @@ class AgentTokenApiTest(TestCase):
         self.assertTrue(payload["can_write"])
         self.assertTrue(payload["token"].startswith("fr_"))
         self.assertIn(payload["token"], payload["prompt"])
-        self.assertIn("/SKILL.md", payload["prompt"])
+        self.assertIn("/.agents/skills/feature-request/SKILL.md", payload["prompt"])
 
         token = ApiToken.resolve_active_agent(self.user)
         self.assertIsNotNone(token)
@@ -277,3 +277,17 @@ class AgentTokenApiTest(TestCase):
         self.assertTrue(payload["exists"])
         self.assertTrue(payload["can_write"])
         self.assertEqual(payload["name"], ApiToken.AGENT_TOKEN_NAME)
+
+
+class SkillCatalogApiTest(TestCase):
+    def test_feature_request_skill_catalog_is_served(self):
+        response = self.client.get("/.agents/skills/feature-request/SKILL.md")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "text/markdown; charset=utf-8")
+        self.assertIn(b"Skills (Agent Task Catalog)", response.content)
+
+    def test_legacy_root_skill_catalog_is_served(self):
+        response = self.client.get("/SKILL.md")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "text/markdown; charset=utf-8")
+        self.assertIn(b"Skills (Agent Task Catalog)", response.content)

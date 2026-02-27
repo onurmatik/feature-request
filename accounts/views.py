@@ -7,8 +7,9 @@ from html import escape
 from django.conf import settings
 from django.contrib.auth import get_user_model, login, logout
 from django.core.mail import send_mail
-from django.http import JsonResponse
 from django.http import HttpResponse
+from django.http import HttpResponseNotFound
+from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_POST
@@ -21,6 +22,7 @@ from .handles import is_reserved_handle
 from .models import ApiToken, User
 
 HANDLE_REGEX = re.compile(r"^[a-z0-9_]+$")
+FEATURE_REQUEST_SKILL_PATH = ".agents/skills/feature-request/SKILL.md"
 
 
 def _dashboard_for_user(user):
@@ -178,6 +180,17 @@ def _notify_admins_on_sign_up(user):
         html_message=html_body,
         fail_silently=True,
     )
+
+
+def feature_request_skill_catalog(request):
+    skill_path = settings.BASE_DIR / FEATURE_REQUEST_SKILL_PATH
+    try:
+        body = skill_path.read_text(encoding="utf-8")
+    except FileNotFoundError as exc:
+        raise HttpResponseNotFound(f"FeatureRequest skill file not found: {exc}") from exc
+    response = HttpResponse(body, content_type="text/markdown; charset=utf-8")
+    response["Cache-Control"] = "public, max-age=300"
+    return response
 
 
 def _session_payload(user):

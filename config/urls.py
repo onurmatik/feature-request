@@ -5,6 +5,7 @@ from sesame.views import LoginView
 
 from accounts.views import (
     logout_view,
+    feature_request_skill_catalog,
     me_view,
     sign_in_view,
     sign_up_view,
@@ -22,4 +23,10 @@ urlpatterns = [
     path("stripe/webhook", stripe_webhook, name="stripe-webhook"),
     path("api/", api.urls),
     path("auth/magic-link", LoginView.as_view(), name="magic-link-login"),
+    path("SKILL.md", feature_request_skill_catalog, name="feature-request-skill-catalog-legacy"),
+    path(
+        ".agents/skills/feature-request/SKILL.md",
+        feature_request_skill_catalog,
+        name="feature-request-skill-catalog",
+    ),
 ]

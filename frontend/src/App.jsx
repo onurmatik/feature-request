@@ -55,6 +55,7 @@ const PROJECT_UPGRADE_PLAN = {
   description: "$3/mo for up to 30 projects",
   cta: "Upgrade",
 };
+const FEATURE_REQUEST_SKILL_PATH = ".agents/skills/feature-request/SKILL.md";
 
 function cls(...values) {
   return values.filter(Boolean).join(" ");
@@ -274,12 +275,14 @@ function writeStoredAgentToken(handle, tokenValue) {
 }
 
 function buildAgentPromptText(baseUrl, tokenValue) {
+  const baseOrigin = String(baseUrl || "").replace(/\/+$/, "");
+  const skillCatalogUrl = `${baseOrigin}/${FEATURE_REQUEST_SKILL_PATH}`;
   return [
     "Please manage the projects and requests using FeatureRequest skill as requested.",
     "",
     `API token: ${tokenValue}`,
     "",
-    `If no skill added yet, read from ${baseUrl}/SKILL.md`,
+    `If no skill added yet, read from ${skillCatalogUrl}`,
   ].join("\n");
 }
 

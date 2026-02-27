@@ -10,7 +10,7 @@ It applies to all files unless a deeper `AGENTS.md` exists in a subfolder.
 
 - Product: public feature request and feedback platform.
 - API surface and auth contract live in `agents.json`.
-- Skill/task catalog lives in `/SKILL.md`.
+- Skill/task catalog lives in `/.agents/skills/feature-request/SKILL.md`.
 
 ## Operating Model
 
@@ -67,7 +67,7 @@ Queue format:
 ## Source-of-Truth Policy
 
 - Keep `agents.json` as the canonical machine-readable agent contract.
-- Keep `SKILL.md` as the canonical skill/task flow document.
+- Keep `/.agents/skills/feature-request/SKILL.md` as the canonical skill/task flow document.
 - Keep both files aligned when request lifecycle behavior changes.
 
 ## Change Review Checklist
