@@ -2,6 +2,47 @@
   "name": "FeatureRequest",
   "description": "Public feature request and feedback API for projects and issues.",
   "version": "0.1.0",
+  "skills": [
+    {
+      "name": "user-request-manager",
+      "description": "API-only request lifecycle management for intake, prioritization, queue tracking, follow-up, and closure.",
+      "trigger": "Use when an agent must see and manage incoming user requests rather than implement product/code changes.",
+      "required_inputs": [
+        "API token with required scope",
+        "Request source input (tickets/messages/list)",
+        "Optional SLA/deadline policy"
+      ],
+      "lifecycle": [
+        "intake_and_normalize",
+        "triage_and_prioritize",
+        "queue_management",
+        "follow_up_and_status",
+        "closure"
+      ],
+      "request_fields": [
+        "issue_id",
+        "owner_handle",
+        "project_slug",
+        "issue_type",
+        "title",
+        "description",
+        "priority",
+        "status"
+      ],
+      "output_sections": [
+        "Queue Snapshot",
+        "Priority Decisions",
+        "Active Follow-ups",
+        "Risks and Blockers",
+        "Next Checkpoint"
+      ],
+      "guardrails": [
+        "Operate only through exposed request APIs.",
+        "Do not perform code or configuration edits.",
+        "Return blocking note when auth scope is insufficient."
+      ]
+    }
+  ],
   "api": {
     "base_path": "/api",
     "docs_url": "http://127.0.0.1:8000/api/docs",

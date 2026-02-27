@@ -25,30 +25,6 @@ User asks for agent-facing setup or onboarding changes.
 - If required references are missing, stop and request the missing inputs before writing.
 - If validation fails, include failing command output and propose next corrective step.
 
-## Skill: `agent-manifest-update`
-### Trigger
-Request to create or update `agents.json`.
-
-### Required Inputs
-- Tool list with input/output schemas.
-- Supported auth modes and scopes.
-- Rate limits and operational constraints.
-- Docs URL.
-
-### Command Flow
-1. Draft JSON under `./agents.json`.
-2. Validate JSON syntax.
-3. Ensure consistency with `AGENTS.md`.
-4. Run quick grep checks for impacted interfaces if endpoints changed.
-
-### Expected Output
-- Pretty-printed `agents.json` diff.
-- Brief compatibility notes.
-
-### Failure Handling
-- Reject invalid schemas before write.
-- For auth/scope ambiguity, return a blocking note with exact field assumptions.
-
 ## Skill: `feature-request-operator` 
 ### Trigger
 User asks an agent to read or mutate feature requests for a public board.
@@ -153,69 +129,36 @@ For failures:
 - `503`: retry with backoff for transient moderation/provider failures.
 - Never auto-delete or mutate any resource unless `action` explicitly asked.
 
-## Skill: `agent-safe-edit`
+## Skill: `user-request-manager`
 ### Trigger
-Any code or config change requested by an agent workflow.
+User asks an agent to manage incoming requests as a queue (visibility, prioritization, ownership, follow-up, closure).
 
 ### Required Inputs
-- File(s) to change.
-- Goal and constraints.
-- Whether destructive commands are needed.
+- API access token and scope.
+- Request source input (list, ticket export, or pasted requests).
+- Optional SLA or deadline policy.
 
 ### Command Flow
-1. Confirm scope with existing `AGENTS.md`.
-2. Inspect impacted files with minimal context reads.
-3. Apply surgical patch.
-4. Run targeted tests/lint/build.
+1. Ingest requests from provided source.
+2. Normalize each item into an API-backed record:
+   - `issue_id`, `owner_handle`, `project_slug`, `issue_type`, `title`, `description`, `priority`, `status`.
+3. Deduplicate overlapping requests and keep one canonical item.
+4. Triage by urgency/impact and assign `P0`-`P3`.
+5. Maintain one prioritized queue sorted by priority and due date.
+6. For each active request, include explicit next action in report output (do not persist non-model fields as API attributes).
+7. Produce concise checkpoint updates (new/changed/blocked/due soon/next actions).
+8. Close request only after expected outcome is met, with closure note.
 
 ### Expected Output
-- Change summary.
-- Command evidence (`test/lint` output).
-- Why behavior is unchanged outside scope.
+- `Queue Snapshot` table:
+  - `issue_id | summary | priority | status | owner_handle/project_slug | next action`
+- `Priority Decisions`
+- `Active Follow-ups`
+- `Risks and Blockers`
+- `Next Checkpoint`
 
 ### Failure Handling
-- On unexpected test failures, stop and report exact failure points.
-- Do not perform destructive actions without explicit confirmation.
-
-## Skill: `agent-evals`
-### Trigger
-Request to add or run agent task evaluations.
-
-### Required Inputs
-- Happy-path scenario definition.
-- Failure-path scenario definition.
-- Commands for deterministic validation.
-
-### Command Flow
-1. Add/extend tests with both success and expected-failure cases.
-2. Keep tests deterministic and quick.
-3. Wire into CI or validation scripts.
-
-### Expected Output
-- Test files and execution result log.
-
-### Failure Handling
-- If failure-path is flaky, mark as non-deterministic and replace with stable alternative.
-- Escalate infra-related failures separately from logic failures.
-
-## Skill: `agent-observability`
-### Trigger
-When adding tools/API entrypoints for agents.
-
-### Required Inputs
-- Endpoint or workflow name.
-- Logging framework and transport.
-- Identifier strategy for correlation IDs.
-
-### Command Flow
-1. Add structured logs around request parse, auth, tool execution, and result.
-2. Include correlation/request ID in every emitted event.
-3. Validate logs include operation name, status, and elapsed timing when feasible.
-
-### Expected Output
-- Log format examples and sample event shape.
-- Verification command output.
-
-### Failure Handling
-- Ensure failure logs are emitted even on unhandled exceptions.
-- If correlation ID is missing, fail loudly and include a blocking TODO.
+- Missing permissions/scope: return blocking auth note and exact missing scope.
+- Missing required request fields: mark item `waiting`, request only missing fields.
+- API rate-limit/transient failure: retry with bounded backoff and report partial progress.
+- Never perform code or config edits from this skill; operate only through exposed request APIs.
