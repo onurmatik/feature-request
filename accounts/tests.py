@@ -221,7 +221,7 @@ class AgentTokenApiTest(TestCase):
         self.assertTrue(payload["can_write"])
         self.assertTrue(payload["token"].startswith("fr_"))
         self.assertIn(payload["token"], payload["prompt"])
-        self.assertIn("/static/SKILL.md", payload["prompt"])
+        self.assertIn("/SKILL.md", payload["prompt"])
 
         token = ApiToken.resolve_active_agent(self.user)
         self.assertIsNotNone(token)

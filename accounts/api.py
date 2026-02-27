@@ -113,7 +113,7 @@ def _api_token_to_dict(api_token: ApiToken):
 
 
 def _agent_prompt(request, raw_token: str):
-    skills_url = request.build_absolute_uri("/static/SKILL.md")
+    skills_url = request.build_absolute_uri("/SKILL.md")
     return "\n\n".join(
         [
             "Please manage the projects and requests using FeatureRequest skill as requested.",
