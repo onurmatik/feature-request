@@ -370,15 +370,22 @@ export default function LandingPage({ initialAuthMode = null }) {
       <main className="flex-1 overflow-y-auto relative">
         <section className="pt-16 pb-20 md:pt-24 md:pb-32 px-4 border-b border-[#e5e7eb] bg-white">
           <div className="mx-auto max-w-4xl text-center space-y-8">
-            <p className="inline-flex items-center gap-2 px-3 py-1 bg-cyan-50 border border-cyan-100 rounded-full mx-auto">
-              <span className="h-2 w-2 rounded-full bg-[#06B6D4]" />
-              <span className="text-[10px] font-mono font-bold text-[#06B6D4] uppercase tracking-wider">
-                Open Beta Now Live
-              </span>
-            </p>
             <h1 className="text-4xl md:text-6xl font-bold tracking-tight text-[#111827]">
               Ship the features your <span className="text-[#06B6D4]">users actually want</span>
             </h1>
+            <a
+                href="#features"
+                className="inline-flex items-center gap-2 px-3 py-1 bg-cyan-50 border border-cyan-100 rounded-sm-ds mx-auto hover:bg-cyan-100 transition-colors"
+                aria-label="Jump to features"
+            >
+              <Bot size={14} className="text-[#dc2626]"/>
+              <span className="text-[10px] font-mono font-bold text-[#dc2626] uppercase tracking-wider">
+                New!
+              </span>
+              <span className="text-[10px] font-mono font-bold text-[#06B6D4] uppercase tracking-wider">
+                Let your Agents manage your customer requests
+              </span>
+            </a>
             <p className="text-lg md:text-xl text-[#6b7280] max-w-2xl mx-auto leading-relaxed">
               The simplest way to manage feature requests, bug reports, and product feedback. Public boards, upvoting,
               and focused discussions for all your projects in one place.
@@ -526,7 +533,7 @@ export default function LandingPage({ initialAuthMode = null }) {
         <section id="features" className="py-20 bg-white border-y border-[#e5e7eb]">
           <div className="max-w-7xl mx-auto px-4 grid grid-cols-1 md:grid-cols-3 gap-12">
             <div className="space-y-4">
-              <div className="w-12 h-12 bg-[#f3f4f6] rounded-sm-ds flex items-center justify-center text-[#111827]">
+              <div className="w-12 h-12 bg-cyan-50 rounded-sm-ds flex items-center justify-center text-[#06B6D4]">
                 <ThumbsUp size={22} />
               </div>
               <h3 className="font-bold text-lg">Community Prioritization</h3>
@@ -535,21 +542,21 @@ export default function LandingPage({ initialAuthMode = null }) {
               </p>
             </div>
             <div className="space-y-4">
-              <div className="w-12 h-12 bg-[#f3f4f6] rounded-sm-ds flex items-center justify-center text-[#111827]">
+              <div className="w-12 h-12 bg-amber-50 rounded-sm-ds flex items-center justify-center text-[#f59e0b]">
                 <MessageSquare size={22} />
               </div>
-              <h3 className="font-bold text-lg">Native Discussion</h3>
+              <h3 className="font-bold text-lg">Direct contact</h3>
               <p className="text-sm text-[#6b7280] leading-relaxed">
-                Discuss requirements and implementation details directly per request instead of scattered threads.
+                Enable users to contact you directly, with AI spam filtering keeping your inbox clean.
               </p>
             </div>
             <div className="space-y-4">
-              <div className="w-12 h-12 bg-[#f3f4f6] rounded-sm-ds flex items-center justify-center text-[#111827]">
+              <div className="w-12 h-12 bg-green-50 rounded-sm-ds flex items-center justify-center text-[#16a34a]">
                 <Bot size={22} />
               </div>
               <h3 className="font-bold text-lg">Agent Friendly</h3>
               <p className="text-sm text-[#6b7280] leading-relaxed">
-                Your AI agents can access and manage your issues via API.
+                Prompt your agent with the FeatureRequest SKILL to manage your users&apos; requests, triage, and priorities.
               </p>
             </div>
           </div>
@@ -594,23 +601,12 @@ export default function LandingPage({ initialAuthMode = null }) {
             <span className="text-[10px] font-mono text-[#9ca3af] ml-2">© 2026</span>
           </div>
           <div className="flex items-center gap-6">
-            <a href="#" className="text-xs font-medium text-[#6b7280] hover:text-[#111827]">
-              Privacy
+            <a
+              href="https://featurerequest.io/onurmatik/feature-request/"
+              className="text-xs font-medium text-[#6b7280] hover:text-[#111827]"
+            >
+              Suggest features. Report a bug. Contact the founder.
             </a>
-            <a href="#" className="text-xs font-medium text-[#6b7280] hover:text-[#111827]">
-              Terms
-            </a>
-            <a href="#" className="text-xs font-medium text-[#6b7280] hover:text-[#111827]">
-              Contact
-            </a>
-            <div className="flex items-center gap-3 ml-4">
-              <a href="#" className="text-[#6b7280] hover:text-[#111827]">
-                <Sparkles size={14} />
-              </a>
-              <a href="#" className="text-[#6b7280] hover:text-[#111827]">
-                <Palette size={14} />
-              </a>
-            </div>
           </div>
         </div>
       </footer>
