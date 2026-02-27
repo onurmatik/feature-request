@@ -1,3 +1,8 @@
+---
+name: feature-request
+description: Manage feature request intake, normalization, triage, queue operations, and API-only lifecycle workflows.
+---
+
 # Skills (Agent Task Catalog)
 
 This file is the single skill registry for the repository. Each section is an actionable skill with a deterministic flow.
