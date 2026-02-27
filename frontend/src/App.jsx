@@ -167,12 +167,30 @@ function ProfileMenu({
               className="flex w-full items-center gap-2 px-3 py-2 text-sm text-[#111827] hover:bg-[#f3f4f6]"
             >
               <LayoutDashboard size={16} />
-              Dashboard
+              Workspace
             </a>
           ) : null}
-          {dashboardUrl ? <div className="h-px bg-[#e5e7eb] my-1" /> : null}
+          {canCreateProject ? (
+            <button
+              type="button"
+              onClick={onCreateProject}
+              className="flex w-full items-center gap-2 px-3 py-2 text-sm text-[#111827] hover:bg-[#f3f4f6]"
+            >
+              <Plus size={16} />
+              New Project
+            </button>
+          ) : null}
+          <a
+            href="/messages"
+            onClick={handleMenuClose}
+            className="flex w-full items-center gap-2 px-3 py-2 text-sm text-[#111827] hover:bg-[#f3f4f6]"
+          >
+            <MessageCircle size={16} />
+            Messages
+          </a>
+          <div className="h-px bg-[#e5e7eb] my-1" />
           <div className="px-3 pt-2 pb-1">
-            <p className="text-[10px] font-mono font-bold text-[#9ca3af] uppercase tracking-wider">settings</p>
+            <p className="text-[10px] font-mono font-bold text-[#9ca3af] uppercase tracking-wider">Integrations</p>
           </div>
           <a
             href="/settings/api"
@@ -190,25 +208,6 @@ function ProfileMenu({
             <Bot size={16} />
             Agent Integration
           </a>
-          <div className="h-px bg-[#e5e7eb] my-1" />
-          <a
-            href="/messages"
-            onClick={handleMenuClose}
-            className="flex w-full items-center gap-2 px-3 py-2 text-sm text-[#111827] hover:bg-[#f3f4f6]"
-          >
-            <MessageCircle size={16} />
-            Messages
-          </a>
-          {canCreateProject ? (
-            <button
-              type="button"
-              onClick={onCreateProject}
-              className="flex w-full items-center gap-2 px-3 py-2 text-sm text-[#111827] hover:bg-[#f3f4f6]"
-            >
-              <Plus size={16} />
-              New Project
-            </button>
-          ) : null}
           <div className="h-px bg-[#e5e7eb] my-1" />
           <button
             type="button"
