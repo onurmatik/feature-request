@@ -11,8 +11,8 @@ User asks for agent-facing setup or onboarding changes.
 - Scope of changes and acceptance criteria.
 
 ### Command Flow
-1. Read `/Users/onurmatik/Projects/FeatureRequest/AGENTS.md`.
-2. Read `/Users/onurmatik/Projects/FeatureRequest/agents.json` if present.
+1. Read `./AGENTS.md`.
+2. Read `./agents.json` if present.
 3. Update only the requested sections.
 4. Run relevant validation commands after edit.
 
@@ -36,7 +36,7 @@ Request to create or update `agents.json`.
 - Docs URL.
 
 ### Command Flow
-1. Draft JSON under `/Users/onurmatik/Projects/FeatureRequest/agents.json`.
+1. Draft JSON under `./agents.json`.
 2. Validate JSON syntax.
 3. Ensure consistency with `AGENTS.md`.
 4. Run quick grep checks for impacted interfaces if endpoints changed.

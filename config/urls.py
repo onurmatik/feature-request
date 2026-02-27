@@ -12,6 +12,7 @@ from accounts.views import (
 )
 from config.api import api
 
+
 urlpatterns = [
     path(settings.ADMIN_URL.lstrip("/"), admin.site.urls),
     path("auth/me", me_view, name="auth-me"),
