@@ -6,16 +6,20 @@ from html import escape
 
 from django.conf import settings
 from django.contrib.auth import get_user_model, login, logout
+from django.core.exceptions import ValidationError
 from django.core.mail import send_mail
+from django.core.validators import validate_email
 from django.http import HttpResponse
 from django.http import HttpResponseNotFound
 from django.http import JsonResponse
+from django.db import transaction
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_POST
 from django.urls import reverse
 
 import stripe
+from botocore.exceptions import ClientError
 from sesame.utils import get_query_string
 
 from .handles import is_reserved_handle
@@ -298,11 +302,17 @@ def sign_in_view(request):
 
     if "@" in email_or_handle:
         magic_link = _magic_link_url(request, user)
-        _send_magic_link_email(
-            user=user,
-            magic_link=magic_link,
-            action="sign in",
-        )
+        try:
+            _send_magic_link_email(
+                user=user,
+                magic_link=magic_link,
+                action="sign in",
+            )
+        except ClientError:
+            return JsonResponse(
+                {"detail": "Could not send sign-in email. Please try again in a few minutes."},
+                status=502,
+            )
         return JsonResponse(
             {"detail": "Sign-in link sent. Check your email."},
             status=200,
@@ -324,6 +334,10 @@ def sign_up_view(request):
 
     if not email:
         return JsonResponse({"detail": "email is required."}, status=400)
+    try:
+        validate_email(email)
+    except ValidationError:
+        return JsonResponse({"detail": "Please provide a valid email address."}, status=400)
     if not handle:
         return JsonResponse({"detail": "handle is required."}, status=400)
     if not HANDLE_REGEX.fullmatch(handle):
@@ -345,19 +359,27 @@ def sign_up_view(request):
     if User.objects.filter(handle=handle).exists():
         return JsonResponse({"detail": "This handle is already taken."}, status=400)
 
-    user = User.objects.create_user(
-        email=email,
-        handle=handle,
-        display_name=display_name,
-    )
-    ApiToken.ensure_agent_token(user)
-    _notify_admins_on_sign_up(user)
-    magic_link = _magic_link_url(request, user)
-    _send_magic_link_email(
-        user=user,
-        magic_link=magic_link,
-        action="sign up",
-    )
+    try:
+        with transaction.atomic():
+            user = User.objects.create_user(
+                email=email,
+                handle=handle,
+                display_name=display_name,
+            )
+            ApiToken.ensure_agent_token(user)
+            _notify_admins_on_sign_up(user)
+            magic_link = _magic_link_url(request, user)
+            _send_magic_link_email(
+                user=user,
+                magic_link=magic_link,
+                action="sign up",
+            )
+    except ClientError as exc:
+        error_code = str((exc.response or {}).get("Error", {}).get("Code", ""))
+        if error_code == "InvalidParameterValue":
+            return JsonResponse({"detail": "Invalid email address."}, status=400)
+        return JsonResponse({"detail": "Could not send sign-up email. Please try again in a few minutes."}, status=502)
+
     return JsonResponse({"detail": "Sign-up link sent. Check your email."}, status=200)
 
 

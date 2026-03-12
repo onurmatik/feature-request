@@ -121,8 +121,9 @@ class User(AbstractBaseUser, PermissionsMixin):
         ordering = ["-date_joined"]
 
     def save(self, *args, **kwargs):
-        self.handle = self.handle.lower()
+        self.handle = (self.handle or "").lower()
         self.email = self.__class__.objects.normalize_email(self.email)
+        self.full_clean()
         super().save(*args, **kwargs)
 
     @property
