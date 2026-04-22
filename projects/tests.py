@@ -66,6 +66,7 @@ class IssueModelsTest(TestCase):
         self.assertEqual(issue.comments.count(), 1)
 
 
+@override_settings(OPENAI_API_KEY="")
 class IssueApiTest(TestCase):
     def setUp(self):
         user_model = get_user_model()
@@ -290,6 +291,49 @@ class IssueApiTest(TestCase):
         self.assertEqual(updated_payload["priority"], 4)
         self.assertEqual(updated_payload["status"], "planned")
 
+    def test_issue_author_and_owner_can_update_title_and_description(self):
+        visitor_issue = Issue.objects.create(
+            project=self.project,
+            author=self.other_user,
+            title="Original visitor title",
+            description="Original visitor description",
+        )
+
+        self.client.force_login(self.other_user)
+        author_response = self.client.patch(
+            f"/api/issues/{visitor_issue.id}",
+            data=json.dumps(
+                {
+                    "title": " Updated visitor title ",
+                    "description": " Updated visitor description ",
+                }
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(author_response.status_code, 200)
+        author_payload = author_response.json()
+        self.assertEqual(author_payload["title"], "Updated visitor title")
+        self.assertEqual(author_payload["description"], "Updated visitor description")
+
+        blank_response = self.client.patch(
+            f"/api/issues/{visitor_issue.id}",
+            data=json.dumps({"title": "   "}),
+            content_type="application/json",
+        )
+        self.assertEqual(blank_response.status_code, 400)
+
+        self.client.force_login(self.owner)
+        owner_response = self.client.patch(
+            f"/api/issues/{visitor_issue.id}",
+            data=json.dumps({"description": "Owner clarified the request."}),
+            content_type="application/json",
+        )
+        self.assertEqual(owner_response.status_code, 200)
+        self.assertEqual(
+            owner_response.json()["description"],
+            "Owner clarified the request.",
+        )
+
     def test_toggle_upvote(self):
         self.client.force_login(self.other_user)
         first = self.client.post(f"/api/issues/{self.issue.id}/upvote/toggle")
@@ -314,6 +358,70 @@ class IssueApiTest(TestCase):
         comments = list_response.json()
         self.assertEqual(len(comments), 1)
         self.assertEqual(comments[0]["author_handle"], self.other_user.handle)
+
+    def test_update_comment_requires_auth_and_permissions(self):
+        comment = IssueComment.objects.create(
+            issue=self.issue,
+            author=self.other_user,
+            body="Original visitor comment.",
+        )
+
+        unauthenticated_response = self.client.patch(
+            f"/api/issues/{self.issue.id}/comments/{comment.id}",
+            data=json.dumps({"body": "Unauthenticated edit."}),
+            content_type="application/json",
+        )
+        self.assertEqual(unauthenticated_response.status_code, 401)
+
+        self.client.force_login(self.other_user)
+        author_response = self.client.patch(
+            f"/api/issues/{self.issue.id}/comments/{comment.id}",
+            data=json.dumps({"body": " Updated by the author. "}),
+            content_type="application/json",
+        )
+        self.assertEqual(author_response.status_code, 200)
+        self.assertEqual(author_response.json()["body"], "Updated by the author.")
+
+        blank_response = self.client.patch(
+            f"/api/issues/{self.issue.id}/comments/{comment.id}",
+            data=json.dumps({"body": "   "}),
+            content_type="application/json",
+        )
+        self.assertEqual(blank_response.status_code, 400)
+
+        self.client.force_login(self.owner)
+        owner_response = self.client.patch(
+            f"/api/issues/{self.issue.id}/comments/{comment.id}",
+            data=json.dumps({"body": "Owner clarified this comment."}),
+            content_type="application/json",
+        )
+        self.assertEqual(owner_response.status_code, 200)
+        self.assertEqual(owner_response.json()["body"], "Owner clarified this comment.")
+
+        owner_comment = IssueComment.objects.create(
+            issue=self.issue,
+            author=self.owner,
+            body="Owner-only note.",
+        )
+        self.client.force_login(self.other_user)
+        forbidden_response = self.client.patch(
+            f"/api/issues/{self.issue.id}/comments/{owner_comment.id}",
+            data=json.dumps({"body": "Visitor should not edit this."}),
+            content_type="application/json",
+        )
+        self.assertEqual(forbidden_response.status_code, 403)
+
+        secondary_comment = IssueComment.objects.create(
+            issue=self.secondary_issue,
+            author=self.other_user,
+            body="Secondary project comment.",
+        )
+        mismatch_response = self.client.patch(
+            f"/api/issues/{self.issue.id}/comments/{secondary_comment.id}",
+            data=json.dumps({"body": "Wrong issue path."}),
+            content_type="application/json",
+        )
+        self.assertEqual(mismatch_response.status_code, 404)
 
     @override_settings(OPENAI_API_KEY="test-openai-key")
     def test_create_comment_rejects_spam(self):
@@ -388,6 +496,52 @@ class IssueApiTest(TestCase):
         owner_payload = owner_response.json()
         self.assertEqual(len(owner_payload), 2)
 
+    def test_project_responses_include_open_issue_count(self):
+        Issue.objects.create(
+            project=self.project,
+            author=self.owner,
+            title="Second open issue",
+        )
+        Issue.objects.create(
+            project=self.project,
+            author=self.owner,
+            title="Planned issue",
+            status=Issue.Status.PLANNED,
+        )
+        Issue.objects.create(
+            project=self.project,
+            author=self.owner,
+            title="Closed issue",
+            status=Issue.Status.CLOSED,
+        )
+
+        public_response = self.client.get(f"/api/owners/{self.owner.handle}/projects")
+        self.assertEqual(public_response.status_code, 200)
+        public_project = next(
+            item for item in public_response.json() if item["id"] == self.project.id
+        )
+        self.assertEqual(public_project["open_issues_count"], 2)
+
+        self.client.force_login(self.owner)
+        owner_response = self.client.get("/api/projects")
+        self.assertEqual(owner_response.status_code, 200)
+        owner_project = next(
+            item for item in owner_response.json() if item["id"] == self.project.id
+        )
+        self.assertEqual(owner_project["open_issues_count"], 2)
+
+        detail_response = self.client.get(f"/api/projects/{self.project.id}")
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertEqual(detail_response.json()["open_issues_count"], 2)
+
+        update_response = self.client.patch(
+            f"/api/projects/{self.project.id}",
+            data=json.dumps({"tagline": "Updated tagline"}),
+            content_type="application/json",
+        )
+        self.assertEqual(update_response.status_code, 200)
+        self.assertEqual(update_response.json()["open_issues_count"], 2)
+
     def test_featured_projects_lists_all_projects(self):
         second_public = Project.objects.create(
             owner=self.owner,
@@ -453,6 +607,8 @@ class ProjectApiTest(TestCase):
             email="owner-ui@example.com",
             handle="owner_ui",
             password="test-pass-123",
+            subscription_tier="pro_30",
+            subscription_status="active",
         )
         self.other_user = user_model.objects.create_user(
             email="other-ui@example.com",

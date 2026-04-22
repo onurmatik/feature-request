@@ -13,9 +13,12 @@ import {
   LogOut,
   ExternalLink,
   Plus,
+  Pencil,
   Search,
   ChevronDown,
+  Save,
   Settings,
+  X,
 } from "lucide-react";
 import AuthModal from "./components/AuthModal.jsx";
 import { authSignInEndpoint, csrfTokenFromCookie, getPostAuthRedirect } from "./utils/authClient.js";
@@ -537,7 +540,7 @@ function escapeHtml(value) {
 
 function parseInlineMarkdown(line) {
   const safeLine = escapeHtml(line);
-  const pattern = /\*\*([^\*\n]+)\*\*|__([^_\n]+)__|`([^`\n]+)`|~~([^~\n]+)~~|\[([^\]\n]+)\]\(([^)\n]+)\)|\*([^*\n]+)\*|_([^_\n]+)_/g;
+  const pattern = /\*\*([^*\n]+)\*\*|__([^_\n]+)__|`([^`\n]+)`|~~([^~\n]+)~~|\[([^\]\n]+)\]\(([^)\n]+)\)|\*([^*\n]+)\*|_([^_\n]+)_/g;
 
   const elements = [];
   let cursor = 0;
@@ -720,15 +723,14 @@ function MarkdownContent({ value, fallback }) {
     return <p>{fallbackText}</p>;
   }
 
+  let blocks;
   try {
-    return (
-      <div className="prose prose-sm max-w-none space-y-1">
-        {parseMarkdownBlocks(content)}
-      </div>
-    );
+    blocks = parseMarkdownBlocks(content);
   } catch {
     return <p className="whitespace-pre-wrap text-[#6b7280]">{content}</p>;
   }
+
+  return <div className="prose prose-sm max-w-none space-y-1">{blocks}</div>;
 }
 
 function ProjectSidebarIcon({ faviconUrl, projectName }) {
@@ -905,7 +907,15 @@ export default function App() {
   const [commentDraft, setCommentDraft] = useState("");
   const [commentFeedback, setCommentFeedback] = useState("");
   const [isCommentSubmitting, setIsCommentSubmitting] = useState(false);
+  const [editingCommentId, setEditingCommentId] = useState(null);
+  const [commentEditDraft, setCommentEditDraft] = useState("");
+  const [commentEditFeedback, setCommentEditFeedback] = useState("");
+  const [isCommentEditSubmitting, setIsCommentEditSubmitting] = useState(false);
   const [isIssueUpdating, setIsIssueUpdating] = useState(false);
+  const [isIssueEditOpen, setIsIssueEditOpen] = useState(false);
+  const [issueTitleDraft, setIssueTitleDraft] = useState("");
+  const [issueDescriptionDraft, setIssueDescriptionDraft] = useState("");
+  const [issueEditFeedback, setIssueEditFeedback] = useState("");
   const [messages, setMessages] = useState([]);
   const [isMessagesLoading, setIsMessagesLoading] = useState(false);
   const [selectedMessageThreadId, setSelectedMessageThreadId] = useState(
@@ -1015,6 +1025,10 @@ export default function App() {
     () => filteredIssues.find((issue) => issue.id === selectedIssueId) || null,
     [filteredIssues, selectedIssueId],
   );
+  const canEditSelectedIssue =
+    isAuthenticated &&
+    Boolean(selectedIssue) &&
+    (isOwnerViewer || normalizeHandle(selectedIssue.author_handle) === normalizeHandle(currentUserHandle));
 
   const messageThreads = useMemo(() => {
     const viewerHandle = normalizeHandle(currentUserHandle);
@@ -1933,6 +1947,17 @@ export default function App() {
   }, [selectedIssue?.id, refreshComments]);
 
   useEffect(() => {
+    setIsIssueEditOpen(false);
+    setIssueTitleDraft(selectedIssue?.title || "");
+    setIssueDescriptionDraft(selectedIssue?.description || "");
+    setIssueEditFeedback("");
+    setEditingCommentId(null);
+    setCommentEditDraft("");
+    setCommentEditFeedback("");
+    setIsCommentEditSubmitting(false);
+  }, [selectedIssue?.id, selectedIssue?.title, selectedIssue?.description]);
+
+  useEffect(() => {
     function onPopState() {
       const route = parseRoute();
       if (route.kind === "messages") {
@@ -2094,11 +2119,11 @@ export default function App() {
   async function handleIssuePatch(payload) {
     if (!isAuthenticated) {
       setStatus("Authentication required for this action.", true);
-      return;
+      return null;
     }
 
     if (!selectedIssue?.id) {
-      return;
+      return null;
     }
 
     setIsIssueUpdating(true);
@@ -2113,16 +2138,66 @@ export default function App() {
         body: JSON.stringify(payload),
       });
 
+      const responsePayload = await response.json().catch(() => ({}));
+
       if (!response.ok) {
-        setStatus("Issue update failed.", true);
-        return;
+        const detail =
+          typeof responsePayload.detail === "string"
+            ? responsePayload.detail
+            : "Issue update failed.";
+        setStatus(detail, true);
+        return null;
       }
 
-      const updated = await response.json();
+      const updated = responsePayload;
       setIssues((previous) => previous.map((issue) => (issue.id === updated.id ? updated : issue)));
+      if (Object.prototype.hasOwnProperty.call(payload, "status")) {
+        refreshProjects().catch(() => {
+          // Keep the successful issue update even if the sidebar count refresh fails.
+        });
+      }
       setStatus("Issue updated.");
+      return updated;
     } finally {
       setIsIssueUpdating(false);
+    }
+  }
+
+  function openIssueEdit() {
+    if (!selectedIssue) {
+      return;
+    }
+
+    setIssueTitleDraft(selectedIssue.title || "");
+    setIssueDescriptionDraft(selectedIssue.description || "");
+    setIssueEditFeedback("");
+    setIsIssueEditOpen(true);
+  }
+
+  function closeIssueEdit() {
+    setIssueTitleDraft(selectedIssue?.title || "");
+    setIssueDescriptionDraft(selectedIssue?.description || "");
+    setIssueEditFeedback("");
+    setIsIssueEditOpen(false);
+  }
+
+  async function handleSaveIssueEdit() {
+    const title = issueTitleDraft.trim();
+    if (!title) {
+      setIssueEditFeedback("Title is required.");
+      return;
+    }
+
+    setIssueEditFeedback("");
+    const updated = await handleIssuePatch({
+      title,
+      description: issueDescriptionDraft.trim(),
+    });
+
+    if (updated) {
+      setIsIssueEditOpen(false);
+    } else {
+      setIssueEditFeedback("Request could not be updated.");
     }
   }
 
@@ -2216,6 +2291,76 @@ export default function App() {
       setStatus("Comment posted.");
     } finally {
       setIsCommentSubmitting(false);
+    }
+  }
+
+  function canEditComment(comment) {
+    return (
+      isAuthenticated &&
+      (isOwnerViewer || normalizeHandle(comment?.author_handle) === normalizeHandle(currentUserHandle))
+    );
+  }
+
+  function startCommentEdit(comment) {
+    setEditingCommentId(comment.id);
+    setCommentEditDraft(comment.body || "");
+    setCommentEditFeedback("");
+  }
+
+  function cancelCommentEdit() {
+    setEditingCommentId(null);
+    setCommentEditDraft("");
+    setCommentEditFeedback("");
+  }
+
+  async function handleSaveCommentEdit(comment) {
+    if (!isAuthenticated) {
+      setCommentEditFeedback("Please log in to edit this comment.");
+      return;
+    }
+
+    if (!selectedIssue?.id || !comment?.id) {
+      return;
+    }
+
+    const body = commentEditDraft.trim();
+    if (!body) {
+      setCommentEditFeedback("Comment body is required.");
+      return;
+    }
+
+    setIsCommentEditSubmitting(true);
+    setCommentEditFeedback("");
+
+    try {
+      const response = await fetch(`/api/issues/${selectedIssue.id}/comments/${comment.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": csrfTokenFromCookie(),
+        },
+        body: JSON.stringify({ body }),
+      });
+
+      const responsePayload = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        const detail =
+          typeof responsePayload.detail === "string"
+            ? responsePayload.detail
+            : "Comment could not be updated.";
+        setCommentEditFeedback(detail);
+        return;
+      }
+
+      const updated = responsePayload;
+      setComments((previous) => previous.map((item) => (item.id === updated.id ? updated : item)));
+      setEditingCommentId(null);
+      setCommentEditDraft("");
+      setCommentEditFeedback("");
+      setStatus("Comment updated.");
+    } finally {
+      setIsCommentEditSubmitting(false);
     }
   }
 
@@ -2779,61 +2924,71 @@ export default function App() {
       return renderNoProjectsFound();
     }
 
-    return projects.map((project) => (
-      <div key={project.id} className="relative">
-        <button
-          type="button"
-          data-project={project.slug}
-          onClick={() => setProjectSlugAndHistory(project.slug)}
-          className={cls(
-            "sidebar-project-btn w-full flex items-start gap-3 px-3 py-2 rounded-sm-ds font-medium text-sm transition-colors",
-            selectedProjectSlug === project.slug
-              ? "bg-cyan-50 text-[#06B6D4]"
-              : "text-[#6b7280] hover:bg-[#f3f4f6]",
-          )}
-        >
-          <ProjectSidebarIcon faviconUrl={project.favicon_url} projectName={project.name} />
-          <span className="flex-1 min-w-0 text-left">
-            <span className="block font-medium leading-tight pr-12 truncate">{project.name}</span>
-            {getProjectListMetaText(project) ? (
-              <span className="block w-full text-[11px] leading-tight text-[#6b7280] pt-2">
-                {getProjectListMetaText(project)}
+    return projects.map((project) => {
+      const projectMetaText = getProjectListMetaText(project);
+      const openIssuesCount = Number(project.open_issues_count || 0);
+
+      return (
+        <div key={project.id} className="relative">
+          <button
+            type="button"
+            data-project={project.slug}
+            onClick={() => setProjectSlugAndHistory(project.slug)}
+            className={cls(
+              "sidebar-project-btn w-full flex items-start gap-3 px-3 py-2 rounded-sm-ds font-medium text-sm transition-colors",
+              selectedProjectSlug === project.slug
+                ? "bg-cyan-50 text-[#06B6D4]"
+                : "text-[#6b7280] hover:bg-[#f3f4f6]",
+            )}
+          >
+            <ProjectSidebarIcon faviconUrl={project.favicon_url} projectName={project.name} />
+            <span className="flex-1 min-w-0 text-left">
+              <span className="block font-medium leading-tight pr-24 truncate">{project.name}</span>
+              {projectMetaText ? (
+                <span className="mt-1 block min-w-0 truncate pr-10 text-[11px] leading-tight text-[#6b7280]">
+                  {projectMetaText}
+                </span>
+              ) : null}
+            </span>
+          </button>
+          <span className="absolute top-2 right-2 flex items-center gap-1">
+            {openIssuesCount > 0 ? (
+              <span className="shrink-0 rounded-sm-ds border border-cyan-100 bg-white px-1.5 py-0.5 text-[10px] font-mono font-bold leading-none text-[#06B6D4]">
+                {openIssuesCount}
               </span>
             ) : null}
+            {isOwnerViewer ? (
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setProjectSlugAndHistory(project.slug);
+                  setView("projectSettings");
+                }}
+                className="text-[#9ca3af] hover:text-[#111827] p-1 rounded-sm-ds transition-colors"
+                title="Project Settings"
+                aria-label={`Project settings for ${project.name}`}
+              >
+                <Settings size={16} />
+              </button>
+            ) : null}
+            {project.url ? (
+              <a
+                href={project.url}
+                target="_blank"
+                rel="noreferrer"
+                onClick={(event) => event.stopPropagation()}
+                className="text-[#9ca3af] hover:text-[#111827] p-1 rounded-sm-ds transition-colors"
+                aria-label={`Open ${project.name} website`}
+                title="Open project site"
+              >
+                <ExternalLink size={16} />
+              </a>
+            ) : null}
           </span>
-        </button>
-        <span className="absolute top-2 right-2 flex items-center gap-1">
-          {isOwnerViewer ? (
-            <button
-              type="button"
-              onClick={(event) => {
-                event.stopPropagation();
-                setProjectSlugAndHistory(project.slug);
-                setView("projectSettings");
-              }}
-              className="text-[#9ca3af] hover:text-[#111827] p-1 rounded-sm-ds transition-colors"
-              title="Project Settings"
-              aria-label={`Project settings for ${project.name}`}
-            >
-              <Settings size={16} />
-            </button>
-          ) : null}
-          {project.url ? (
-            <a
-              href={project.url}
-              target="_blank"
-              rel="noreferrer"
-              onClick={(event) => event.stopPropagation()}
-              className="text-[#9ca3af] hover:text-[#111827] p-1 rounded-sm-ds transition-colors"
-              aria-label={`Open ${project.name} website`}
-              title="Open project site"
-            >
-              <ExternalLink size={16} />
-            </a>
-          ) : null}
-        </span>
-      </div>
-    ));
+        </div>
+      );
+    });
   }
 
   function renderBoardProjectsSection() {
@@ -3503,13 +3658,83 @@ export default function App() {
                     <div className="flex-1 overflow-hidden flex flex-col">
                       <div className="flex-1 overflow-y-auto px-8 py-6 space-y-8">
                         <div>
-                          <h1 className="text-2xl font-bold text-[#111827] mb-4">{selectedIssue.title}</h1>
-                          <div className="text-[#6b7280]">
-                            <MarkdownContent
-                              value={selectedIssue.description}
-                              fallback="No description provided."
-                            />
-                          </div>
+                          {isIssueEditOpen ? (
+                            <div className="space-y-4">
+                              <div className="space-y-1.5">
+                                <label className="text-[10px] font-mono font-bold text-[#6b7280] uppercase">Title</label>
+                                <input
+                                  value={issueTitleDraft}
+                                  onChange={(event) => setIssueTitleDraft(event.target.value)}
+                                  type="text"
+                                  disabled={isIssueUpdating}
+                                  className="w-full px-3 py-2 border border-[#e5e7eb] rounded-sm-ds text-sm focus:ring-1 focus:ring-[#06B6D4] outline-none disabled:bg-[#f9fafb]"
+                                />
+                              </div>
+
+                              <div className="space-y-1.5">
+                                <label className="text-[10px] font-mono font-bold text-[#6b7280] uppercase">
+                                  Description
+                                </label>
+                                <textarea
+                                  rows={7}
+                                  value={issueDescriptionDraft}
+                                  onChange={(event) => setIssueDescriptionDraft(event.target.value)}
+                                  disabled={isIssueUpdating}
+                                  className="w-full px-3 py-2 border border-[#e5e7eb] rounded-sm-ds text-sm focus:ring-1 focus:ring-[#06B6D4] outline-none resize-y disabled:bg-[#f9fafb]"
+                                />
+                              </div>
+
+                              <div className="flex items-center justify-between gap-3">
+                                <span className="text-xs text-[#dc2626]">{issueEditFeedback}</span>
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={closeIssueEdit}
+                                    disabled={isIssueUpdating}
+                                    className="inline-flex h-8 w-8 items-center justify-center rounded-sm-ds border border-[#e5e7eb] text-[#6b7280] hover:bg-[#f3f4f6] disabled:opacity-45"
+                                    title="Cancel edit"
+                                    aria-label="Cancel edit"
+                                  >
+                                    <X size={15} />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={handleSaveIssueEdit}
+                                    disabled={isIssueUpdating || !issueTitleDraft.trim()}
+                                    className="inline-flex h-8 w-8 items-center justify-center rounded-sm-ds bg-[#06B6D4] text-white hover:bg-cyan-600 disabled:opacity-45"
+                                    title="Save request"
+                                    aria-label="Save request"
+                                  >
+                                    <Save size={15} />
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <>
+                              <div className="mb-4 flex items-start justify-between gap-4">
+                                <h1 className="text-2xl font-bold text-[#111827]">{selectedIssue.title}</h1>
+                                {canEditSelectedIssue ? (
+                                  <button
+                                    type="button"
+                                    onClick={openIssueEdit}
+                                    disabled={isIssueUpdating}
+                                    className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-sm-ds border border-[#e5e7eb] text-[#6b7280] hover:bg-[#f3f4f6] hover:text-[#111827] disabled:opacity-45"
+                                    title="Edit request"
+                                    aria-label="Edit request"
+                                  >
+                                    <Pencil size={15} />
+                                  </button>
+                                ) : null}
+                              </div>
+                              <div className="text-[#6b7280]">
+                                <MarkdownContent
+                                  value={selectedIssue.description}
+                                  fallback="No description provided."
+                                />
+                              </div>
+                            </>
+                          )}
                         </div>
 
                         <div className="border-t border-[#e5e7eb] pt-8">
@@ -3521,27 +3746,84 @@ export default function App() {
                             {comments.length === 0 ? (
                               <p className="text-sm text-[#6b7280]">No comments yet.</p>
                             ) : (
-                              comments.map((comment) => (
-                                <div key={comment.id} className="flex gap-4">
-                                  <UserAvatar
-                                    imageUrl={comment.author_avatar_url}
-                                    label={comment.author_handle}
-                                    sizeClass="w-8 h-8"
-                                    fallbackTextClassName="text-[10px] font-bold"
-                                  />
-                                  <div className="flex-1">
-                                    <div className="flex items-center justify-between mb-1">
-                                      <span className="text-xs font-bold">@{comment.author_handle}</span>
-                                      <span className="text-[10px] font-mono text-[#d1d5db]">
-                                        {formatRelativeDate(comment.created_at)}
-                                      </span>
-                                    </div>
-                                    <div className="p-3 bg-[#f9fafb] border border-[#e5e7eb] rounded-sm-ds text-sm text-[#6b7280]">
-                                      <MarkdownContent value={comment.body} />
+                              comments.map((comment) => {
+                                const isEditingComment = editingCommentId === comment.id;
+                                const editableComment = canEditComment(comment);
+
+                                return (
+                                  <div key={comment.id} className="flex gap-4">
+                                    <UserAvatar
+                                      imageUrl={comment.author_avatar_url}
+                                      label={comment.author_handle}
+                                      sizeClass="w-8 h-8"
+                                      fallbackTextClassName="text-[10px] font-bold"
+                                    />
+                                    <div className="flex-1">
+                                      <div className="flex items-center justify-between gap-3 mb-1">
+                                        <span className="text-xs font-bold">@{comment.author_handle}</span>
+                                        <span className="flex items-center gap-2">
+                                          <span className="text-[10px] font-mono text-[#d1d5db]">
+                                            {formatRelativeDate(comment.created_at)}
+                                          </span>
+                                          {editableComment && !isEditingComment ? (
+                                            <button
+                                              type="button"
+                                              onClick={() => startCommentEdit(comment)}
+                                              className="inline-flex h-6 w-6 items-center justify-center rounded-sm-ds text-[#9ca3af] hover:bg-[#f3f4f6] hover:text-[#111827]"
+                                              title="Edit comment"
+                                              aria-label="Edit comment"
+                                            >
+                                              <Pencil size={13} />
+                                            </button>
+                                          ) : null}
+                                        </span>
+                                      </div>
+                                      {isEditingComment ? (
+                                        <div className="space-y-2">
+                                          <textarea
+                                            rows={4}
+                                            value={commentEditDraft}
+                                            onChange={(event) => setCommentEditDraft(event.target.value)}
+                                            disabled={isCommentEditSubmitting}
+                                            className="w-full bg-white border border-[#e5e7eb] rounded-sm-ds p-3 text-sm text-[#111827] focus:ring-1 focus:ring-[#06B6D4] outline-none resize-y disabled:bg-[#f9fafb]"
+                                          />
+                                          <div className="flex items-center justify-between gap-3">
+                                            <span className="text-[10px] font-mono text-[#dc2626]">
+                                              {commentEditFeedback}
+                                            </span>
+                                            <span className="flex items-center gap-2">
+                                              <button
+                                                type="button"
+                                                onClick={cancelCommentEdit}
+                                                disabled={isCommentEditSubmitting}
+                                                className="inline-flex h-7 w-7 items-center justify-center rounded-sm-ds border border-[#e5e7eb] text-[#6b7280] hover:bg-[#f3f4f6] disabled:opacity-45"
+                                                title="Cancel edit"
+                                                aria-label="Cancel edit"
+                                              >
+                                                <X size={14} />
+                                              </button>
+                                              <button
+                                                type="button"
+                                                onClick={() => handleSaveCommentEdit(comment)}
+                                                disabled={isCommentEditSubmitting || !commentEditDraft.trim()}
+                                                className="inline-flex h-7 w-7 items-center justify-center rounded-sm-ds bg-[#111827] text-white hover:bg-black disabled:opacity-45"
+                                                title="Save comment"
+                                                aria-label="Save comment"
+                                              >
+                                                <Save size={14} />
+                                              </button>
+                                            </span>
+                                          </div>
+                                        </div>
+                                      ) : (
+                                        <div className="p-3 bg-[#f9fafb] border border-[#e5e7eb] rounded-sm-ds text-sm text-[#6b7280]">
+                                          <MarkdownContent value={comment.body} />
+                                        </div>
+                                      )}
                                     </div>
                                   </div>
-                                </div>
-                              ))
+                                );
+                              })
                             )}
                           </div>
                         </div>

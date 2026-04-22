@@ -139,6 +139,8 @@ Auth/session endpoints remain outside `/api`:
 
 ### Common routes
 
+Project responses include `open_issues_count`, which counts issues with status `open`.
+
 - `GET /api/health`
 - `GET /api/public/featured-projects?limit=3`
 - `GET /api/owners/{owner_handle}/projects`
@@ -150,6 +152,7 @@ Auth/session endpoints remain outside `/api`:
 - `POST /api/issues/{issue_id}/upvote/toggle`
 - `GET /api/issues/{issue_id}/comments`
 - `POST /api/issues/{issue_id}/comments`
+- `PATCH /api/issues/{issue_id}/comments/{comment_id}`
 - `GET /api/projects`
 - `POST /api/projects`
 - `GET /api/projects/{project_id}`

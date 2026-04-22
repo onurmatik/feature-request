@@ -241,7 +241,7 @@
       "method": "GET",
       "path": "/api/owners/{owner_handle}/projects",
       "auth": "none",
-      "description": "List all projects for a public owner."
+      "description": "List all projects for a public owner. Project responses include `open_issues_count` for issues with status `open`."
     },
     {
       "name": "list_featured_projects",
@@ -317,6 +317,16 @@
         "body": "string"
       },
       "description": "Create comment and run moderation."
+    },
+    {
+      "name": "update_issue_comment",
+      "method": "PATCH",
+      "path": "/api/issues/{issue_id}/comments/{comment_id}",
+      "auth": "session_or_token",
+      "required_body": {
+        "body": "string"
+      },
+      "description": "Update an existing comment body. Only the comment author or owning project owner can update."
     },
     {
       "name": "create_owner_message",

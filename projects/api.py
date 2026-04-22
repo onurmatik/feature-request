@@ -10,7 +10,7 @@ from html import escape
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.mail import send_mail
-from django.db.models import Count, F, Max
+from django.db.models import Count, F, Max, Q
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
 from ninja import Router, Schema
@@ -41,6 +41,7 @@ class ProjectOut(Schema):
     tagline: str
     url: str
     favicon_url: str
+    open_issues_count: int
     created_at: str
     updated_at: str
 
@@ -490,6 +491,7 @@ def _issue_to_dict(issue: Issue):
 
 
 def _project_to_dict(project: Project):
+    open_issues_count = getattr(project, "open_issues_count", None)
     return {
         "id": project.id,
         "owner_id": project.owner_id,
@@ -499,9 +501,24 @@ def _project_to_dict(project: Project):
         "tagline": project.tagline,
         "url": project.url,
         "favicon_url": project.favicon_url,
+        "open_issues_count": (
+            open_issues_count
+            if open_issues_count is not None
+            else project.issues.filter(status=Issue.Status.OPEN).count()
+        ),
         "created_at": project.created_at.isoformat(),
         "updated_at": project.updated_at.isoformat(),
     }
+
+
+def _annotate_open_issues_count(queryset):
+    return queryset.annotate(
+        open_issues_count=Count(
+            "issues",
+            filter=Q(issues__status=Issue.Status.OPEN),
+            distinct=True,
+        )
+    )
 
 
 def _order_projects_by_last_request(queryset):
@@ -667,7 +684,7 @@ def _get_annotated_issue_queryset():
 def list_my_projects(request):
     user = _require_auth_user(request)
     projects = _order_projects_by_last_request(
-        Project.objects.select_related("owner").filter(owner=user)
+        _annotate_open_issues_count(Project.objects.select_related("owner").filter(owner=user))
     )
     return [_project_to_dict(project) for project in projects]
 
@@ -777,7 +794,7 @@ def delete_project(request, project_id: int):
 def list_owner_projects(request, owner_handle: str):
     owner = _get_owner(owner_handle)
     projects = _order_projects_by_last_request(
-        Project.objects.select_related("owner").filter(owner=owner)
+        _annotate_open_issues_count(Project.objects.select_related("owner").filter(owner=owner))
     )
     return [_project_to_dict(project) for project in projects]
 
@@ -959,3 +976,24 @@ def create_issue_comment(request, issue_id: int, payload: CommentCreateIn):
     comment = IssueComment.objects.select_related("author", "issue__project__owner").get(id=comment.id)
     _notify_owner_on_new_comment(request, comment)
     return 201, _comment_to_dict(comment)
+
+
+@router.patch("/issues/{issue_id}/comments/{comment_id}", response=CommentOut)
+def update_issue_comment(request, issue_id: int, comment_id: int, payload: CommentCreateIn):
+    user = _require_auth_user(request)
+    comment = get_object_or_404(
+        IssueComment.objects.select_related("author", "issue__project__owner"),
+        id=comment_id,
+        issue_id=issue_id,
+    )
+
+    if user.id not in {comment.author_id, comment.issue.project.owner_id}:
+        raise HttpError(403, "Not allowed to update this comment.")
+
+    body = _clean_non_empty(payload.body, "Comment body")
+    _moderate_comment_submission(body, comment.issue)
+
+    comment.body = body
+    comment.save(update_fields=["body", "updated_at"])
+    comment = IssueComment.objects.select_related("author", "issue__project__owner").get(id=comment.id)
+    return _comment_to_dict(comment)

@@ -40,6 +40,7 @@ Operate on board data via API:
 - read requests/issues
 - create requests
 - add comments
+- edit comments
 - toggle upvotes
 
 ### Required Inputs
@@ -69,6 +70,8 @@ Operate on board data via API:
   - `POST /api/projects/{owner_handle}/{project_slug}/issues`
 - Add comment:
   - `POST /api/issues/{issue_id}/comments`
+- Edit comment:
+  - `PATCH /api/issues/{issue_id}/comments/{comment_id}`
 - Toggle upvote:
   - `POST /api/issues/{issue_id}/upvote/toggle`
 
@@ -82,10 +85,12 @@ Operate on board data via API:
    - call create issue endpoint with required body.
 5. If adding comment:
    - call create comment endpoint with `{"body": "<text>"}`.
-6. If upvote requested:
+6. If editing comment:
+   - call update comment endpoint with `{"body": "<text>"}`.
+7. If upvote requested:
    - call upvote toggle endpoint and read returned `upvoted` + `upvotes_count`.
-7. Return a normalized result object (see output format).
-8. On failures, return error object with action and actionable recovery step.
+8. Return a normalized result object (see output format).
+9. On failures, return error object with action and actionable recovery step.
 
 ### Expected Output Format
 Return compact JSON:
