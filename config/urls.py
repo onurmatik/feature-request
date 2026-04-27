@@ -1,6 +1,7 @@
 from django.conf import settings
 from django.contrib import admin
 from django.urls import path
+from django.views.generic import RedirectView
 from sesame.views import LoginView
 
 from accounts.views import (
@@ -21,6 +22,11 @@ urlpatterns = [
     path("auth/sign-up", sign_up_view, name="auth-sign-up"),
     path("auth/logout", logout_view, name="auth-logout"),
     path("stripe/webhook", stripe_webhook, name="stripe-webhook"),
+    path(
+        "api-docs/swagger.json",
+        RedirectView.as_view(url="/api/openapi.json", permanent=False),
+        name="legacy-swagger-json",
+    ),
     path("api/", api.urls),
     path("auth/magic-link", LoginView.as_view(), name="magic-link-login"),
     path("SKILL.md", feature_request_skill_catalog, name="feature-request-skill-catalog-legacy"),

@@ -26,7 +26,12 @@ export default defineConfig({
     strictPort: true,
     allowedHosts,
     proxy: {
-      "/api": {
+      "^/api(?:/|\\?|$)": {
+        target: djangoDevOrigin,
+        changeOrigin: true,
+        secure: false,
+      },
+      "^/api-docs(?:/|\\?|$)": {
         target: djangoDevOrigin,
         changeOrigin: true,
         secure: false,
