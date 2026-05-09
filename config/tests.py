@@ -1,4 +1,5 @@
 from django.test import TestCase
+from django.templatetags.static import static
 
 
 class ApiDocsCompatibilityTest(TestCase):
@@ -18,3 +19,19 @@ class ApiDocsCompatibilityTest(TestCase):
         response = self.client.get("/api-docs/unknown")
 
         self.assertEqual(response.status_code, 404)
+
+
+class FaviconRoutingTest(TestCase):
+    def test_favicon_ico_redirects_to_static_asset(self):
+        response = self.client.get("/favicon.ico")
+
+        self.assertEqual(response.status_code, 301)
+        self.assertEqual(response["Location"], static("projects/favicon.svg"))
+
+    def test_frontend_declares_static_favicon(self):
+        response = self.client.get("/")
+
+        self.assertContains(
+            response,
+            f'<link rel="icon" type="image/svg+xml" href="{static("projects/favicon.svg")}">',
+        )

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="FeatureRequest">
+  <rect width="64" height="64" rx="14" fill="#06B6D4"/>
+  <g fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="12" y="14" width="15" height="15" rx="3"/>
+    <path d="m13 44 6 6 11-13"/>
+    <path d="M36 19h16"/>
+    <path d="M36 32h16"/>
+    <path d="M36 45h16"/>
+  </g>
+</svg>

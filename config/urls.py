@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.contrib import admin
+from django.templatetags.static import static
 from django.urls import path
 from django.views.generic import RedirectView
 from sesame.views import LoginView
@@ -22,6 +23,11 @@ urlpatterns = [
     path("auth/sign-in", sign_in_view, name="auth-sign-in"),
     path("auth/sign-up", sign_up_view, name="auth-sign-up"),
     path("auth/logout", logout_view, name="auth-logout"),
+    path(
+        "favicon.ico",
+        RedirectView.as_view(url=static("projects/favicon.svg"), permanent=True),
+        name="favicon",
+    ),
     path("stripe/webhook", stripe_webhook, name="stripe-webhook"),
     path(
         "api-docs/swagger.json",
