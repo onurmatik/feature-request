@@ -13,6 +13,7 @@ from accounts.views import (
     stripe_webhook,
 )
 from config.api import api
+from projects.views import frontend_app
 
 
 urlpatterns = [
@@ -35,4 +36,6 @@ urlpatterns = [
         feature_request_skill_catalog,
         name="feature-request-skill-catalog",
     ),
+    path("", frontend_app, name="frontend-app"),
+    path("<path:spa_path>", frontend_app, name="frontend-app-catchall"),
 ]

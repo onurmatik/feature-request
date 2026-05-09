@@ -5,14 +5,14 @@ FeatureRequest helps indie builders manage feedback for all their projects in on
 ## Tech Stack
 
 - Backend: Django, Django Ninja
-- Frontend: React 19, Vite, Tailwind CSS
+- Frontend: Django templates, Tailwind CSS, vanilla JavaScript
 - Auth/Utilities: django-sesame, python-slugify
-- Package manager: `pip` for Python, `npm` for frontend
+- Package manager: `pip` for Python; Node is only needed when regenerating Tailwind CSS
 
 ## Prerequisites
 
 - Python 3
-- Node.js (for the Vite frontend)
+- Node.js (optional, for rebuilding Tailwind CSS)
 - Optional: a virtual environment tool (`venv`, `virtualenv`, etc.)
 
 ## Backend Setup
@@ -38,33 +38,17 @@ FeatureRequest helps indie builders manage feedback for all their projects in on
 
 ## Frontend Setup
 
-1. Install frontend dependencies:
+The frontend is served by Django from `projects/templates/projects/app.html` and
+`projects/static/projects/`. No separate frontend dev server is required.
 
-   ```bash
-   cd frontend
-   npm install
-   ```
+Open the app at:
 
-2. Start Vite dev server:
-
-   ```bash
-   npm run dev
-   ```
-
-3. Open the app at:
-
-   ```text
-   http://127.0.0.1:5173/<owner_handle>/
-   ```
+```text
+http://127.0.0.1:8000/<owner_handle>/
+```
 
 ## Environment Notes
 
-- `frontend/` provides additional frontend-specific setup notes and build guidance.
-- `DJANGO_DEV_ORIGIN` can be used to point Vite at a different Django host, e.g.:
-
-  ```bash
-  export DJANGO_DEV_ORIGIN=http://127.0.0.1:8000
-  ```
 - `ADMIN_URL` configures the Django admin route (defaults to `/admin/`).
 
 ## Environment Configuration
@@ -95,18 +79,19 @@ Create a `.env` file at the repository root (or set environment variables) for l
   python manage.py shell
   ```
 
-- Build frontend for production:
+- Rebuild Tailwind CSS after editing template/static frontend classes:
 
   ```bash
-  cd frontend
-  npm run build
+  npx tailwindcss -c tailwind.config.js \
+    -i projects/static/projects/app.tailwind.css \
+    -o projects/static/projects/app.css \
+    --minify
   ```
 
-- Start production preview (after build):
+- Collect static files for deployment:
 
   ```bash
-  cd frontend
-  npm run preview
+  python3 manage.py collectstatic
   ```
 
 ## API Access

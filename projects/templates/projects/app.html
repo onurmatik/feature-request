@@ -1,0 +1,21 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Feature Request helps you collect, prioritize, and manage feedback, feature requests, and bug reports for your projects.">
+    <meta property="og:title" content="Feature Request">
+    <meta property="og:description" content="Feature Request helps you collect, prioritize, and manage feedback, feature requests, and bug reports for your projects.">
+    <title>Feature Request</title>
+    <link rel="stylesheet" href="{% static 'projects/app.css' %}">
+  </head>
+  <body>
+    <script>
+      window.__FR_BOOTSTRAP__ = {{ fr_bootstrap_json|safe }};
+      window.__FR_ADMIN_PATH__ = "{{ admin_url|escapejs }}";
+    </script>
+    <div id="app"></div>
+    <script src="{% static 'projects/app.js' %}" defer></script>
+  </body>
+</html>
