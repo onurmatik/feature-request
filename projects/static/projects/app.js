@@ -77,6 +77,24 @@
   const APP_BASE_DESCRIPTION =
     "Feature Request helps you collect, prioritize, and manage feedback, feature requests, and bug reports for your projects.";
   const FEATURE_REQUEST_SKILL_PATH = ".agents/skills/feature-request/SKILL.md";
+  const AGENT_PROMPT_PRESETS = [
+    {
+      value: "portfolio-triage",
+      label: "Portfolio triage",
+      description: "Read-only queue snapshot across all owned projects.",
+    },
+    {
+      value: "project-triage",
+      label: "Project triage",
+      description: "Read-only queue snapshot for one selected project.",
+    },
+    {
+      value: "project-implementation",
+      label: "Project implementation",
+      description: "Plan and implement one ready issue in the local repo.",
+    },
+  ];
+  const PROJECT_AGENT_PROMPT_PRESETS = new Set(["project-triage", "project-implementation"]);
   const HANDLE_REGEX = /^[a-z0-9_]+$/;
   const SETTINGS_SECTIONS = new Set(["general", "api", "connect-agent"]);
 
@@ -137,6 +155,10 @@
     agentPromptCopyFeedbackTone: "",
     latestCreatedTokenValue: "",
     agentPromptValue: "",
+    agentPromptPreset: "portfolio-triage",
+    agentPromptProjectSlug: "",
+    agentPromptProjects: [],
+    isAgentPromptProjectsLoading: false,
     isAgentRefreshSubmitting: false,
     isContactOpen: false,
     contactSenderName: "",
@@ -589,16 +611,93 @@
     }
   }
 
-  function buildAgentPromptText(baseUrl, tokenValue) {
+  function agentSkillCatalogUrl(baseUrl) {
     const baseOrigin = String(baseUrl || "").replace(/\/+$/, "");
-    const skillCatalogUrl = `${baseOrigin}/${FEATURE_REQUEST_SKILL_PATH}`;
-    return [
-      "Please manage the projects and requests using FeatureRequest skill as requested.",
+    return `${baseOrigin}/${FEATURE_REQUEST_SKILL_PATH}`;
+  }
+
+  function normalizeAgentPromptPreset(value) {
+    const candidate = String(value || "").trim();
+    return AGENT_PROMPT_PRESETS.some((preset) => preset.value === candidate) ? candidate : "portfolio-triage";
+  }
+
+  function isProjectAgentPromptPreset(value) {
+    return PROJECT_AGENT_PROMPT_PRESETS.has(normalizeAgentPromptPreset(value));
+  }
+
+  function buildAgentPromptText(baseUrl, tokenValue, options = {}) {
+    const baseOrigin = String(baseUrl || "").replace(/\/+$/, "");
+    const token = String(tokenValue || "YOUR_AGENT_TOKEN").trim() || "YOUR_AGENT_TOKEN";
+    const preset = normalizeAgentPromptPreset(options.preset);
+    const project = options.project || null;
+    const ownerHandle = normalizeHandle(options.ownerHandle || project?.owner_handle || "");
+    const projectSlug = String(options.projectSlug || project?.slug || "").trim();
+    const projectName = String(project?.name || projectSlug || "selected project").trim();
+    const commonLines = [
+      "Use the FeatureRequest skill to manage feature requests via API.",
       "",
-      `API token: ${tokenValue}`,
+      `API token: ${token}`,
+      `Base URL: ${baseOrigin}`,
+      `Skill catalog: ${agentSkillCatalogUrl(baseOrigin)}`,
       "",
-      `If no skill added yet, read from ${skillCatalogUrl}`,
-    ].join("\n");
+      "Authentication: use Authorization: Bearer <API token> for API calls.",
+      "If the token is already provided above, do not call the agent-token connect/refresh endpoints; those endpoints are only for web-session onboarding.",
+    ];
+
+    if (preset === "project-triage") {
+      return commonLines
+        .concat([
+          "",
+          "Preset: Project triage",
+          "Scope:",
+          `- owner_handle: ${ownerHandle || "<owner_handle>"}`,
+          `- project_slug: ${projectSlug || "<project_slug>"}`,
+          `- project_name: ${projectName}`,
+          "- Only read FeatureRequest issues for this exact owner/project. Do not read or change other projects.",
+          `- Use GET ${baseOrigin}/api/projects/${ownerHandle || "<owner_handle>"}/${projectSlug || "<project_slug>"}/issues with status/type/priority filters as needed.`,
+          "",
+          "Return Queue Snapshot, Priority Decisions, Active Follow-ups, Risks and Blockers, and Next Checkpoint.",
+          "Do not make code changes or FeatureRequest write calls in this triage run.",
+        ])
+        .join("\n");
+    }
+
+    if (preset === "project-implementation") {
+      return commonLines
+        .concat([
+          "",
+          "Preset: Project implementation",
+          "Scope:",
+          `- owner_handle: ${ownerHandle || "<owner_handle>"}`,
+          `- project_slug: ${projectSlug || "<project_slug>"}`,
+          `- project_name: ${projectName}`,
+          "- Only use FeatureRequest issues for this exact owner/project. Do not read or change other projects.",
+          `- Read ready candidates from GET ${baseOrigin}/api/projects/${ownerHandle || "<owner_handle>"}/${projectSlug || "<project_slug>"}/issues.`,
+          "",
+          "Implementation rules:",
+          "- FeatureRequest is the ticket source of truth; perform code work only in the local repository where this agent is running.",
+          "- Pick at most one ready issue per run unless the user explicitly says otherwise.",
+          "- Treat open and planned issues as candidates; prefer critical/high priority and clear acceptance criteria.",
+          "- Before code changes, produce a short implementation plan.",
+          "- Run relevant tests after edits.",
+          "- After implementation, add a concise comment back to the issue when write access is available.",
+          "- Do not mark the issue done automatically; reserve done/closed for merge or release confirmation.",
+        ])
+        .join("\n");
+    }
+
+    return commonLines
+      .concat([
+        "",
+        "Preset: Portfolio triage",
+        "Scope:",
+        "- Read all projects owned by the authenticated user with GET /api/projects.",
+        "- Read issue queues for those projects only.",
+        "- Do not make code changes or FeatureRequest write calls.",
+        "",
+        "Return Queue Snapshot, Priority Decisions, Active Follow-ups, Risks and Blockers, and Next Checkpoint.",
+      ])
+      .join("\n");
   }
 
   async function copyToClipboard(value) {
@@ -620,8 +719,11 @@
       textarea.setAttribute("readonly", "true");
       textarea.style.position = "fixed";
       textarea.style.opacity = "0";
+      textarea.style.left = "-9999px";
       document.body.appendChild(textarea);
+      textarea.focus({ preventScroll: true });
       textarea.select();
+      textarea.setSelectionRange(0, textarea.value.length);
       const copied = document.execCommand("copy");
       document.body.removeChild(textarea);
       return copied;
@@ -757,6 +859,18 @@
       activeAgentTokenSecret ||
       state.latestCreatedTokenValue ||
       (activeAgentToken ? `${activeAgentToken.token_prefix}••••••••` : "");
+    const agentPromptProjects = Array.isArray(state.agentPromptProjects) ? state.agentPromptProjects : [];
+    const selectedAgentPromptProject =
+      agentPromptProjects.find((project) => project.slug === state.agentPromptProjectSlug) ||
+      agentPromptProjects[0] ||
+      null;
+    const agentPromptPreset = normalizeAgentPromptPreset(state.agentPromptPreset);
+    const agentPromptProject = isProjectAgentPromptPreset(agentPromptPreset) ? selectedAgentPromptProject : null;
+    const promptTextValue = buildAgentPromptText(apiBaseUrl, activeAgentTokenSecret || state.latestCreatedTokenValue, {
+      preset: agentPromptPreset,
+      ownerHandle: normalizeHandle(state.currentUserHandle),
+      project: agentPromptProject,
+    });
     const messageThreads = buildMessageThreads();
     const selectedMessageThread =
       messageThreads.find((thread) => thread.threadId === state.selectedMessageThreadId) || null;
@@ -791,7 +905,10 @@
       activeAgentTokenSecret,
       visibleAgentTokenValue,
       canCopyActiveAgentToken: Boolean(activeAgentTokenSecret),
-      promptTextValue: String(state.agentPromptValue || "").trim(),
+      agentPromptProjects,
+      selectedAgentPromptProject,
+      agentPromptPreset,
+      promptTextValue: String(promptTextValue || "").trim(),
       messageThreads,
       selectedMessageThread,
       selectedMessageHandle,
@@ -1460,7 +1577,7 @@
         <section class="w-full md:w-[380px] border-r border-[#e5e7eb] bg-white flex flex-col shrink-0">
           <div class="p-4 border-b border-[#e5e7eb] space-y-3">
             <div class="md:hidden space-y-3">${renderBoardProjectsSection(computed)}</div>
-            <div class="flex items-center justify-between"><h2 class="text-sm font-bold uppercase tracking-widest text-[#6b7280]">Requests</h2><button type="button" data-action="open-new-issue" class="px-3 py-1.5 bg-[#06B6D4] text-white text-[10px] font-bold rounded-sm-ds hover:bg-cyan-600 shadow-sm transition-all uppercase tracking-wide disabled:opacity-45 disabled:cursor-not-allowed"${disabledAttr(!state.selectedProjectSlug)}>New Request</button></div>
+            <div class="flex items-center justify-between gap-3"><h2 class="text-sm font-bold uppercase tracking-widest text-[#6b7280]">Requests</h2><div class="flex items-center gap-2">${computed.isOwnerViewer && computed.selectedProject ? `<button type="button" data-action="copy-project-agent-prompt" class="inline-flex items-center gap-1 rounded-sm-ds border border-[#e5e7eb] bg-white px-2 py-1.5 text-[10px] font-bold uppercase tracking-wide text-[#6b7280] hover:bg-[#f3f4f6] hover:text-[#111827]" title="Copy project-scoped agent prompt">${icon("bot", 12)}<span class="hidden sm:inline">Agent Prompt</span></button>` : ""}<button type="button" data-action="open-new-issue" class="px-3 py-1.5 bg-[#06B6D4] text-white text-[10px] font-bold rounded-sm-ds hover:bg-cyan-600 shadow-sm transition-all uppercase tracking-wide disabled:opacity-45 disabled:cursor-not-allowed"${disabledAttr(!state.selectedProjectSlug)}>New Request</button></div></div>
             <div class="relative">${icon("search", 16, "absolute left-3 top-1/2 -translate-y-1/2 text-[#d1d5db]")}<input data-bind="searchQuery" value="${escapeAttr(state.searchQuery)}" type="text" placeholder="Filter issues..." class="w-full pl-9 pr-3 py-2 bg-[#f3f4f6] border border-[#e5e7eb] text-xs rounded-sm-ds focus:ring-1 focus:ring-[#06B6D4] outline-none"></div>
             <div class="grid grid-cols-3 gap-2">
               <select data-bind="typeFilter" class="text-[11px] font-medium bg-white border border-[#e5e7eb] rounded-sm-ds px-2 py-1 outline-none">${renderOptions(TYPE_OPTIONS, state.typeFilter)}</select>
@@ -1707,7 +1824,7 @@
               <div class="flex items-start justify-between gap-4"><h1 class="text-xl font-bold tracking-tight text-[#111827]">${computed.isConnectAgentView ? "Connect Agent" : "API Access"}</h1></div>
               ${
                 computed.isConnectAgentView
-                  ? `<p class="text-sm text-[#6b7280]">Connect your agent once so it can work with your feature requests automatically.</p><div class="rounded-sm-ds border border-[#fde68a] bg-[#fffbeb] p-3 text-sm text-[#92400e] flex items-start gap-2">${icon("alert-triangle", 16, "mt-0.5 shrink-0")}<span>The agents can act on your behalf without any permission restriction. In other words, they can do whatever you can do on this platform. Only use agents you trust.</span></div><div class="rounded-sm-ds border border-[#e5e7eb] bg-[#f9fafb] p-3 space-y-2"><p class="text-[10px] font-mono font-bold uppercase tracking-wider text-[#6b7280]">Agent Token</p><div class="flex flex-col md:flex-row md:items-center gap-2"><code class="flex-1 block w-full overflow-x-auto rounded-sm-ds bg-white border border-[#e5e7eb] px-2 py-1 text-[11px] text-[#111827]">${escapeHtml(computed.visibleAgentTokenValue || "Preparing token...")}</code><div class="flex items-center gap-2"><button type="button" data-action="copy-agent-token" class="inline-flex items-center gap-1 rounded-sm-ds border border-[#e5e7eb] bg-white px-2 py-1 text-[10px] font-bold text-[#111827] hover:bg-[#f3f4f6] disabled:opacity-45" title="${computed.canCopyActiveAgentToken ? "Copy token" : "Refresh token to copy"}"${disabledAttr(!computed.canCopyActiveAgentToken)}>${icon("copy", 12)}Copy</button><button type="button" data-action="refresh-agent-token" class="inline-flex items-center gap-1 rounded-sm-ds border border-[#e5e7eb] bg-white px-2 py-1 text-[10px] font-bold text-[#111827] hover:bg-[#f3f4f6] disabled:opacity-45"${disabledAttr(!state.isAuthenticated || state.isApiTokensLoading || state.isAgentRefreshSubmitting)}>${state.isAgentRefreshSubmitting ? "Refreshing..." : "Refresh"}</button></div></div><p class="text-[11px] text-[#6b7280]">The token does not expire. Refresh if you want to revoke the current token and issue a new one.</p></div>`
+                  ? `<p class="text-sm text-[#6b7280]">Connect your agent once so it can work with your feature requests automatically.</p><div class="rounded-sm-ds border border-[#fde68a] bg-[#fffbeb] p-3 text-sm text-[#92400e] flex items-start gap-2">${icon("alert-triangle", 16, "mt-0.5 shrink-0")}<span>The agents can act on your behalf without any permission restriction. In other words, they can do whatever you can do on this platform. Only use agents you trust.</span></div><div class="rounded-sm-ds border border-[#e5e7eb] bg-[#f9fafb] p-3 space-y-2"><p class="text-[10px] font-mono font-bold uppercase tracking-wider text-[#6b7280]">Agent Token</p><div class="flex flex-col md:flex-row md:items-center gap-2"><code class="flex-1 block w-full overflow-x-auto rounded-sm-ds bg-white border border-[#e5e7eb] px-2 py-1 text-[11px] text-[#111827]">${escapeHtml(computed.visibleAgentTokenValue || "Preparing token...")}</code><div class="flex items-center gap-2"><button type="button" data-action="copy-agent-token" class="inline-flex items-center gap-1 rounded-sm-ds border border-[#e5e7eb] bg-white px-2 py-1 text-[10px] font-bold text-[#111827] hover:bg-[#f3f4f6] disabled:opacity-45" title="${computed.canCopyActiveAgentToken ? "Copy token" : "Refresh token to copy"}"${disabledAttr(!computed.canCopyActiveAgentToken)}>${icon("copy", 12)}Copy</button><button type="button" data-action="refresh-agent-token" class="inline-flex items-center gap-1 rounded-sm-ds border border-[#e5e7eb] bg-white px-2 py-1 text-[10px] font-bold text-[#111827] hover:bg-[#f3f4f6] disabled:opacity-45"${disabledAttr(!state.isAuthenticated || state.isApiTokensLoading || state.isAgentRefreshSubmitting)}>${state.isAgentRefreshSubmitting ? "Refreshing..." : "Refresh"}</button></div></div><p class="text-[11px] text-[#6b7280]">The token does not expire. Refresh if you want to revoke the current token and issue a new one.</p></div>${renderAgentPromptPresetPicker(computed)}`
                   : `<p class="text-sm text-[#6b7280]">Manage API endpoints and authentication details for integrations.</p>`
               }
               ${state.apiTokenFeedback ? `<p class="text-xs ${state.apiTokenFeedbackTone === "error" ? "text-[#dc2626]" : state.apiTokenFeedbackTone === "success" ? "text-[#16a34a]" : "text-[#6b7280]"}">${escapeHtml(state.apiTokenFeedback)}</p>` : ""}
@@ -1723,6 +1840,37 @@
             }
           </aside>
         </div>
+      </div>`;
+  }
+
+  function renderAgentPromptPresetPicker(computed) {
+    const projectPreset = isProjectAgentPromptPreset(state.agentPromptPreset);
+    return `
+      <div class="space-y-3">
+        <p class="text-[10px] font-mono font-bold uppercase tracking-wider text-[#6b7280]">Prompt Preset</p>
+        <div class="grid gap-2">
+          ${AGENT_PROMPT_PRESETS.map((preset) => {
+            const isActive = computed.agentPromptPreset === preset.value;
+            return `<button type="button" data-action="select-agent-prompt-preset" data-preset="${escapeAttr(preset.value)}" class="w-full rounded-sm-ds border px-3 py-2 text-left transition-colors ${isActive ? "border-cyan-200 bg-cyan-50 text-[#111827]" : "border-[#e5e7eb] bg-white text-[#6b7280] hover:bg-[#f3f4f6] hover:text-[#111827]"}"><span class="block text-xs font-bold">${escapeHtml(preset.label)}</span><span class="mt-1 block text-[11px] leading-tight text-[#6b7280]">${escapeHtml(preset.description)}</span></button>`;
+          }).join("")}
+        </div>
+        ${projectPreset ? renderAgentPromptProjectSelect(computed) : ""}
+      </div>`;
+  }
+
+  function renderAgentPromptProjectSelect(computed) {
+    if (state.isAgentPromptProjectsLoading) {
+      return `<p class="text-xs text-[#6b7280]">Loading projects...</p>`;
+    }
+    if (!computed.agentPromptProjects.length) {
+      return `<p class="text-xs text-[#6b7280]">No owned projects found for project-scoped prompts.</p>`;
+    }
+    return `
+      <div class="space-y-1.5">
+        <label class="text-[10px] font-mono font-bold uppercase tracking-wider text-[#6b7280]">Project Scope</label>
+        <select data-bind="agentPromptProjectSlug" class="w-full rounded-sm-ds border border-[#e5e7eb] bg-white px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-[#06B6D4]">
+          ${computed.agentPromptProjects.map((project) => `<option value="${escapeAttr(project.slug)}"${selectedAttr(project.slug, computed.selectedAgentPromptProject?.slug || "")}>${escapeHtml(project.owner_handle)}/${escapeHtml(project.slug)} - ${escapeHtml(project.name)}</option>`).join("")}
+        </select>
       </div>`;
   }
 
@@ -2002,6 +2150,38 @@
     }
   }
 
+  async function refreshAgentPromptProjects() {
+    if (!state.isAuthenticated) {
+      state.agentPromptProjects = [];
+      state.agentPromptProjectSlug = "";
+      state.isAgentPromptProjectsLoading = false;
+      render();
+      return;
+    }
+    state.isAgentPromptProjectsLoading = true;
+    render();
+    try {
+      const response = await fetch("/api/projects");
+      const data = response.ok ? await response.json() : [];
+      state.agentPromptProjects = Array.isArray(data) ? data : [];
+      if (
+        state.agentPromptProjects.length &&
+        (!state.agentPromptProjectSlug || !state.agentPromptProjects.some((project) => project.slug === state.agentPromptProjectSlug))
+      ) {
+        state.agentPromptProjectSlug = state.agentPromptProjects[0].slug;
+      }
+      if (!state.agentPromptProjects.length) {
+        state.agentPromptProjectSlug = "";
+      }
+    } catch {
+      state.agentPromptProjects = [];
+      state.agentPromptProjectSlug = "";
+    } finally {
+      state.isAgentPromptProjectsLoading = false;
+      render();
+    }
+  }
+
   async function refreshApiTokens() {
     if (!state.isAuthenticated) {
       state.apiTokens = [];
@@ -2064,7 +2244,7 @@
       state.apiTokenFeedbackTone = "error";
       state.latestCreatedTokenValue = "";
       state.agentPromptValue = "";
-      return;
+      return "";
     }
     const tokenRow = {
       id: payload.id,
@@ -2082,6 +2262,72 @@
       state.apiTokenSecrets = { ...state.apiTokenSecrets, [tokenRow.id]: tokenValue };
       state.agentPromptValue = buildAgentPromptText(computed.apiBaseUrl, tokenValue);
     }
+    return tokenValue;
+  }
+
+  async function ensureAgentPromptToken() {
+    const computed = getComputed();
+    const existingToken = computed.activeAgentTokenSecret || state.latestCreatedTokenValue;
+    if (existingToken) {
+      return existingToken;
+    }
+    if (!state.isAuthenticated) {
+      return "";
+    }
+    const tokenValue = await connectAgentToken();
+    return tokenValue || getComputed().activeAgentTokenSecret || state.latestCreatedTokenValue || "";
+  }
+
+  async function handleCopyAgentPromptFromSettings() {
+    const tokenValue = await ensureAgentPromptToken();
+    const computed = getComputed();
+    if (!tokenValue) {
+      state.agentPromptCopyFeedback = "Sign in and create an agent token first.";
+      state.agentPromptCopyFeedbackTone = "error";
+      render();
+      return;
+    }
+    if (isProjectAgentPromptPreset(state.agentPromptPreset) && !computed.selectedAgentPromptProject) {
+      state.agentPromptCopyFeedback = "Select a project for this prompt.";
+      state.agentPromptCopyFeedbackTone = "error";
+      render();
+      return;
+    }
+    const promptText = buildAgentPromptText(computed.apiBaseUrl, tokenValue, {
+      preset: state.agentPromptPreset,
+      ownerHandle: state.currentUserHandle,
+      project: isProjectAgentPromptPreset(state.agentPromptPreset) ? computed.selectedAgentPromptProject : null,
+    });
+    const copied = await copyToClipboard(promptText);
+    state.agentPromptCopyFeedback = copied ? "Agent prompt copied." : "Copy failed. Please copy manually.";
+    state.agentPromptCopyFeedbackTone = copied ? "success" : "error";
+    render();
+  }
+
+  async function handleCopyProjectAgentPrompt(project) {
+    if (!state.isAuthenticated) {
+      openAuth("signIn");
+      return;
+    }
+    if (!project) {
+      setStatus("Select a project first.", true);
+      render();
+      return;
+    }
+    const tokenValue = await ensureAgentPromptToken();
+    if (!tokenValue) {
+      setStatus("Agent token could not be loaded.", true);
+      render();
+      return;
+    }
+    const promptText = buildAgentPromptText(window.location.origin, tokenValue, {
+      preset: "project-triage",
+      ownerHandle: state.ownerHandle,
+      project,
+    });
+    const copied = await copyToClipboard(promptText);
+    setStatus(copied ? "Project agent prompt copied." : "Copy failed. Please copy manually.", !copied);
+    render();
   }
 
   function openAuth(mode) {
@@ -2206,6 +2452,14 @@
       refreshApiTokens().catch(() => {
         state.apiTokenFeedback = "API tokens could not be loaded.";
         state.apiTokenFeedbackTone = "error";
+        render();
+      });
+    }
+    if (state.view === "settingsConnectAgent") {
+      refreshAgentPromptProjects().catch(() => {
+        state.agentPromptProjects = [];
+        state.agentPromptProjectSlug = "";
+        state.isAgentPromptProjectsLoading = false;
         render();
       });
     }
@@ -3092,12 +3346,22 @@
       case "refresh-agent-token":
         handleRefreshAgentToken();
         break;
+      case "select-agent-prompt-preset":
+        state.agentPromptPreset = normalizeAgentPromptPreset(element.dataset.preset);
+        if (isProjectAgentPromptPreset(state.agentPromptPreset) && !state.agentPromptProjectSlug && computed.agentPromptProjects.length) {
+          state.agentPromptProjectSlug = computed.agentPromptProjects[0].slug;
+        }
+        state.agentPromptCopyFeedback = "";
+        state.agentPromptCopyFeedbackTone = "";
+        render();
+        break;
       case "copy-agent-prompt":
-        copyToClipboard(computed.promptTextValue).then((copied) => {
-          state.agentPromptCopyFeedback = copied ? "Agent prompt copied." : "Copy failed. Please copy manually.";
-          state.agentPromptCopyFeedbackTone = copied ? "success" : "error";
-          render();
-        });
+        handleCopyAgentPromptFromSettings();
+        break;
+      case "copy-project-agent-prompt":
+        if (computed.isOwnerViewer) {
+          handleCopyProjectAgentPrompt(computed.selectedProject);
+        }
         break;
       case "copy-api-token":
         copyValueAndNotify(state.apiTokenSecrets[element.dataset.id], "Token copied.");
@@ -3192,6 +3456,9 @@
     }
     if (route.kind === "settings" && (state.view === "settingsApi" || state.view === "settingsConnectAgent")) {
       await refreshApiTokens();
+      if (state.view === "settingsConnectAgent") {
+        await refreshAgentPromptProjects();
+      }
     }
   }
 

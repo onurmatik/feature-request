@@ -43,11 +43,18 @@ Operate on board data via API:
 - edit comments
 - toggle upvotes
 
+### Prompt Presets
+- `portfolio-triage`: read-only queue snapshot across all projects owned by the authenticated user.
+- `project-triage`: read-only queue snapshot for one `owner_handle/project_slug`.
+- `project-implementation`: use one project's FeatureRequest issues as the source of truth for local repo implementation work.
+
 ### Required Inputs
 - Base URL:
   - https://featurerequest.io
 - Auth mode:
   - `Bearer <token>` flow.
+  - If a raw API token is already provided in the prompt, use it directly in the `Authorization` header.
+  - Do not call agent-token connect/refresh endpoints when a raw token is already available.
   - For write operations, token must be write-enabled (`can_write=true`).
 - `owner_handle` (required for read/write paths under that board).
 - Optional: `project_slug`.
@@ -57,10 +64,11 @@ Operate on board data via API:
   - optional filters: `issue_type`, `status`, `priority`, `limit`.
 
 ### Required API Routes
-- Agent connect/bootstrap:
+- Web-session agent onboarding only:
   - `POST /api/auth/agent-token/connect`
   - `POST /api/auth/agent-token/refresh`
 - Read projects:
+  - `GET /api/projects`
   - `GET /api/owners/{owner_handle}/projects`
 - Read issues:
   - `GET /api/owners/{owner_handle}/issues`
@@ -77,20 +85,32 @@ Operate on board data via API:
 
 ### Command Flow
 1. Validate auth credentials and action.
-2. If no token exists yet for this run, call `POST /api/auth/agent-token/connect` and store returned token securely for current task.
-3. If read requested:
-   - call project list, then issue list filtered by optional fields.
+2. If a raw API token is present, use it directly as `Authorization: Bearer <token>`.
+3. Use `POST /api/auth/agent-token/connect` or `/refresh` only for browser/session onboarding flows where no raw token has been provided.
+4. If read requested:
+   - for portfolio triage, call `GET /api/projects`, then issue lists for those projects.
+   - for project-scoped triage or implementation, call `GET /api/projects/{owner_handle}/{project_slug}/issues` directly with optional filters.
    - if one issue is target, call issue detail.
-4. If creating request:
+5. If creating request:
    - call create issue endpoint with required body.
-5. If adding comment:
+6. If adding comment:
    - call create comment endpoint with `{"body": "<text>"}`.
-6. If editing comment:
+7. If editing comment:
    - call update comment endpoint with `{"body": "<text>"}`.
-7. If upvote requested:
+8. If upvote requested:
    - call upvote toggle endpoint and read returned `upvoted` + `upvotes_count`.
-8. Return a normalized result object (see output format).
-9. On failures, return error object with action and actionable recovery step.
+9. Return a normalized result object (see output format).
+10. On failures, return error object with action and actionable recovery step.
+
+### Project-Scoped Implementation Guidance
+- Treat FeatureRequest as the ticket source of truth.
+- Perform code changes only in the local repository/workspace where the coding agent is already running.
+- Only read issues for the instructed `owner_handle/project_slug`; do not read or modify other projects.
+- Pick at most one ready issue per run unless the user explicitly asks for more.
+- Before code changes, produce a short implementation plan.
+- Run relevant tests after edits.
+- After implementation, add a concise comment back to the issue when write access is available.
+- Do not mark an issue `done` automatically; reserve `done`/`closed` for merge or release confirmation.
 
 ### Expected Output Format
 Return compact JSON:
@@ -138,6 +158,12 @@ For failures:
 - `404`: validate `owner_handle`, `project_slug`, or `issue_id` input.
 - `503`: retry with backoff for transient moderation/provider failures.
 - Never auto-delete or mutate any resource unless `action` explicitly asked.
+
+### Prompt Examples
+- Read-only daily triage: read authenticated user's projects, summarize active requests, and return `Queue Snapshot`, `Priority Decisions`, `Active Follow-ups`, `Risks and Blockers`, and `Next Checkpoint`.
+- Project-specific planning: read only `owner_handle/project_slug`, identify the next ready issue, and produce an implementation plan without editing code.
+- Project-specific implementation with tests: read only `owner_handle/project_slug`, pick at most one ready issue, implement in the current local repo, run relevant tests, and comment back with results when write access is available.
+- Release follow-up: after merge or release confirmation, add a closure comment and update the issue status only when explicitly asked.
 
 ## Skill: `user-request-manager`
 ### Trigger

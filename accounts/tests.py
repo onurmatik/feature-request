@@ -221,6 +221,9 @@ class AgentTokenApiTest(TestCase):
         self.assertTrue(payload["can_write"])
         self.assertTrue(payload["token"].startswith("fr_"))
         self.assertIn(payload["token"], payload["prompt"])
+        self.assertIn("read-only portfolio triage", payload["prompt"])
+        self.assertIn("Authorization: Bearer <API token>", payload["prompt"])
+        self.assertIn("GET /api/projects", payload["prompt"])
         self.assertIn("/.agents/skills/feature-request/SKILL.md", payload["prompt"])
 
         token = ApiToken.resolve_active_agent(self.user)
@@ -285,6 +288,9 @@ class SkillCatalogApiTest(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response["Content-Type"], "text/markdown; charset=utf-8")
         self.assertIn(b"Skills (Agent Task Catalog)", response.content)
+        self.assertIn(b"project-triage", response.content)
+        self.assertIn(b"GET /api/projects/{owner_handle}/{project_slug}/issues", response.content)
+        self.assertIn(b"Do not mark an issue `done` automatically", response.content)
 
     def test_legacy_root_skill_catalog_is_served(self):
         response = self.client.get("/SKILL.md")

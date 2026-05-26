@@ -2,6 +2,36 @@
   "name": "FeatureRequest",
   "description": "Public feature request and feedback API for projects and issues.",
   "version": "0.1.0",
+  "agent_integration": {
+    "default_prompt_preset": "portfolio-triage",
+    "prompt_presets": [
+      {
+        "name": "portfolio-triage",
+        "description": "Read-only queue snapshot across all projects owned by the authenticated user.",
+        "default_write_behavior": "none"
+      },
+      {
+        "name": "project-triage",
+        "description": "Read-only queue snapshot for one owner_handle/project_slug.",
+        "default_write_behavior": "none"
+      },
+      {
+        "name": "project-implementation",
+        "description": "Use one project's FeatureRequest issues as the source of truth for local repo implementation work.",
+        "default_write_behavior": "comment_back_when_available"
+      }
+    ],
+    "scope_rules": [
+      "If a project_slug is provided, read only that owner_handle/project_slug unless the user explicitly expands scope.",
+      "Use provided raw API tokens directly as Bearer tokens; agent-token connect/refresh endpoints are only for web-session onboarding.",
+      "Do not mark issues done automatically after code changes; reserve done/closed for merge or release confirmation."
+    ],
+    "recommended_codex_automation": [
+      "Use one read-only portfolio triage automation for cross-project reporting.",
+      "Use project-scoped implementation automations only for active repos, with owner_handle and project_slug pinned in the prompt.",
+      "Pick at most one ready issue per implementation run unless instructed otherwise."
+    ]
+  },
   "skills": [
     {
       "name": "user-request-manager",

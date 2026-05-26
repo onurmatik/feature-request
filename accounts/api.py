@@ -116,12 +116,24 @@ def _api_token_to_dict(api_token: ApiToken):
 
 
 def _agent_prompt(request, raw_token: str):
+    base_url = request.build_absolute_uri("/").rstrip("/")
     skills_url = request.build_absolute_uri(FEATURE_REQUEST_SKILL_PATH)
     return "\n\n".join(
         [
-            "Please manage the projects and requests using FeatureRequest skill as requested.",
+            "Use the FeatureRequest skill for read-only portfolio triage.",
             f"API token: {raw_token}",
-            f"If no skill added yet, read from {skills_url}",
+            f"Base URL: {base_url}",
+            f"Skill catalog: {skills_url}",
+            (
+                "Use Authorization: Bearer <API token> for API calls. "
+                "If this token is already provided, do not call the agent-token connect/refresh endpoints; "
+                "those endpoints are only for web-session onboarding."
+            ),
+            (
+                "Default scope: read all projects owned by the authenticated user with GET /api/projects, "
+                "then produce Queue Snapshot, Priority Decisions, Active Follow-ups, Risks and Blockers, "
+                "and Next Checkpoint. Do not make write calls unless the user explicitly asks."
+            ),
         ]
     )
 
