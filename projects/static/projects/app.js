@@ -913,6 +913,11 @@
     return state.ownerHandle ? `/${state.ownerHandle}/${slug ? `${slug}/` : ""}` : "/";
   }
 
+  function currentUserWorkspaceUrl() {
+    const handle = normalizeHandle(state.currentUserHandle);
+    return state.isAuthenticated && isValidHandle(handle) ? `/${handle}/` : "/";
+  }
+
   function messagesUrl(handle = "") {
     const normalized = normalizeHandle(handle);
     return normalized ? `/messages/${normalized}/` : "/messages/";
@@ -1055,11 +1060,12 @@
   }
 
   function renderLanding() {
+    const brandHref = currentUserWorkspaceUrl();
     return `
       <div class="min-h-screen bg-[#f3f4f6] text-[#111827]">
         <header class="sticky top-0 z-50 border-b border-[#e5e7eb] bg-white h-[56px] flex items-center px-4 md:px-8">
           <div class="mx-auto flex h-full w-full max-w-7xl items-center justify-between">
-            <a href="/" class="flex items-center gap-2">
+            <a href="${escapeAttr(brandHref)}" class="flex items-center gap-2">
               <div class="h-8 w-8 rounded-sm-ds bg-[#06B6D4] flex items-center justify-center text-white shadow-sm">${icon("list-todo", 18)}</div>
               <span class="text-lg font-bold tracking-tight">FeatureRequest</span>
             </a>
@@ -1282,10 +1288,11 @@
     const selectedProject = computed.selectedProject;
     const messagesNavbarHandle = parseRoute().kind === "messages" ? normalizeHandle(parseRoute().selectedMessageHandle) : "";
     const projectFormUrl = state.ownerHandle ? `/${state.ownerHandle}/projects/new/` : "/projects/new/";
+    const brandHref = currentUserWorkspaceUrl();
     return `
       <header class="h-[56px] bg-white border-b border-[#e5e7eb] flex items-center justify-between px-4 md:px-6 shrink-0 z-50">
         <div class="flex items-center gap-4 md:gap-6 min-w-0">
-          <div class="flex items-center gap-2 shrink-0"><a href="/" class="flex items-center gap-2"><div class="w-8 h-8 bg-[#06B6D4] rounded-sm-ds flex items-center justify-center text-white shadow-sm">${icon("list-todo", 20)}</div><span class="font-bold text-lg tracking-tight">FeatureRequest</span></a></div>
+          <div class="flex items-center gap-2 shrink-0"><a href="${escapeAttr(brandHref)}" class="flex items-center gap-2"><div class="w-8 h-8 bg-[#06B6D4] rounded-sm-ds flex items-center justify-center text-white shadow-sm">${icon("list-todo", 20)}</div><span class="font-bold text-lg tracking-tight">FeatureRequest</span></a></div>
           <nav class="hidden md:flex items-center text-sm font-medium text-[#6b7280] gap-2 truncate">
             ${
               computed.isGlobalSettingsView
