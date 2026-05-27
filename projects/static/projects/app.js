@@ -1445,9 +1445,9 @@
         ${
           state.isProfileMenuOpen
             ? `<div class="absolute right-0 top-full mt-2 w-44 rounded-sm-ds border border-[#e5e7eb] bg-white shadow-sm overflow-hidden z-50">
-                ${dashboardHandle ? `<a href="/${escapeAttr(dashboardHandle)}/" data-action="close-profile" class="flex w-full items-center gap-2 px-3 py-2 text-sm text-[#111827] hover:bg-[#f3f4f6]">${icon("layout-dashboard", 16)}Workspace</a>` : ""}
+                ${dashboardHandle ? `<a href="/${escapeAttr(dashboardHandle)}/" class="flex w-full items-center gap-2 px-3 py-2 text-sm text-[#111827] hover:bg-[#f3f4f6]">${icon("layout-dashboard", 16)}Workspace</a>` : ""}
                 ${computed.workspaceOwnerHandle ? `<button type="button" data-action="profile-new-project" class="flex w-full items-center gap-2 px-3 py-2 text-sm text-[#111827] hover:bg-[#f3f4f6]">${icon("plus", 16)}New Project</button>` : ""}
-                <a href="/messages" data-action="close-profile" class="flex w-full items-center gap-2 px-3 py-2 text-sm text-[#111827] hover:bg-[#f3f4f6]">${icon("message", 16)}Messages</a>
+                <a href="/messages" class="flex w-full items-center gap-2 px-3 py-2 text-sm text-[#111827] hover:bg-[#f3f4f6]">${icon("message", 16)}Messages</a>
                 <div class="h-px bg-[#e5e7eb] my-1"></div>
                 <div class="px-3 pt-2 pb-1"><p class="text-[10px] font-mono font-bold text-[#9ca3af] uppercase tracking-wider">Integrations</p></div>
                 <a href="/settings/api" data-action="settings-nav" data-section="api" class="flex w-full items-center gap-2 px-3 py-2 text-sm text-[#111827] hover:bg-[#f3f4f6]">${icon("key", 16)}API Access</a>
