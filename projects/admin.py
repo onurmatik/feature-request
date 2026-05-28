@@ -22,9 +22,18 @@ def refresh_project_favicons(modeladmin, request, queryset):
         normalized_url = _normalize_project_url(project.url)
         favicon_url, debug = _resolve_favicon_url_with_debug(normalized_url)
         if not favicon_url:
-            failed_details.append(
-                f"{project.name} ({project.slug}): no favicon found | {' | '.join(debug or [])}",
-            )
+            if project.favicon_url or project.url != normalized_url:
+                project.favicon_url = ""
+                project.url = normalized_url
+                project.save(update_fields=["favicon_url", "url"])
+                updated += 1
+                updated_details.append(
+                    f"{project.name} ({project.slug}): cleared favicon | url={normalized_url} | {' | '.join((debug or [])[-3:])}",
+                )
+            else:
+                failed_details.append(
+                    f"{project.name} ({project.slug}): no favicon found | {' | '.join(debug or [])}",
+                )
             continue
 
         if project.favicon_url != favicon_url or project.url != normalized_url:

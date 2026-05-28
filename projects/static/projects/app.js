@@ -1051,7 +1051,7 @@
     if (!faviconUrl) {
       return icon("folder", 18);
     }
-    return `<img src="${escapeAttr(faviconUrl)}" alt="${escapeAttr(project.name || "Project")} icon" class="h-[18px] w-[18px] rounded-sm-ds object-contain bg-white border border-[#e5e7eb] shrink-0" referrerpolicy="no-referrer">`;
+    return `<span class="inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center text-[#6b7280]"><img src="${escapeAttr(faviconUrl)}" alt="${escapeAttr(project.name || "Project")} icon" class="h-[18px] w-[18px] rounded-sm-ds object-contain bg-white border border-[#e5e7eb] shrink-0" referrerpolicy="no-referrer" onerror="this.classList.add('hidden'); this.nextElementSibling.classList.remove('hidden');"><span class="hidden">${icon("folder", 18)}</span></span>`;
   }
 
   function projectBoardUrl(ownerHandle, slug = "") {

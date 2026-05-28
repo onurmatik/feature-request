@@ -701,6 +701,33 @@ class IssueApiTest(TestCase):
         self.assertEqual(len(owner_all.json()), 3)
 
 
+class FaviconResolutionTest(TestCase):
+    def test_resolver_skips_zero_length_favicon_candidate(self):
+        from .api import _resolve_favicon_url_with_debug
+
+        def fetch_headers(url, debug=None):
+            if url == "https://example.com/favicon.ico":
+                return {"Content-Type": "image/x-icon", "Content-Length": "0"}
+            if url == "https://example.com/favicon.png":
+                return {"Content-Type": "image/png", "Content-Length": "50801"}
+            return None
+
+        with (
+            patch("projects.api._extract_project_favicon_url") as extract_favicons,
+            patch("projects.api._fetch_url_headers", side_effect=fetch_headers) as fetch,
+        ):
+            extract_favicons.return_value = ["/favicon.ico", "/favicon.png"]
+
+            favicon_url, debug = _resolve_favicon_url_with_debug("https://example.com")
+
+        self.assertEqual(favicon_url, "https://example.com/favicon.png")
+        self.assertIn(
+            "Rejected empty favicon response for candidate: https://example.com/favicon.ico",
+            debug,
+        )
+        self.assertEqual(fetch.call_count, 2)
+
+
 class ProjectApiTest(TestCase):
     def setUp(self):
         user_model = get_user_model()
@@ -841,6 +868,41 @@ class ProjectApiTest(TestCase):
             self.assertEqual(created["url"], "https://featurerequest.io")
             self.assertEqual(created["favicon_url"], "https://featurerequest.io/list-todo.svg")
             resolve_favicon.assert_called_once_with("https://featurerequest.io")
+
+    def test_admin_refresh_updates_stale_favicon_when_new_candidate_exists(self):
+        from .admin import refresh_project_favicons
+
+        self.project.url = "https://example.com"
+        self.project.favicon_url = "https://example.com/favicon.ico"
+        self.project.save(update_fields=["url", "favicon_url"])
+
+        modeladmin = Mock()
+        with patch("projects.admin._resolve_favicon_url_with_debug") as resolve_favicon:
+            resolve_favicon.return_value = ("https://example.com/favicon.png", ["ok"])
+
+            refresh_project_favicons(modeladmin, Mock(), Project.objects.filter(pk=self.project.pk))
+
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.favicon_url, "https://example.com/favicon.png")
+        resolve_favicon.assert_called_once_with("https://example.com")
+
+    def test_admin_refresh_clears_stale_favicon_when_no_candidate_exists(self):
+        from .admin import refresh_project_favicons
+
+        self.project.url = "example.com"
+        self.project.favicon_url = "https://example.com/favicon.ico"
+        self.project.save(update_fields=["url", "favicon_url"])
+
+        modeladmin = Mock()
+        with patch("projects.admin._resolve_favicon_url_with_debug") as resolve_favicon:
+            resolve_favicon.return_value = ("", ["none"])
+
+            refresh_project_favicons(modeladmin, Mock(), Project.objects.filter(pk=self.project.pk))
+
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.url, "https://example.com")
+        self.assertEqual(self.project.favicon_url, "")
+        resolve_favicon.assert_called_once_with("https://example.com")
 
     def test_auto_slug_is_unique_per_owner(self):
         self.client.force_login(self.owner)

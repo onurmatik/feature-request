@@ -266,6 +266,17 @@ def _fetch_url_headers(url: str, method: str = "HEAD", debug: Optional[list[str]
         return None
 
 
+def _content_length_is_zero(headers):
+    raw_content_length = headers.get("Content-Length")
+    if raw_content_length is None:
+        return False
+
+    try:
+        return int(raw_content_length) == 0
+    except (TypeError, ValueError):
+        return False
+
+
 def _extract_project_favicon_url(base_url: str, debug: Optional[list[str]] = None):
     request = Request(
         base_url,
@@ -364,6 +375,10 @@ def _resolve_favicon_url_internal(project_url: str, collect_debug: bool = False)
         content_type = (headers.get("Content-Type") or "").lower()
         if content_type and "text/html" in content_type:
             _append_debug(debug, f"Rejected HTML response for favicon candidate: {resolved}")
+            continue
+
+        if _content_length_is_zero(headers):
+            _append_debug(debug, f"Rejected empty favicon response for candidate: {resolved}")
             continue
 
         _append_debug(debug, f"Selected favicon candidate: {resolved}")
