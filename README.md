@@ -129,6 +129,7 @@ Project responses include `open_issues_count`, which counts issues with status `
 - `GET /api/health`
 - `GET /api/public/featured-projects?limit=3`
 - `GET /api/owners/{owner_handle}/projects`
+- `GET /api/owners/{owner_handle}/interacted-projects`
 - `GET /api/owners/{owner_handle}/issues`
 - `GET /api/projects/{owner_handle}/{project_slug}/issues`
 - `POST /api/projects/{owner_handle}/{project_slug}/issues`

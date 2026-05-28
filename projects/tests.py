@@ -1,9 +1,11 @@
 import json
+from datetime import timedelta
 from unittest.mock import Mock, patch
 
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError
 from django.test import TestCase, override_settings
+from django.utils import timezone
 
 from .models import Issue, IssueComment, IssueUpvote, Project
 
@@ -541,6 +543,105 @@ class IssueApiTest(TestCase):
         )
         self.assertEqual(update_response.status_code, 200)
         self.assertEqual(update_response.json()["open_issues_count"], 2)
+
+    def test_list_owner_interacted_projects_is_public_and_ordered(self):
+        user_model = get_user_model()
+        external_owner = user_model.objects.create_user(
+            email="external-owner@example.com",
+            handle="external_owner",
+            password="test-pass-123",
+        )
+        second_external_owner = user_model.objects.create_user(
+            email="second-external-owner@example.com",
+            handle="second_external",
+            password="test-pass-123",
+        )
+        authored_project = Project.objects.create(
+            owner=external_owner,
+            name="Authored External",
+            slug="authored-external",
+        )
+        comment_project = Project.objects.create(
+            owner=external_owner,
+            name="Comment External",
+            slug="comment-external",
+        )
+        upvote_project = Project.objects.create(
+            owner=second_external_owner,
+            name="Upvote External",
+            slug="upvote-external",
+        )
+
+        Issue.objects.create(
+            project=self.project,
+            author=self.owner,
+            title="Owned project interaction should be excluded",
+        )
+        authored_issue = Issue.objects.create(
+            project=authored_project,
+            author=self.owner,
+            title="Issue on someone else's project",
+        )
+        comment_issue = Issue.objects.create(
+            project=comment_project,
+            author=external_owner,
+            title="Comment target",
+        )
+        closed_comment_issue = Issue.objects.create(
+            project=comment_project,
+            author=external_owner,
+            title="Closed comment target",
+            status=Issue.Status.CLOSED,
+        )
+        comment = IssueComment.objects.create(
+            issue=comment_issue,
+            author=self.owner,
+            body="Recent useful comment.",
+        )
+        older_comment = IssueComment.objects.create(
+            issue=closed_comment_issue,
+            author=self.owner,
+            body="Older comment on same project.",
+        )
+        upvote_issue = Issue.objects.create(
+            project=upvote_project,
+            author=second_external_owner,
+            title="Upvote target",
+        )
+        upvote = IssueUpvote.objects.create(issue=upvote_issue, user=self.owner)
+
+        base_time = timezone.now()
+        Issue.objects.filter(pk=authored_issue.pk).update(
+            created_at=base_time - timedelta(days=3)
+        )
+        IssueComment.objects.filter(pk=comment.pk).update(
+            created_at=base_time - timedelta(hours=1)
+        )
+        IssueComment.objects.filter(pk=older_comment.pk).update(
+            created_at=base_time - timedelta(days=5)
+        )
+        IssueUpvote.objects.filter(pk=upvote.pk).update(
+            created_at=base_time - timedelta(days=2)
+        )
+
+        response = self.client.get(
+            f"/api/owners/{self.owner.handle}/interacted-projects"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(
+            [item["slug"] for item in payload],
+            [comment_project.slug, upvote_project.slug, authored_project.slug],
+        )
+        self.assertNotIn(self.project.slug, [item["slug"] for item in payload])
+        self.assertEqual(len(payload), 3)
+
+        comment_payload = next(
+            item for item in payload if item["slug"] == comment_project.slug
+        )
+        self.assertEqual(comment_payload["owner_handle"], external_owner.handle)
+        self.assertEqual(comment_payload["open_issues_count"], 1)
 
     def test_featured_projects_lists_all_projects(self):
         second_public = Project.objects.create(

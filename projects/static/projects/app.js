@@ -111,6 +111,7 @@
 
   const state = {
     projects: [],
+    interactedProjects: [],
     issues: [],
     comments: [],
     selectedProjectSlug: "",
@@ -142,6 +143,11 @@
     selectedMessageThreadId: "",
     messageSidebarProjects: [],
     isMessageSidebarProjectsLoading: false,
+    isInteractedProjectsLoading: false,
+    projectSidebarSectionsOpen: {
+      owned: true,
+      interacted: true,
+    },
     messageComposerBody: "",
     messageComposerFeedback: "",
     messageComposerFeedbackTone: "",
@@ -215,6 +221,7 @@
     "arrow-right": '<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>',
     bot: '<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/>',
     "chevron-down": '<path d="m6 9 6 6 6-6"/>',
+    "chevron-right": '<path d="m9 18 6-6-6-6"/>',
     copy: '<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>',
     "external-link": '<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
     folder: '<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>',
@@ -389,7 +396,16 @@
     const route = parseRoute();
     state.isRouteNotFound = route.kind === "notFound";
     if (route.kind === "board") {
-      state.ownerHandle = normalizeHandle(route.ownerHandle);
+      const nextOwnerHandle = normalizeHandle(route.ownerHandle);
+      if (state.ownerHandle && state.ownerHandle !== nextOwnerHandle) {
+        state.projects = [];
+        state.interactedProjects = [];
+        state.issues = [];
+        state.comments = [];
+        state.selectedIssueId = null;
+        state.loadedCommentsIssueId = null;
+      }
+      state.ownerHandle = nextOwnerHandle;
       state.selectedProjectSlug = route.isProjectFormRoute ? "" : String(route.projectSlug || "");
       state.view = route.isProjectFormRoute ? "newProject" : "issues";
       return;
@@ -847,6 +863,16 @@
       state.view === "messages" ? messageSidebarProjectsOwnerHandle : normalizeHandle(state.ownerHandle);
     const isSidebarOwnerViewer =
       state.isAuthenticated && normalizeHandle(state.currentUserHandle) === sidebarProjectsOwnerHandle;
+    const ownedProjectsTitle = isSidebarOwnerViewer
+      ? "My Projects"
+      : sidebarProjectsOwnerHandle
+        ? `@${sidebarProjectsOwnerHandle}'s Projects`
+        : "Projects";
+    const interactedProjectsTitle = isSidebarOwnerViewer
+      ? "Projects you've interacted with"
+      : sidebarProjectsOwnerHandle
+        ? `Projects @${sidebarProjectsOwnerHandle} interacted with`
+        : "Projects interacted with";
     const projectLimitToUse = Number(state.projectLimit || 1);
     const hasActivePaidPlan =
       projectLimitToUse > 1 || (state.subscriptionTier === "pro_30" && !state.subscriptionStatus);
@@ -899,6 +925,8 @@
         : sidebarProjectsOwnerHandle
           ? `${sidebarProjectsOwnerHandle}'s projects`
           : "Projects",
+      ownedProjectsTitle,
+      interactedProjectsTitle,
       isAtProjectLimit,
       apiBaseUrl,
       activeAgentToken,
@@ -1026,8 +1054,13 @@
     return `<img src="${escapeAttr(faviconUrl)}" alt="${escapeAttr(project.name || "Project")} icon" class="h-[18px] w-[18px] rounded-sm-ds object-contain bg-white border border-[#e5e7eb] shrink-0" referrerpolicy="no-referrer">`;
   }
 
+  function projectBoardUrl(ownerHandle, slug = "") {
+    const normalizedOwner = normalizeHandle(ownerHandle);
+    return normalizedOwner ? `/${normalizedOwner}/${slug ? `${slug}/` : ""}` : "/";
+  }
+
   function boardUrl(slug = "") {
-    return state.ownerHandle ? `/${state.ownerHandle}/${slug ? `${slug}/` : ""}` : "/";
+    return projectBoardUrl(state.ownerHandle, slug);
   }
 
   function currentUserWorkspaceUrl() {
@@ -1490,31 +1523,124 @@
   }
 
   function renderBoardProjectsSection(computed) {
-    return `<div class="space-y-1">${renderSidebarHeader(computed.sidebarProjectsTitle, computed)}${renderBoardProjectsList(computed)}</div>`;
+    return `
+      <div class="space-y-2">
+        ${renderProjectAccordionSection({
+          sectionKey: "owned",
+          title: computed.ownedProjectsTitle,
+          projects: state.projects,
+          loading: false,
+          emptyText: "No public projects found.",
+          computed,
+          canManage: true,
+          showOwnerMeta: false,
+        })}
+        ${renderProjectAccordionSection({
+          sectionKey: "interacted",
+          title: computed.interactedProjectsTitle,
+          projects: state.interactedProjects,
+          loading: state.isInteractedProjectsLoading,
+          emptyText: "No interaction with others' projects yet.",
+          computed,
+          canManage: false,
+          showOwnerMeta: true,
+        })}
+      </div>`;
   }
 
-  function renderBoardProjectsList(computed) {
-    if (!state.projects.length) {
-      return `<p class="px-3 text-xs text-[#6b7280]">No public projects found.</p>`;
+  function renderProjectAccordionSection(options) {
+    const projects = Array.isArray(options.projects) ? options.projects : [];
+    const expanded = state.projectSidebarSectionsOpen[options.sectionKey] !== false;
+    const countText = options.loading ? "..." : String(projects.length);
+    const headerAction =
+      options.sectionKey === "owned"
+        ? computedSidebarHeaderAction(options.computed)
+        : "";
+    const isInteracted = options.sectionKey === "interacted";
+    const sectionClass = isInteracted
+      ? "space-y-1 mt-7 border-t border-[#e5e7eb]/60 pt-4"
+      : "space-y-1";
+    const bodyClass = isInteracted
+      ? "max-h-[40vh] space-y-1 overflow-y-auto pr-1"
+      : "space-y-1";
+    const statusTextClass = isInteracted
+      ? "mx-3 rounded-sm-ds border border-dashed border-[#e5e7eb] bg-[#f9fafb] px-3 py-2 text-[11px] leading-snug text-[#6b7280]"
+      : "px-3 text-xs text-[#6b7280]";
+    const body = (() => {
+      if (!expanded) {
+        return "";
+      }
+      if (options.loading) {
+        return `<p class="${statusTextClass}">Loading projects...</p>`;
+      }
+      if (!projects.length) {
+        return `<p class="${statusTextClass}">${escapeHtml(options.emptyText)}</p>`;
+      }
+      return projects
+        .map((project) =>
+          renderProjectSidebarRow(project, options.computed, {
+            canManage: options.canManage,
+            showOwnerMeta: options.showOwnerMeta,
+          }),
+        )
+        .join("");
+    })();
+    return `
+      <div class="${sectionClass}">
+        <div class="px-3 py-1.5 mb-1 flex items-center justify-between gap-2 relative">
+          <button type="button" data-action="toggle-project-section" data-section="${escapeAttr(options.sectionKey)}" class="min-w-0 flex flex-1 items-center gap-1.5 text-left text-[#9ca3af] hover:text-[#111827] transition-colors" aria-expanded="${expanded ? "true" : "false"}">
+            ${icon(expanded ? "chevron-down" : "chevron-right", 12, "shrink-0")}
+            <h3 class="min-w-0 truncate text-[10px] font-mono font-bold uppercase tracking-wider">${escapeHtml(options.title)}</h3>
+            <span class="shrink-0 rounded-sm-ds border border-[#e5e7eb] bg-white px-1.5 py-0.5 text-[10px] font-mono font-bold leading-none text-[#9ca3af]">${escapeHtml(countText)}</span>
+          </button>
+          ${headerAction}
+        </div>
+        ${body ? `<div class="${bodyClass}">${body}</div>` : ""}
+      </div>`;
+  }
+
+  function computedSidebarHeaderAction(computed) {
+    if (computed.isSidebarOwnerViewer) {
+      return `<button type="button" data-action="open-project-form" class="text-[#9ca3af] hover:text-[#111827] p-1 rounded-sm-ds transition-colors" aria-label="Add new project" title="Add new project">${icon("plus", 14)}</button>`;
     }
-    return state.projects
-      .map((project) => {
-        const projectMetaText = getProjectListMetaText(project);
-        const openIssuesCount = Number(project.open_issues_count || 0);
-        return `
-          <div class="relative">
-            <button type="button" data-action="navigate-project" data-slug="${escapeAttr(project.slug)}" class="sidebar-project-btn w-full flex items-start gap-3 px-3 py-2 rounded-sm-ds font-medium text-sm transition-colors ${state.selectedProjectSlug === project.slug ? "bg-cyan-50 text-[#06B6D4]" : "text-[#6b7280] hover:bg-[#f3f4f6]"}">
-              ${projectIcon(project)}
-              <span class="flex-1 min-w-0 text-left"><span class="block font-medium leading-tight pr-24 truncate">${escapeHtml(project.name)}</span>${projectMetaText ? `<span class="mt-1 block min-w-0 truncate pr-10 text-[11px] leading-tight text-[#6b7280]">${escapeHtml(projectMetaText)}</span>` : ""}</span>
-            </button>
-            <span class="absolute top-2 right-2 flex items-center gap-1">
-              ${openIssuesCount > 0 ? `<span class="shrink-0 rounded-sm-ds border border-cyan-100 bg-white px-1.5 py-0.5 text-[10px] font-mono font-bold leading-none text-[#06B6D4]">${openIssuesCount}</span>` : ""}
-              ${computed.isOwnerViewer ? `<button type="button" data-action="open-project-settings" data-slug="${escapeAttr(project.slug)}" class="text-[#9ca3af] hover:text-[#111827] p-1 rounded-sm-ds transition-colors" title="Project Settings" aria-label="Project settings for ${escapeAttr(project.name)}">${icon("settings", 16)}</button>` : ""}
-              ${project.url ? `<a href="${escapeAttr(project.url)}" target="_blank" rel="noreferrer" class="text-[#9ca3af] hover:text-[#111827] p-1 rounded-sm-ds transition-colors" aria-label="Open ${escapeAttr(project.name)} website" title="Open project site">${icon("external-link", 16)}</a>` : ""}
-            </span>
-          </div>`;
-      })
-      .join("");
+    if (computed.sidebarProjectsOwnerHandle) {
+      return `<button type="button" data-action="open-sidebar-contact" class="text-[#9ca3af] hover:text-[#111827] p-1 rounded-sm-ds transition-colors" aria-label="Contact @${escapeAttr(computed.sidebarProjectsOwnerHandle)}" title="Contact @${escapeAttr(computed.sidebarProjectsOwnerHandle)}">${icon("message", 14)}</button>`;
+    }
+    return "";
+  }
+
+  function renderProjectSidebarRow(project, computed, options = {}) {
+    const ownerHandle = normalizeHandle(project.owner_handle || computed.sidebarProjectsOwnerHandle);
+    const slug = String(project.slug || "");
+    const projectMetaText = getProjectListMetaText(project);
+    const metaText = options.showOwnerMeta
+      ? `@${ownerHandle}`
+      : projectMetaText;
+    const openIssuesCount = Number(project.open_issues_count || 0);
+    const isActive = normalizeHandle(state.ownerHandle) === ownerHandle && state.selectedProjectSlug === slug;
+    const canManage =
+      Boolean(options.canManage) &&
+      computed.isSidebarOwnerViewer &&
+      ownerHandle === computed.sidebarProjectsOwnerHandle;
+    const trailing = [
+      openIssuesCount > 0
+        ? `<span class="shrink-0 rounded-sm-ds border border-cyan-100 bg-white px-1.5 py-0.5 text-[10px] font-mono font-bold leading-none text-[#06B6D4]">${openIssuesCount}</span>`
+        : "",
+      canManage
+        ? `<button type="button" data-action="open-project-settings" data-slug="${escapeAttr(slug)}" class="text-[#9ca3af] hover:text-[#111827] p-1 rounded-sm-ds transition-colors" title="Project Settings" aria-label="Project settings for ${escapeAttr(project.name)}">${icon("settings", 16)}</button>`
+        : "",
+      project.url
+        ? `<a href="${escapeAttr(project.url)}" target="_blank" rel="noreferrer" class="text-[#9ca3af] hover:text-[#111827] p-1 rounded-sm-ds transition-colors" aria-label="Open ${escapeAttr(project.name)} website" title="Open project site">${icon("external-link", 16)}</a>`
+        : "",
+    ].join("");
+    return `
+      <div class="relative">
+        <button type="button" data-action="navigate-project" data-owner="${escapeAttr(ownerHandle)}" data-slug="${escapeAttr(slug)}" class="sidebar-project-btn w-full flex items-start gap-3 px-3 py-2 rounded-sm-ds font-medium text-sm transition-colors ${isActive ? "bg-cyan-50 text-[#06B6D4]" : "text-[#6b7280] hover:bg-[#f3f4f6]"}">
+          ${projectIcon(project)}
+          <span class="flex-1 min-w-0 text-left"><span class="block font-medium leading-tight ${trailing ? "pr-24" : ""} truncate">${escapeHtml(project.name)}</span>${metaText ? `<span class="mt-1 block min-w-0 truncate ${trailing ? "pr-10" : ""} text-[11px] leading-tight text-[#6b7280]">${escapeHtml(metaText)}</span>` : ""}</span>
+        </button>
+        ${trailing ? `<span class="absolute top-2 right-2 flex items-center gap-1">${trailing}</span>` : ""}
+      </div>`;
   }
 
   function renderMessageProjectButtons(computed) {
@@ -2012,6 +2138,7 @@
 
   async function refreshProjects() {
     if (!state.ownerHandle) {
+      state.projects = [];
       return;
     }
     const response = await fetch(`/api/owners/${encodeURIComponent(state.ownerHandle)}/projects`);
@@ -2043,6 +2170,32 @@
       state.selectedProjectSlug = "";
     }
     render();
+  }
+
+  async function refreshInteractedProjects() {
+    if (!state.ownerHandle) {
+      state.interactedProjects = [];
+      state.isInteractedProjectsLoading = false;
+      return;
+    }
+    state.isInteractedProjectsLoading = true;
+    render();
+    try {
+      const response = await fetch(`/api/owners/${encodeURIComponent(state.ownerHandle)}/interacted-projects`);
+      if (response.status === 404) {
+        state.interactedProjects = [];
+        state.isRouteNotFound = true;
+        render();
+        return;
+      }
+      const data = response.ok ? await response.json() : [];
+      state.interactedProjects = Array.isArray(data) ? data : [];
+    } catch {
+      state.interactedProjects = [];
+    } finally {
+      state.isInteractedProjectsLoading = false;
+      render();
+    }
   }
 
   async function refreshIssues() {
@@ -2435,6 +2588,30 @@
     }
     refreshIssues().catch(() => {
       setStatus("Requests could not be loaded.", true);
+      render();
+    });
+  }
+
+  function navigateProjectAndHistory(ownerHandle, slug) {
+    const targetOwnerHandle = normalizeHandle(ownerHandle || state.ownerHandle);
+    if (!targetOwnerHandle || targetOwnerHandle === normalizeHandle(state.ownerHandle)) {
+      setProjectSlugAndHistory(slug);
+      return;
+    }
+    state.view = "issues";
+    state.selectedProjectSlug = slug;
+    state.selectedIssueId = null;
+    state.loadedCommentsIssueId = null;
+    state.comments = [];
+    state.isNewIssueOpen = false;
+    const url = projectBoardUrl(targetOwnerHandle, slug);
+    if (window.location.pathname !== url) {
+      window.history.pushState({ ownerHandle: targetOwnerHandle, slug }, "", url);
+    }
+    applyRouteToState();
+    render();
+    runRouteLoads().catch(() => {
+      setStatus("Workspace could not be loaded.", true);
       render();
     });
   }
@@ -3211,8 +3388,13 @@
       case "open-project-form":
         openProjectFormForHandle(computed.sidebarProjectsOwnerHandle || state.ownerHandle || state.currentUserHandle);
         break;
+      case "toggle-project-section":
+        state.projectSidebarSectionsOpen[element.dataset.section || "owned"] =
+          state.projectSidebarSectionsOpen[element.dataset.section || "owned"] === false;
+        render();
+        break;
       case "navigate-project":
-        setProjectSlugAndHistory(element.dataset.slug || "");
+        navigateProjectAndHistory(element.dataset.owner || state.ownerHandle, element.dataset.slug || "");
         break;
       case "open-project-settings":
         state.selectedProjectSlug = element.dataset.slug || state.selectedProjectSlug;
@@ -3442,6 +3624,9 @@
     }
     if (route.kind === "board") {
       await refreshProjects();
+      if (!state.isRouteNotFound) {
+        await refreshInteractedProjects();
+      }
       if (!state.isRouteNotFound && state.view === "issues") {
         await refreshIssues();
       }

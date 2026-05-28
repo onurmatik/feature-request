@@ -799,6 +799,49 @@ def list_owner_projects(request, owner_handle: str):
     return [_project_to_dict(project) for project in projects]
 
 
+def _project_latest_interaction_at(project):
+    values = [
+        getattr(project, "_last_authored_issue_at", None),
+        getattr(project, "_last_comment_at", None),
+        getattr(project, "_last_upvote_at", None),
+    ]
+    return max((value for value in values if value), default=project.created_at)
+
+
+@router.get("/owners/{owner_handle}/interacted-projects", response=list[ProjectOut])
+def list_owner_interacted_projects(request, owner_handle: str):
+    owner = _get_owner(owner_handle)
+    projects = _annotate_open_issues_count(
+        Project.objects.select_related("owner")
+        .exclude(owner=owner)
+        .filter(
+            Q(issues__author=owner)
+            | Q(issues__comments__author=owner)
+            | Q(issues__upvotes__user=owner)
+        )
+        .annotate(
+            _last_authored_issue_at=Max(
+                "issues__created_at",
+                filter=Q(issues__author=owner),
+            ),
+            _last_comment_at=Max(
+                "issues__comments__created_at",
+                filter=Q(issues__comments__author=owner),
+            ),
+            _last_upvote_at=Max(
+                "issues__upvotes__created_at",
+                filter=Q(issues__upvotes__user=owner),
+            ),
+        )
+    ).distinct()
+    ordered_projects = sorted(
+        projects,
+        key=lambda project: (_project_latest_interaction_at(project), project.created_at, project.id),
+        reverse=True,
+    )
+    return [_project_to_dict(project) for project in ordered_projects]
+
+
 @router.get("/public/featured-projects", response=list[FeaturedProjectOut], tags=["projects"])
 def list_featured_public_projects(request, limit: int = 3):
     safe_limit = max(1, min(limit, 12))

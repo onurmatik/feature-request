@@ -274,6 +274,13 @@
       "description": "List all projects for a public owner. Project responses include `open_issues_count` for issues with status `open`."
     },
     {
+      "name": "list_owner_interacted_projects",
+      "method": "GET",
+      "path": "/api/owners/{owner_handle}/interacted-projects",
+      "auth": "none",
+      "description": "List projects not owned by a public owner where that owner authored an issue, commented, or upvoted. Project responses include `open_issues_count` for issues with status `open`."
+    },
+    {
       "name": "list_featured_projects",
       "method": "GET",
       "path": "/api/public/featured-projects",
