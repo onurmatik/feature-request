@@ -113,7 +113,11 @@ class AuthEntryApiTest(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(mock_send_mail.call_count, 2)
-        admin_call = mock_send_mail.call_args_list[1]
+        admin_call = next(
+            call
+            for call in mock_send_mail.call_args_list
+            if call.args[3] == ["admin@featurerequest.test"]
+        )
         self.assertEqual(admin_call.args[3], ["admin@featurerequest.test"])
 
     def test_sign_up_rejects_invalid_or_duplicate_data(self):
@@ -169,7 +173,7 @@ class AuthEntryApiTest(TestCase):
             content_type="application/json",
         )
         self.assertEqual(by_email.status_code, 200)
-        self.assertEqual(by_email.json()["current_user_handle"], self.user.handle)
+        self.assertEqual(by_email.json()["detail"], "Sign-in link sent. Check your email.")
 
         self.client.post("/auth/logout")
 
@@ -180,6 +184,22 @@ class AuthEntryApiTest(TestCase):
         )
         self.assertEqual(by_handle.status_code, 200)
         self.assertEqual(by_handle.json()["current_user_handle"], self.user.handle)
+
+    @patch("accounts.views.send_mail")
+    def test_sign_in_magic_link_uses_feature_request_sender(self, mock_send_mail):
+        response = self.client.post(
+            "/auth/sign-in",
+            data=json.dumps({"email_or_handle": self.user.email}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        mock_send_mail.assert_called_once()
+        self.assertEqual(mock_send_mail.call_args.args[2], settings.DEFAULT_FROM_EMAIL)
+        self.assertEqual(
+            mock_send_mail.call_args.args[2],
+            "FeatureRequest <hi@featurerequest.io>",
+        )
 
     def test_sign_in_returns_404_for_unknown_account(self):
         response = self.client.post(

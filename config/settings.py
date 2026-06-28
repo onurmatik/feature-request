@@ -162,7 +162,7 @@ TURNSTILE_SECRETKEY = os.getenv("TURNSTILE_SECRETKEY", "")
 
 
 # Email & Authentication
-DEFAULT_FROM_EMAIL = 'hi@featurerequest.io'
+DEFAULT_FROM_EMAIL = 'FeatureRequest <hi@featurerequest.io>'
 SERVER_EMAIL = 'notice@featurerequest.io'
 EMAIL_BACKEND = os.getenv('EMAIL_BACKEND')
 ADMIN_EMAIL = os.getenv('ADMIN_EMAIL')
