@@ -116,6 +116,7 @@
     comments: [],
     selectedProjectSlug: "",
     selectedIssueId: null,
+    isIssueDetailOpen: false,
     typeFilter: "",
     statusFilter: "open",
     priorityFilter: "",
@@ -221,6 +222,7 @@
     "arrow-right": '<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>',
     bot: '<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/>',
     "chevron-down": '<path d="m6 9 6 6 6-6"/>',
+    "chevron-left": '<path d="m15 18-6-6 6-6"/>',
     "chevron-right": '<path d="m9 18 6-6-6-6"/>',
     copy: '<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>',
     "external-link": '<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
@@ -403,10 +405,12 @@
         state.issues = [];
         state.comments = [];
         state.selectedIssueId = null;
+        state.isIssueDetailOpen = false;
         state.loadedCommentsIssueId = null;
       }
       state.ownerHandle = nextOwnerHandle;
       state.selectedProjectSlug = route.isProjectFormRoute ? "" : String(route.projectSlug || "");
+      state.isIssueDetailOpen = false;
       state.view = route.isProjectFormRoute ? "newProject" : "issues";
       return;
     }
@@ -1157,9 +1161,9 @@
 
     root.innerHTML = isLandingRoute() ? renderLanding() : renderApplication(computed);
     if (focusKey && window.CSS?.escape) {
-      const nextElement = root.querySelector(`[data-bind="${CSS.escape(focusKey)}"]`);
+      const nextElement = getVisibleBoundElement(focusKey);
       if (nextElement) {
-        nextElement.focus();
+        nextElement.focus({ preventScroll: true });
         if (focusSelection && typeof nextElement.setSelectionRange === "function") {
           try {
             nextElement.setSelectionRange(focusSelection.start, focusSelection.end);
@@ -1170,6 +1174,19 @@
       }
     }
     ensureSelectedIssueComments(computed.selectedIssue);
+  }
+
+  function getVisibleBoundElement(focusKey) {
+    const selector = `[data-bind="${CSS.escape(focusKey)}"]`;
+    const candidates = [...root.querySelectorAll(selector)];
+    return (
+      candidates.find((element) => {
+        const styles = window.getComputedStyle(element);
+        return element.getClientRects().length > 0 && styles.visibility !== "hidden";
+      }) ||
+      candidates[0] ||
+      null
+    );
   }
 
   function syncProjectDrafts(selectedProject) {
@@ -1697,10 +1714,29 @@
     return `<div class="space-y-2 md:hidden"><p class="text-[10px] font-mono font-bold uppercase tracking-widest text-[#9ca3af]">Settings</p><div class="grid grid-cols-1 sm:grid-cols-3 gap-2">${renderSettingsNavItems(computed, true)}</div></div>`;
   }
 
+  function emptyRequestsText() {
+    if (!state.selectedProjectSlug) {
+      return state.typeFilter || state.statusFilter || state.priorityFilter || state.searchQuery.trim()
+        ? "No requests found for this filter."
+        : "Select a project to narrow the request list.";
+    }
+    if (state.typeFilter || state.statusFilter || state.priorityFilter || state.searchQuery.trim()) {
+      return "No requests match the active filters. Reset filters to see everything for this project.";
+    }
+    return "No requests yet for this project.";
+  }
+
   function renderIssuesView(computed) {
+    const mobileFocusedPane = state.isNewIssueOpen
+      ? renderNewIssuePane()
+      : state.isIssueDetailOpen && computed.selectedIssue
+        ? renderIssueDetail(computed, { showBackButton: true })
+        : "";
+    const issueListDisplayClass = mobileFocusedPane ? "hidden lg:flex" : "flex";
     return `
       <div class="flex-1 flex overflow-hidden">
-        <section class="w-full md:w-[380px] border-r border-[#e5e7eb] bg-white flex flex-col shrink-0">
+        ${mobileFocusedPane ? `<section class="mobile-issue-pane flex-1 bg-white flex-col overflow-hidden">${mobileFocusedPane}</section>` : ""}
+        <section class="${issueListDisplayClass} w-full md:w-[380px] border-r border-[#e5e7eb] bg-white flex-col shrink-0">
           <div class="p-4 border-b border-[#e5e7eb] space-y-3">
             <div class="md:hidden space-y-3">${renderBoardProjectsSection(computed)}</div>
             <div class="flex items-center justify-between gap-3"><h2 class="text-sm font-bold uppercase tracking-widest text-[#6b7280]">Requests</h2><div class="flex items-center gap-2">${computed.isOwnerViewer && computed.selectedProject ? `<button type="button" data-action="copy-project-agent-prompt" class="inline-flex items-center gap-1 rounded-sm-ds border border-[#e5e7eb] bg-white px-2 py-1.5 text-[10px] font-bold uppercase tracking-wide text-[#6b7280] hover:bg-[#f3f4f6] hover:text-[#111827]" title="Copy project-scoped agent prompt">${icon("bot", 12)}<span class="hidden sm:inline">Agent Prompt</span></button>` : ""}<button type="button" data-action="open-new-issue" class="px-3 py-1.5 bg-[#06B6D4] text-white text-[10px] font-bold rounded-sm-ds hover:bg-cyan-600 shadow-sm transition-all uppercase tracking-wide disabled:opacity-45 disabled:cursor-not-allowed"${disabledAttr(!state.selectedProjectSlug)}>New Request</button></div></div>
@@ -1715,7 +1751,7 @@
           <div class="flex-1 overflow-y-auto divide-y divide-[#e5e7eb]">
             ${
               !computed.filteredIssues.length
-                ? `<div class="p-4 text-sm text-[#6b7280]">No requests found for this filter.</div>`
+                ? `<div class="p-4 text-sm text-[#6b7280]">${emptyRequestsText()}</div>`
                 : computed.filteredIssues.map((issue) => renderIssueRow(issue, computed.selectedIssue?.id === issue.id)).join("")
             }
           </div>
@@ -1740,11 +1776,11 @@
 
   function renderNewIssuePane() {
     return `
-      <div class="flex-1 overflow-y-auto px-8 py-6 space-y-4">
+      <div class="flex-1 overflow-y-auto px-4 py-5 md:px-8 space-y-4">
         <h1 class="text-2xl font-bold text-[#111827]">Create New Request</h1><p class="text-sm text-[#6b7280]">Describe your issue in detail below.</p>
         <div class="space-y-1.5"><label class="text-[10px] font-mono font-bold text-[#6b7280] uppercase">Title</label><input data-bind="newIssueTitle" value="${escapeAttr(state.newIssueTitle)}" type="text" class="w-full px-3 py-2 border border-[#e5e7eb] rounded-sm-ds text-sm focus:ring-1 focus:ring-[#06B6D4] outline-none"></div>
         <div class="space-y-1.5"><label class="text-[10px] font-mono font-bold text-[#6b7280] uppercase">Description</label><textarea data-bind="newIssueDescription" rows="5" class="w-full px-3 py-2 border border-[#e5e7eb] rounded-sm-ds text-sm focus:ring-1 focus:ring-[#06B6D4] outline-none resize-y">${escapeHtml(state.newIssueDescription)}</textarea></div>
-        <div class="grid grid-cols-2 gap-3">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div class="space-y-1.5"><label class="text-[10px] font-mono font-bold text-[#6b7280] uppercase">Issue Type</label><select data-bind="newIssueType" class="w-full px-3 py-2 border border-[#e5e7eb] rounded-sm-ds text-sm focus:ring-1 focus:ring-[#06B6D4] outline-none"><option value="feature"${selectedAttr("feature", state.newIssueType)}>Feature</option><option value="bug"${selectedAttr("bug", state.newIssueType)}>Bug</option></select></div>
           <div class="space-y-1.5"><label class="text-[10px] font-mono font-bold text-[#6b7280] uppercase">Priority</label><select data-bind="newIssuePriority" class="w-full px-3 py-2 border border-[#e5e7eb] rounded-sm-ds text-sm focus:ring-1 focus:ring-[#06B6D4] outline-none">${renderOptions(PRIORITY_OPTIONS.filter((option) => option.value), state.newIssuePriority)}</select></div>
         </div>
@@ -1753,26 +1789,30 @@
       </div>`;
   }
 
-  function renderIssueDetail(computed) {
+  function renderIssueDetail(computed, options = {}) {
     const issue = computed.selectedIssue;
+    const showBackButton = Boolean(options.showBackButton);
     const canEditSelectedIssue =
       state.isAuthenticated &&
       issue &&
       (computed.isOwnerViewer || normalizeHandle(issue.author_handle) === normalizeHandle(state.currentUserHandle));
     return `
-      <header class="px-8 py-4 border-b border-[#e5e7eb] flex items-center justify-between shrink-0">
-        <div class="flex items-center gap-4">
+      <header class="px-4 py-3 md:px-8 border-b border-[#e5e7eb] flex flex-col md:flex-row md:items-center md:justify-between gap-3 shrink-0">
+        <div class="flex flex-col gap-3">
+          ${showBackButton ? `<button type="button" data-action="back-to-request-list" class="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-wide text-[#6b7280] hover:text-[#111827]">${icon("chevron-left", 14)}Requests</button>` : ""}
+          <div class="flex flex-wrap items-center gap-3">
           <button type="button" data-action="upvote" class="flex items-center gap-1.5 px-3 py-1.5 border border-[#e5e7eb] rounded-sm-ds text-[#111827] font-semibold text-xs hover:bg-[#f3f4f6] transition-colors disabled:opacity-50"${disabledAttr(state.isIssueUpdating)}>${icon("thumbs-up", 18, "text-[#06B6D4]")}Upvote (${Number(issue.upvotes_count || 0)})</button>
-          <div class="h-4 w-[1px] bg-[#e5e7eb]"></div>
+          <div class="hidden sm:block h-4 w-[1px] bg-[#e5e7eb]"></div>
           <div class="flex items-center gap-2">${userAvatar(issue.author_avatar_url, issue.author_handle || `user-${issue.author_id}`, "w-6 h-6", "bg-cyan-50 border border-cyan-100 text-[#06B6D4]", "text-[9px] font-bold")}<span class="text-[10px] font-mono text-[#6b7280] uppercase">Created by @${escapeHtml(issue.author_handle || `user-${issue.author_id}`)} • ${formatLongDate(issue.created_at)}</span></div>
+          </div>
         </div>
-        <div class="flex items-center gap-2">
+        <div class="flex flex-wrap items-center gap-2">
           <div class="flex items-center gap-2 border border-[#e5e7eb] rounded-sm-ds px-2 py-1"><label class="text-[10px] font-mono text-[#6b7280] uppercase">Status</label><select data-patch-issue="true" data-field="status" class="text-xs font-bold text-[#16a34a] bg-transparent outline-none cursor-pointer disabled:cursor-not-allowed"${disabledAttr(!state.isAuthenticated || state.isIssueUpdating)}>${renderOptions(DETAIL_STATUS_OPTIONS, issue.status)}</select></div>
           <div class="flex items-center gap-2 border border-[#e5e7eb] rounded-sm-ds px-2 py-1"><label class="text-[10px] font-mono text-[#6b7280] uppercase">Priority</label><select data-patch-issue="true" data-field="priority" class="text-xs font-bold text-[#f59e0b] bg-transparent outline-none cursor-pointer disabled:cursor-not-allowed"${disabledAttr(!state.isAuthenticated || state.isIssueUpdating)}>${renderOptions(PRIORITY_OPTIONS.filter((option) => option.value), String(issue.priority))}</select></div>
         </div>
       </header>
       <div class="flex-1 overflow-hidden flex flex-col">
-        <div class="flex-1 overflow-y-auto px-8 py-6 space-y-8">
+        <div class="flex-1 overflow-y-auto px-4 py-5 md:px-8 space-y-8">
           <div>${state.isIssueEditOpen ? renderIssueEditForm() : renderIssueDisplay(issue, canEditSelectedIssue)}</div>
           <div class="border-t border-[#e5e7eb] pt-8">
             <h4 class="text-xs font-bold text-[#6b7280] uppercase tracking-widest mb-6">Activity & Comments (${state.comments.length})</h4>
@@ -2236,6 +2276,9 @@
     state.issues = Array.isArray(data) ? data : [];
     const computed = getComputed();
     state.selectedIssueId = computed.selectedIssue?.id || null;
+    if (!computed.selectedIssue) {
+      state.isIssueDetailOpen = false;
+    }
     setStatus(`${state.issues.length} requests listed.`);
     render();
   }
@@ -2581,6 +2624,10 @@
   function setProjectSlugAndHistory(slug) {
     state.view = "issues";
     state.selectedProjectSlug = slug;
+    state.selectedIssueId = null;
+    state.isIssueDetailOpen = false;
+    state.loadedCommentsIssueId = null;
+    state.comments = [];
     state.isNewIssueOpen = false;
     const url = boardUrl(slug);
     if (window.location.pathname !== url) {
@@ -2601,6 +2648,7 @@
     state.view = "issues";
     state.selectedProjectSlug = slug;
     state.selectedIssueId = null;
+    state.isIssueDetailOpen = false;
     state.loadedCommentsIssueId = null;
     state.comments = [];
     state.isNewIssueOpen = false;
@@ -2988,6 +3036,7 @@
       state.newIssueFeedback = "";
       await Promise.all([refreshIssues(), refreshProjects()]);
       state.selectedIssueId = data.id;
+      state.isIssueDetailOpen = true;
       setStatus("Request created.");
     } finally {
       state.isNewIssueSubmitting = false;
@@ -3267,6 +3316,7 @@
     }
     state[bind] = target.value;
     if (["typeFilter", "statusFilter", "priorityFilter"].includes(bind)) {
+      state.isIssueDetailOpen = false;
       refreshIssues().catch(() => {
         setStatus("Requests could not be loaded.", true);
         render();
@@ -3403,6 +3453,13 @@
         break;
       case "select-issue":
         state.selectedIssueId = Number(element.dataset.id);
+        state.isIssueDetailOpen = true;
+        state.isNewIssueOpen = false;
+        render();
+        break;
+      case "back-to-request-list":
+        state.isIssueDetailOpen = false;
+        state.isNewIssueOpen = false;
         render();
         break;
       case "open-new-issue":
@@ -3414,11 +3471,13 @@
         } else {
           state.newIssueFeedback = "";
           state.isNewIssueOpen = true;
+          state.isIssueDetailOpen = false;
         }
         render();
         break;
       case "close-new-issue":
         state.isNewIssueOpen = false;
+        state.isIssueDetailOpen = false;
         render();
         break;
       case "submit-new-issue":
@@ -3429,6 +3488,7 @@
         state.statusFilter = "";
         state.priorityFilter = "";
         state.searchQuery = "";
+        state.isIssueDetailOpen = false;
         refreshIssues();
         break;
       case "upvote":
