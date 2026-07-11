@@ -183,6 +183,9 @@ else:
 LOGIN_REDIRECT_URL = '/'
 LOGOUT_REDIRECT_URL = '/'
 
+# Keep browser sign-ins for a fixed 10-year period.
+SESSION_COOKIE_AGE = 60 * 60 * 24 * 365 * 10
+
 
 CSRF_TRUSTED_ORIGINS = env_list(
     "CSRF_TRUSTED_ORIGINS",

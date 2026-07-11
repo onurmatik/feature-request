@@ -47,6 +47,18 @@
 
 .mobile-issue-pane {
   display: flex;
+  min-height: 0;
+}
+
+.issue-list-shell,
+.issue-list-scroll {
+  min-height: 0;
+}
+
+.mobile-project-picker {
+  max-height: min(34dvh, 260px);
+  overflow-y: auto;
+  padding-right: 2px;
 }
 
 @media (min-width: 1024px) {

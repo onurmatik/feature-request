@@ -35,6 +35,16 @@ class SessionApiTest(TestCase):
         self.assertEqual(payload["current_user_handle"], self.user.handle)
         self.assertEqual(payload["user_id"], self.user.id)
 
+    def test_authenticated_session_expires_after_10_years(self):
+        response = self.client.post(
+            "/auth/sign-in",
+            data=json.dumps({"email_or_handle": self.user.handle}),
+            content_type="application/json",
+        )
+
+        session_cookie = response.cookies[settings.SESSION_COOKIE_NAME]
+        self.assertEqual(int(session_cookie["max-age"]), 60 * 60 * 24 * 365 * 10)
+
     def test_me_treats_legacy_pro_account_without_status_as_paid(self):
         self.user.subscription_tier = "pro_30"
         self.user.subscription_status = ""

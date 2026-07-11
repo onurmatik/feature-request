@@ -108,6 +108,8 @@
 
   const root = document.getElementById("app");
   const bootstrap = window.__FR_BOOTSTRAP__ || {};
+  const isInitialMobileViewport =
+    typeof window.matchMedia === "function" && window.matchMedia("(max-width: 767px)").matches;
 
   const state = {
     projects: [],
@@ -146,8 +148,8 @@
     isMessageSidebarProjectsLoading: false,
     isInteractedProjectsLoading: false,
     projectSidebarSectionsOpen: {
-      owned: true,
-      interacted: true,
+      owned: !isInitialMobileViewport,
+      interacted: false,
     },
     messageComposerBody: "",
     messageComposerFeedback: "",
@@ -1736,9 +1738,9 @@
     return `
       <div class="flex-1 flex overflow-hidden">
         ${mobileFocusedPane ? `<section class="mobile-issue-pane flex-1 bg-white flex-col overflow-hidden">${mobileFocusedPane}</section>` : ""}
-        <section class="${issueListDisplayClass} w-full md:w-[380px] border-r border-[#e5e7eb] bg-white flex-col shrink-0">
+        <section class="${issueListDisplayClass} issue-list-shell w-full md:w-[380px] border-r border-[#e5e7eb] bg-white flex-col shrink-0">
           <div class="p-4 border-b border-[#e5e7eb] space-y-3">
-            <div class="md:hidden space-y-3">${renderBoardProjectsSection(computed)}</div>
+            <div class="mobile-project-picker md:hidden space-y-3">${renderBoardProjectsSection(computed)}</div>
             <div class="flex items-center justify-between gap-3"><h2 class="text-sm font-bold uppercase tracking-widest text-[#6b7280]">Requests</h2><div class="flex items-center gap-2">${computed.isOwnerViewer && computed.selectedProject ? `<button type="button" data-action="copy-project-agent-prompt" class="inline-flex items-center gap-1 rounded-sm-ds border border-[#e5e7eb] bg-white px-2 py-1.5 text-[10px] font-bold uppercase tracking-wide text-[#6b7280] hover:bg-[#f3f4f6] hover:text-[#111827]" title="Copy project-scoped agent prompt">${icon("bot", 12)}<span class="hidden sm:inline">Agent Prompt</span></button>` : ""}<button type="button" data-action="open-new-issue" class="px-3 py-1.5 bg-[#06B6D4] text-white text-[10px] font-bold rounded-sm-ds hover:bg-cyan-600 shadow-sm transition-all uppercase tracking-wide disabled:opacity-45 disabled:cursor-not-allowed"${disabledAttr(!state.selectedProjectSlug)}>New Request</button></div></div>
             <div class="relative">${icon("search", 16, "absolute left-3 top-1/2 -translate-y-1/2 text-[#d1d5db]")}<input data-bind="searchQuery" value="${escapeAttr(state.searchQuery)}" type="text" placeholder="Filter issues..." class="w-full pl-9 pr-3 py-2 bg-[#f3f4f6] border border-[#e5e7eb] text-xs rounded-sm-ds focus:ring-1 focus:ring-[#06B6D4] outline-none"></div>
             <div class="grid grid-cols-3 gap-2">
@@ -1748,7 +1750,7 @@
             </div>
             <div class="flex items-center justify-between"><span class="text-xs ${state.statusError ? "text-[#dc2626]" : "text-[#6b7280]"}">${escapeHtml(state.statusLine)}</span><button type="button" data-action="reset-filters" class="text-[10px] font-mono font-bold text-[#6b7280] hover:text-[#111827] uppercase">Reset</button></div>
           </div>
-          <div class="flex-1 overflow-y-auto divide-y divide-[#e5e7eb]">
+          <div class="issue-list-scroll flex-1 overflow-y-auto divide-y divide-[#e5e7eb]">
             ${
               !computed.filteredIssues.length
                 ? `<div class="p-4 text-sm text-[#6b7280]">${emptyRequestsText()}</div>`
@@ -2621,6 +2623,17 @@
     window.location.assign("/");
   }
 
+  function collapseMobileProjectPicker() {
+    if (typeof window.matchMedia !== "function" || !window.matchMedia("(max-width: 767px)").matches) {
+      return;
+    }
+    state.projectSidebarSectionsOpen = {
+      ...state.projectSidebarSectionsOpen,
+      owned: false,
+      interacted: false,
+    };
+  }
+
   function setProjectSlugAndHistory(slug) {
     state.view = "issues";
     state.selectedProjectSlug = slug;
@@ -2629,6 +2642,7 @@
     state.loadedCommentsIssueId = null;
     state.comments = [];
     state.isNewIssueOpen = false;
+    collapseMobileProjectPicker();
     const url = boardUrl(slug);
     if (window.location.pathname !== url) {
       window.history.pushState({ slug }, "", url);
@@ -2652,6 +2666,7 @@
     state.loadedCommentsIssueId = null;
     state.comments = [];
     state.isNewIssueOpen = false;
+    collapseMobileProjectPicker();
     const url = projectBoardUrl(targetOwnerHandle, slug);
     if (window.location.pathname !== url) {
       window.history.pushState({ ownerHandle: targetOwnerHandle, slug }, "", url);
