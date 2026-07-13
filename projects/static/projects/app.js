@@ -141,8 +141,7 @@
     issueTitleDraft: "",
     issueDescriptionDraft: "",
     issueEditFeedback: "",
-    issueCopyFeedback: "",
-    issueCopyFeedbackTone: "",
+    issueCopiedAction: "",
     messages: [],
     isMessagesLoading: false,
     selectedMessageThreadId: "",
@@ -225,6 +224,7 @@
     "alert-triangle": '<path d="m21.73 18-8-14a2 2 0 0 0-3.46 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
     "arrow-right": '<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>',
     bot: '<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/>',
+    check: '<path d="m20 6-11 11-5-5"/>',
     "chevron-down": '<path d="m6 9 6 6 6-6"/>',
     "chevron-left": '<path d="m15 18-6-6 6-6"/>',
     "chevron-right": '<path d="m9 18 6-6-6-6"/>',
@@ -1280,8 +1280,7 @@
     state.issueTitleDraft = selectedIssue?.title || "";
     state.issueDescriptionDraft = selectedIssue?.description || "";
     state.issueEditFeedback = "";
-    state.issueCopyFeedback = "";
-    state.issueCopyFeedbackTone = "";
+    state.issueCopiedAction = "";
     state.editingCommentId = null;
     state.commentEditDraft = "";
     state.commentEditFeedback = "";
@@ -1874,11 +1873,10 @@
           </div>
         </div>
         <div class="flex flex-wrap items-center gap-2">
-          <button type="button" data-action="copy-issue-url" class="inline-flex items-center gap-1.5 border border-[#e5e7eb] rounded-sm-ds px-2 py-1.5 text-xs font-bold text-[#6b7280] hover:bg-[#f3f4f6] hover:text-[#111827] transition-colors" title="Copy issue URL">${icon("link", 14)}Share</button>
-          <button type="button" data-action="copy-issue-agent-prompt" class="inline-flex items-center gap-1.5 border border-[#e5e7eb] rounded-sm-ds px-2 py-1.5 text-xs font-bold text-[#6b7280] hover:bg-[#f3f4f6] hover:text-[#111827] transition-colors" title="Copy agent instruction for this issue">${icon("bot", 14)}Agent instruction</button>
+          <button type="button" data-action="copy-issue-url" class="inline-flex items-center gap-1.5 border border-[#e5e7eb] rounded-sm-ds px-2 py-1.5 text-xs font-bold text-[#6b7280] hover:bg-[#f3f4f6] hover:text-[#111827] transition-colors" title="${state.issueCopiedAction === "share" ? "Issue URL copied" : "Copy issue URL"}">${icon(state.issueCopiedAction === "share" ? "check" : "link", 14, state.issueCopiedAction === "share" ? "text-[#16a34a]" : "")}Share</button>
+          <button type="button" data-action="copy-issue-agent-prompt" class="inline-flex items-center gap-1.5 border border-[#e5e7eb] rounded-sm-ds px-2 py-1.5 text-xs font-bold text-[#6b7280] hover:bg-[#f3f4f6] hover:text-[#111827] transition-colors" title="${state.issueCopiedAction === "prompt" ? "Agent prompt copied" : "Copy agent prompt for this issue"}">${icon(state.issueCopiedAction === "prompt" ? "check" : "bot", 14, state.issueCopiedAction === "prompt" ? "text-[#16a34a]" : "")}Prompt</button>
           <div class="flex items-center gap-2 border border-[#e5e7eb] rounded-sm-ds px-2 py-1"><label class="text-[10px] font-mono text-[#6b7280] uppercase">Status</label><select data-patch-issue="true" data-field="status" class="text-xs font-bold text-[#16a34a] bg-transparent outline-none cursor-pointer disabled:cursor-not-allowed"${disabledAttr(!state.isAuthenticated || state.isIssueUpdating)}>${renderOptions(DETAIL_STATUS_OPTIONS, issue.status)}</select></div>
           <div class="flex items-center gap-2 border border-[#e5e7eb] rounded-sm-ds px-2 py-1"><label class="text-[10px] font-mono text-[#6b7280] uppercase">Priority</label><select data-patch-issue="true" data-field="priority" class="text-xs font-bold text-[#f59e0b] bg-transparent outline-none cursor-pointer disabled:cursor-not-allowed"${disabledAttr(!state.isAuthenticated || state.isIssueUpdating)}>${renderOptions(PRIORITY_OPTIONS.filter((option) => option.value), String(issue.priority))}</select></div>
-          ${state.issueCopyFeedback ? `<span class="w-full text-[10px] font-mono ${state.issueCopyFeedbackTone === "error" ? "text-[#dc2626]" : "text-[#16a34a]"}">${escapeHtml(state.issueCopyFeedback)}</span>` : ""}
         </div>
       </header>
       <div class="flex-1 overflow-hidden flex flex-col">
@@ -2615,17 +2613,19 @@
 
   async function handleCopyIssueUrl(issue) {
     const copied = await copyToClipboard(absoluteIssueDetailUrl(issue?.id));
-    state.issueCopyFeedback = copied ? "Issue URL copied." : "Copy failed. Please copy manually.";
-    state.issueCopyFeedbackTone = copied ? "success" : "error";
-    setStatus(copied ? "Issue URL copied." : "Copy failed. Please copy manually.", !copied);
+    state.issueCopiedAction = copied ? "share" : "";
+    if (!copied) {
+      setStatus("Copy failed. Please copy manually.", true);
+    }
     render();
   }
 
   async function handleCopyIssueAgentPrompt(issue, project) {
     const copied = await copyToClipboard(buildIssueAgentPromptText(issue, project));
-    state.issueCopyFeedback = copied ? "Agent instruction copied." : "Copy failed. Please copy manually.";
-    state.issueCopyFeedbackTone = copied ? "success" : "error";
-    setStatus(copied ? "Issue agent instruction copied." : "Copy failed. Please copy manually.", !copied);
+    state.issueCopiedAction = copied ? "prompt" : "";
+    if (!copied) {
+      setStatus("Copy failed. Please copy manually.", true);
+    }
     render();
   }
 
