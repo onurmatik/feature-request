@@ -141,6 +141,8 @@
     issueTitleDraft: "",
     issueDescriptionDraft: "",
     issueEditFeedback: "",
+    issueCopyFeedback: "",
+    issueCopyFeedbackTone: "",
     messages: [],
     isMessagesLoading: false,
     selectedMessageThreadId: "",
@@ -358,6 +360,15 @@
     if (pathParts.length === 2) {
       return { kind: "board", ownerHandle: first, projectSlug: String(pathParts[1] || ""), isProjectFormRoute: false };
     }
+    if (pathParts.length === 4 && pathParts[2] === "issues" && /^\d+$/.test(pathParts[3])) {
+      return {
+        kind: "board",
+        ownerHandle: first,
+        projectSlug: String(pathParts[1] || ""),
+        issueId: Number(pathParts[3]),
+        isProjectFormRoute: false,
+      };
+    }
     if (pathParts.length === 3 && pathParts[1] === "projects" && pathParts[2] === "new") {
       return { kind: "board", ownerHandle: first, projectSlug: "", isProjectFormRoute: true };
     }
@@ -412,7 +423,14 @@
       }
       state.ownerHandle = nextOwnerHandle;
       state.selectedProjectSlug = route.isProjectFormRoute ? "" : String(route.projectSlug || "");
-      state.isIssueDetailOpen = false;
+      state.selectedIssueId = route.issueId || null;
+      state.isIssueDetailOpen = Boolean(route.issueId);
+      if (route.issueId) {
+        state.typeFilter = "";
+        state.statusFilter = "";
+        state.priorityFilter = "";
+        state.searchQuery = "";
+      }
       state.view = route.isProjectFormRoute ? "newProject" : "issues";
       return;
     }
@@ -722,6 +740,38 @@
       .join("\n");
   }
 
+  function buildIssueAgentPromptText(issue, project) {
+    const baseOrigin = window.location.origin.replace(/\/+$/, "");
+    const ownerHandle = normalizeHandle(state.ownerHandle || project?.owner_handle || "");
+    const projectSlug = String(state.selectedProjectSlug || project?.slug || "").trim();
+    const issueId = Number(issue?.id);
+    const detailUrl = absoluteIssueDetailUrl(issueId);
+    const apiUrl = `${baseOrigin}/api/issues/${issueId}`;
+    return [
+      "Use the FeatureRequest skill to implement this exact issue in the current local repository.",
+      "",
+      `Issue: #${issueId} ${String(issue?.title || "").trim()}`,
+      `Issue URL: ${detailUrl}`,
+      `Issue API: ${apiUrl}`,
+      `Skill catalog: ${agentSkillCatalogUrl(baseOrigin)}`,
+      "",
+      "Scope:",
+      `- owner_handle: ${ownerHandle}`,
+      `- project_slug: ${projectSlug}`,
+      `- project_name: ${String(project?.name || projectSlug).trim()}`,
+      `- issue_id: ${issueId}`,
+      "- Use only this issue as the FeatureRequest work item; do not pick another request.",
+      "",
+      "Implementation rules:",
+      `- Read GET ${apiUrl} and treat its current title, description, status, and priority as the source of truth.`,
+      "- Inspect the current local repository and produce a short implementation plan before editing.",
+      "- Keep changes scoped to this issue and preserve unrelated local work.",
+      "- Run relevant tests after editing and summarize the validation evidence.",
+      "- If write-enabled FeatureRequest API access is already available, add a concise implementation comment to this issue.",
+      "- Do not mark the issue done or closed automatically.",
+    ].join("\n");
+  }
+
   async function copyToClipboard(value) {
     const text = String(value || "");
     if (!text) {
@@ -855,8 +905,7 @@
           return title.includes(query) || description.includes(query);
         })
       : state.issues;
-    const selectedIssue =
-      filteredIssues.find((issue) => issue.id === state.selectedIssueId) || filteredIssues[0] || null;
+    const selectedIssue = state.issues.find((issue) => issue.id === state.selectedIssueId) || null;
     const isOwnerViewer =
       state.isAuthenticated &&
       normalizeHandle(state.currentUserHandle) === normalizeHandle(state.ownerHandle);
@@ -1069,6 +1118,20 @@
     return projectBoardUrl(state.ownerHandle, slug);
   }
 
+  function issueDetailUrl(ownerHandle, projectSlug, issueId) {
+    const normalizedOwner = normalizeHandle(ownerHandle);
+    const normalizedProjectSlug = String(projectSlug || "").trim();
+    const normalizedIssueId = Number(issueId);
+    if (!normalizedOwner || !normalizedProjectSlug || !Number.isInteger(normalizedIssueId) || normalizedIssueId <= 0) {
+      return projectBoardUrl(normalizedOwner, normalizedProjectSlug);
+    }
+    return `/${normalizedOwner}/${normalizedProjectSlug}/issues/${normalizedIssueId}/`;
+  }
+
+  function absoluteIssueDetailUrl(issueId) {
+    return new URL(issueDetailUrl(state.ownerHandle, state.selectedProjectSlug, issueId), window.location.origin).href;
+  }
+
   function currentUserWorkspaceUrl() {
     const handle = normalizeHandle(state.currentUserHandle);
     return state.isAuthenticated && isValidHandle(handle) ? `/${handle}/` : "/";
@@ -1093,7 +1156,7 @@
     let title = APP_NAME;
     let description = APP_BASE_DESCRIPTION;
     const selectedProject = computed.selectedProject;
-    const selectedIssue = computed.selectedIssue;
+    const selectedIssue = state.isIssueDetailOpen ? computed.selectedIssue : null;
     if (state.isRouteNotFound) {
       title = `404 | ${APP_NAME}`;
       description = "The requested page could not be found.";
@@ -1175,7 +1238,7 @@
         }
       }
     }
-    ensureSelectedIssueComments(computed.selectedIssue);
+    ensureSelectedIssueComments(state.isIssueDetailOpen ? computed.selectedIssue : null);
   }
 
   function getVisibleBoundElement(focusKey) {
@@ -1217,6 +1280,8 @@
     state.issueTitleDraft = selectedIssue?.title || "";
     state.issueDescriptionDraft = selectedIssue?.description || "";
     state.issueEditFeedback = "";
+    state.issueCopyFeedback = "";
+    state.issueCopyFeedbackTone = "";
     state.editingCommentId = null;
     state.commentEditDraft = "";
     state.commentEditFeedback = "";
@@ -1754,11 +1819,11 @@
             ${
               !computed.filteredIssues.length
                 ? `<div class="p-4 text-sm text-[#6b7280]">${emptyRequestsText()}</div>`
-                : computed.filteredIssues.map((issue) => renderIssueRow(issue, computed.selectedIssue?.id === issue.id)).join("")
+                : computed.filteredIssues.map((issue) => renderIssueRow(issue, state.isIssueDetailOpen && computed.selectedIssue?.id === issue.id)).join("")
             }
           </div>
         </section>
-        <main class="hidden lg:flex flex-1 bg-white flex-col overflow-hidden">${state.isNewIssueOpen ? renderNewIssuePane() : computed.selectedIssue ? renderIssueDetail(computed) : `<div class="p-10 text-[#6b7280]">Select a request to view details.</div>`}</main>
+        <main class="hidden lg:flex flex-1 bg-white flex-col overflow-hidden">${state.isNewIssueOpen ? renderNewIssuePane() : state.isIssueDetailOpen && computed.selectedIssue ? renderIssueDetail(computed) : `<div class="p-10 text-[#6b7280]">Select a request to view details.</div>`}</main>
       </div>`;
   }
 
@@ -1809,8 +1874,11 @@
           </div>
         </div>
         <div class="flex flex-wrap items-center gap-2">
+          <button type="button" data-action="copy-issue-url" class="inline-flex items-center gap-1.5 border border-[#e5e7eb] rounded-sm-ds px-2 py-1.5 text-xs font-bold text-[#6b7280] hover:bg-[#f3f4f6] hover:text-[#111827] transition-colors" title="Copy issue URL">${icon("link", 14)}Share</button>
+          <button type="button" data-action="copy-issue-agent-prompt" class="inline-flex items-center gap-1.5 border border-[#e5e7eb] rounded-sm-ds px-2 py-1.5 text-xs font-bold text-[#6b7280] hover:bg-[#f3f4f6] hover:text-[#111827] transition-colors" title="Copy agent instruction for this issue">${icon("bot", 14)}Agent instruction</button>
           <div class="flex items-center gap-2 border border-[#e5e7eb] rounded-sm-ds px-2 py-1"><label class="text-[10px] font-mono text-[#6b7280] uppercase">Status</label><select data-patch-issue="true" data-field="status" class="text-xs font-bold text-[#16a34a] bg-transparent outline-none cursor-pointer disabled:cursor-not-allowed"${disabledAttr(!state.isAuthenticated || state.isIssueUpdating)}>${renderOptions(DETAIL_STATUS_OPTIONS, issue.status)}</select></div>
           <div class="flex items-center gap-2 border border-[#e5e7eb] rounded-sm-ds px-2 py-1"><label class="text-[10px] font-mono text-[#6b7280] uppercase">Priority</label><select data-patch-issue="true" data-field="priority" class="text-xs font-bold text-[#f59e0b] bg-transparent outline-none cursor-pointer disabled:cursor-not-allowed"${disabledAttr(!state.isAuthenticated || state.isIssueUpdating)}>${renderOptions(PRIORITY_OPTIONS.filter((option) => option.value), String(issue.priority))}</select></div>
+          ${state.issueCopyFeedback ? `<span class="w-full text-[10px] font-mono ${state.issueCopyFeedbackTone === "error" ? "text-[#dc2626]" : "text-[#16a34a]"}">${escapeHtml(state.issueCopyFeedback)}</span>` : ""}
         </div>
       </header>
       <div class="flex-1 overflow-hidden flex flex-col">
@@ -2276,9 +2344,26 @@
     }
     const data = await response.json();
     state.issues = Array.isArray(data) ? data : [];
-    const computed = getComputed();
-    state.selectedIssueId = computed.selectedIssue?.id || null;
-    if (!computed.selectedIssue) {
+    const route = parseRoute();
+    const routeIssueId =
+      route.kind === "board" &&
+      normalizeHandle(route.ownerHandle) === normalizeHandle(state.ownerHandle) &&
+      String(route.projectSlug || "") === String(state.selectedProjectSlug || "")
+        ? route.issueId || null
+        : null;
+    if (routeIssueId) {
+      const routeIssue = state.issues.find((issue) => issue.id === routeIssueId) || null;
+      if (!routeIssue) {
+        state.selectedIssueId = null;
+        state.isIssueDetailOpen = false;
+        state.isRouteNotFound = true;
+        render();
+        return;
+      }
+      state.selectedIssueId = routeIssue.id;
+      state.isIssueDetailOpen = true;
+    } else if (!state.issues.some((issue) => issue.id === state.selectedIssueId)) {
+      state.selectedIssueId = null;
       state.isIssueDetailOpen = false;
     }
     setStatus(`${state.issues.length} requests listed.`);
@@ -2528,6 +2613,22 @@
     render();
   }
 
+  async function handleCopyIssueUrl(issue) {
+    const copied = await copyToClipboard(absoluteIssueDetailUrl(issue?.id));
+    state.issueCopyFeedback = copied ? "Issue URL copied." : "Copy failed. Please copy manually.";
+    state.issueCopyFeedbackTone = copied ? "success" : "error";
+    setStatus(copied ? "Issue URL copied." : "Copy failed. Please copy manually.", !copied);
+    render();
+  }
+
+  async function handleCopyIssueAgentPrompt(issue, project) {
+    const copied = await copyToClipboard(buildIssueAgentPromptText(issue, project));
+    state.issueCopyFeedback = copied ? "Agent instruction copied." : "Copy failed. Please copy manually.";
+    state.issueCopyFeedbackTone = copied ? "success" : "error";
+    setStatus(copied ? "Issue agent instruction copied." : "Copy failed. Please copy manually.", !copied);
+    render();
+  }
+
   function openAuth(mode) {
     state.authMode = mode;
     state.authFeedback = "";
@@ -2632,6 +2733,41 @@
       owned: false,
       interacted: false,
     };
+  }
+
+  function openIssueDetailAndHistory(issueId) {
+    const normalizedIssueId = Number(issueId);
+    if (!state.selectedProjectSlug || !Number.isInteger(normalizedIssueId) || normalizedIssueId <= 0) {
+      return;
+    }
+    const currentRoute = parseRoute();
+    const nextUrl = issueDetailUrl(state.ownerHandle, state.selectedProjectSlug, normalizedIssueId);
+    const openedFromBoard = Boolean(window.history.state?.fromBoard || (currentRoute.kind === "board" && !currentRoute.issueId));
+    state.selectedIssueId = normalizedIssueId;
+    state.isIssueDetailOpen = true;
+    state.isNewIssueOpen = false;
+    if (window.location.pathname !== nextUrl) {
+      const method = currentRoute.kind === "board" && currentRoute.issueId ? "replaceState" : "pushState";
+      window.history[method]({ slug: state.selectedProjectSlug, issueId: normalizedIssueId, fromBoard: openedFromBoard }, "", nextUrl);
+    }
+    render();
+  }
+
+  function closeIssueDetailAndHistory({ useBrowserBack = false } = {}) {
+    state.selectedIssueId = null;
+    state.isIssueDetailOpen = false;
+    state.isNewIssueOpen = false;
+    const nextUrl = boardUrl(state.selectedProjectSlug);
+    if (window.location.pathname === nextUrl) {
+      render();
+      return;
+    }
+    if (useBrowserBack && window.history.state?.fromBoard) {
+      window.history.back();
+      return;
+    }
+    window.history.replaceState({ slug: state.selectedProjectSlug }, "", nextUrl);
+    render();
   }
 
   function setProjectSlugAndHistory(slug) {
@@ -3049,10 +3185,13 @@
       state.newIssuePriority = "2";
       state.isNewIssueOpen = false;
       state.newIssueFeedback = "";
+      state.typeFilter = "";
+      state.statusFilter = "";
+      state.priorityFilter = "";
+      state.searchQuery = "";
       await Promise.all([refreshIssues(), refreshProjects()]);
-      state.selectedIssueId = data.id;
-      state.isIssueDetailOpen = true;
       setStatus("Request created.");
+      openIssueDetailAndHistory(data.id);
     } finally {
       state.isNewIssueSubmitting = false;
       render();
@@ -3331,7 +3470,7 @@
     }
     state[bind] = target.value;
     if (["typeFilter", "statusFilter", "priorityFilter"].includes(bind)) {
-      state.isIssueDetailOpen = false;
+      closeIssueDetailAndHistory();
       refreshIssues().catch(() => {
         setStatus("Requests could not be loaded.", true);
         render();
@@ -3463,19 +3602,15 @@
         break;
       case "open-project-settings":
         state.selectedProjectSlug = element.dataset.slug || state.selectedProjectSlug;
+        closeIssueDetailAndHistory();
         state.view = "projectSettings";
         render();
         break;
       case "select-issue":
-        state.selectedIssueId = Number(element.dataset.id);
-        state.isIssueDetailOpen = true;
-        state.isNewIssueOpen = false;
-        render();
+        openIssueDetailAndHistory(element.dataset.id);
         break;
       case "back-to-request-list":
-        state.isIssueDetailOpen = false;
-        state.isNewIssueOpen = false;
-        render();
+        closeIssueDetailAndHistory({ useBrowserBack: true });
         break;
       case "open-new-issue":
         if (!state.selectedProjectSlug) {
@@ -3484,9 +3619,9 @@
           openAuth("signIn");
           return;
         } else {
+          closeIssueDetailAndHistory();
           state.newIssueFeedback = "";
           state.isNewIssueOpen = true;
-          state.isIssueDetailOpen = false;
         }
         render();
         break;
@@ -3503,7 +3638,7 @@
         state.statusFilter = "";
         state.priorityFilter = "";
         state.searchQuery = "";
-        state.isIssueDetailOpen = false;
+        closeIssueDetailAndHistory();
         refreshIssues();
         break;
       case "upvote":
@@ -3618,6 +3753,16 @@
       case "copy-project-agent-prompt":
         if (computed.isOwnerViewer) {
           handleCopyProjectAgentPrompt(computed.selectedProject);
+        }
+        break;
+      case "copy-issue-url":
+        if (computed.selectedIssue) {
+          handleCopyIssueUrl(computed.selectedIssue);
+        }
+        break;
+      case "copy-issue-agent-prompt":
+        if (computed.selectedIssue && computed.selectedProject) {
+          handleCopyIssueAgentPrompt(computed.selectedIssue, computed.selectedProject);
         }
         break;
       case "copy-api-token":
