@@ -47,6 +47,54 @@ Open the app at:
 http://127.0.0.1:8000/<owner_handle>/
 ```
 
+## Embed Widget
+
+Project owners can generate a non-persisted widget snippet from **Project Settings →
+Embed Widget**. The loader is isolated from host-page CSS with Shadow DOM and opens the
+FeatureRequest form in a same-service iframe. Replace the owner and project values in this
+example, or copy the generated snippet from settings:
+
+```html
+<script
+  src="https://featurerequest.io/static/projects/embed-widget.js"
+  data-fr-origin="https://featurerequest.io"
+  data-fr-owner="owner_handle"
+  data-fr-project="project-slug"
+  data-fr-label="Feedback"
+  data-fr-position="right"
+  data-fr-color="#06B6D4"
+  defer
+></script>
+```
+
+The widget accepts `left` or `right` placement and a six-digit hex accent color. It never
+receives an API token and only submits to the FeatureRequest origin. A request remains
+pending until the visitor opens the email link and confirms publication with the CSRF-
+protected **Publish request** form. Published widget requests use server-assigned Medium
+priority.
+
+For a host site with a strict Content Security Policy, add the FeatureRequest/static origin
+to `script-src` and `style-src`, and the FeatureRequest application origin to `frame-src`.
+For the example above, the minimum additions are:
+
+```text
+script-src https://featurerequest.io
+style-src https://featurerequest.io
+frame-src https://featurerequest.io
+```
+
+Set both `TURNSTILE_SITEKEY` and `TURNSTILE_SECRETKEY`. The Turnstile widget hostname must
+match the FeatureRequest deployment hostname because the challenge runs inside the iframe.
+Every submission is validated server-side against Cloudflare Siteverify with the
+`embed_submission` action before moderation or email delivery.
+
+Public widget routes:
+
+- `GET /embed/{owner_handle}/{project_slug}/`
+- `POST /api/embed/projects/{owner_handle}/{project_slug}/submissions`
+- `GET|POST /embed/submissions/{token}/verify/`
+- `/static/projects/embed-widget.js`
+
 ## Environment Notes
 
 - `ADMIN_URL` configures the Django admin route (defaults to `/admin/`).
@@ -82,7 +130,7 @@ Create a `.env` file at the repository root (or set environment variables) for l
 - Rebuild Tailwind CSS after editing template/static frontend classes:
 
   ```bash
-  npx tailwindcss -c tailwind.config.js \
+  npx --yes tailwindcss@3.4.17 -c tailwind.config.js \
     -i projects/static/projects/app.tailwind.css \
     -o projects/static/projects/app.css \
     --minify

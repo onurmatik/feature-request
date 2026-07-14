@@ -1,0 +1,105 @@
+{% load static %}
+<!doctype html>
+<html lang="en" style="--fr-accent: {{ accent }}; --fr-accent-contrast: {{ accent_contrast }};">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex,nofollow">
+    <title>Send feedback to {{ project.name }}</title>
+    <link rel="stylesheet" href="{% static 'projects/embed-widget.css' %}">
+    {% if not preview and turnstile_sitekey %}
+      <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" defer></script>
+    {% endif %}
+  </head>
+  <body class="fr-embed-body">
+    <main
+      class="fr-panel"
+      data-fr-panel
+      data-api-url="{{ submission_api_url }}"
+      data-preview="{% if preview %}true{% else %}false{% endif %}"
+    >
+      <header class="fr-panel__header">
+        <div class="fr-project">
+          {% if project.favicon_url %}
+            <img class="fr-project__icon" src="{{ project.favicon_url }}" alt="" referrerpolicy="no-referrer">
+          {% else %}
+            <span class="fr-project__icon fr-project__icon--fallback" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
+            </span>
+          {% endif %}
+          <span class="fr-project__copy">
+            <strong>{{ project.name }}</strong>
+            <small>Send product feedback</small>
+          </span>
+        </div>
+        <button class="fr-icon-button" type="button" data-fr-close aria-label="Close feedback panel">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        </button>
+      </header>
+
+      <section class="fr-panel__content">
+        {% if preview %}
+          <p class="fr-preview-badge">Preview mode</p>
+        {% endif %}
+        <form class="fr-form" data-fr-form novalidate>
+          <div class="fr-field-grid">
+            <label class="fr-field">
+              <span>Name</span>
+              <input name="display_name" type="text" maxlength="120" autocomplete="name" placeholder="Your name" required>
+            </label>
+            <label class="fr-field">
+              <span>Email</span>
+              <input name="email" type="email" maxlength="254" autocomplete="email" placeholder="you@example.com" required>
+            </label>
+          </div>
+          <label class="fr-field">
+            <span>Request type</span>
+            <select name="issue_type">
+              <option value="feature">Feature request</option>
+              <option value="bug">Bug report</option>
+            </select>
+          </label>
+          <label class="fr-field">
+            <span>Title</span>
+            <input name="title" type="text" maxlength="200" placeholder="A short summary" required>
+          </label>
+          <label class="fr-field">
+            <span>Details</span>
+            <textarea name="description" maxlength="5000" rows="5" placeholder="What would you like to see, or what went wrong?" required></textarea>
+          </label>
+
+          {% if not preview and turnstile_sitekey %}
+            <div
+              class="cf-turnstile fr-turnstile"
+              data-sitekey="{{ turnstile_sitekey }}"
+              data-action="embed_submission"
+              data-size="flexible"
+            ></div>
+          {% elif not preview %}
+            <p class="fr-feedback fr-feedback--error">Human verification is not configured.</p>
+          {% endif %}
+
+          <p class="fr-feedback" data-fr-feedback aria-live="polite"></p>
+          <button class="fr-submit" type="submit" {% if preview or not turnstile_sitekey %}disabled{% endif %}>
+            Send verification link
+          </button>
+          <p class="fr-form__note">Your request appears after you confirm it by email.</p>
+        </form>
+
+        <div class="fr-success" data-fr-success hidden>
+          <span class="fr-success__icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m20 6-11 11-5-5"/></svg>
+          </span>
+          <h1>Check your email</h1>
+          <p>Open the verification link to review and publish your request.</p>
+        </div>
+      </section>
+
+      <footer class="fr-panel__footer">
+        <a href="{{ board_url }}" target="_blank" rel="noopener noreferrer">View requests</a>
+        <span>Powered by FeatureRequest</span>
+      </footer>
+    </main>
+    <script src="{% static 'projects/embed-panel.js' %}" defer></script>
+  </body>
+</html>

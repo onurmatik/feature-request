@@ -80,7 +80,28 @@
       "local": "http://127.0.0.1:8000",
       "web": "https://featurerequest.io"
     },
-    "stack": "Django + Django Ninja"
+    "stack": "Django + Django Ninja",
+    "response_contracts": {
+      "issue": {
+        "author_identity_fields": [
+          "author_id",
+          "author_handle",
+          "author_display_name",
+          "author_avatar_url"
+        ],
+        "notes": [
+          "Prefer author_display_name for public display while preserving author_id and author_handle for backward compatibility."
+        ]
+      }
+    },
+    "browser_only_routes": [
+      {
+        "method": "POST",
+        "path": "/api/embed/projects/{owner_handle}/{project_slug}/submissions",
+        "agent_access": false,
+        "description": "Widget-only intake endpoint. Requires a browser Turnstile token and email verification; agents must continue to use the authenticated create_issue endpoint."
+      }
+    ]
   },
   "auth": {
     "modes": [
@@ -118,8 +139,8 @@
   },
   "limits": {
     "rate_limiting": {
-      "status": "not_enforced",
-      "note": "No explicit request-rate limit middleware is configured in repository code."
+      "status": "endpoint_specific",
+      "note": "No global request-rate limit middleware is configured. Embed verification emails are limited to three per project/email fingerprint per hour."
     },
     "project_limit": {
       "free": 1,
@@ -137,6 +158,7 @@
     },
     "dependency_risks": [
       "OpenAI key required for some moderation flows; moderation failures can return 503.",
+      "Turnstile site and secret keys are required for browser embed submissions; Siteverify failures return 503.",
       "Stripe is optional until billing routes are used."
     ]
   },
@@ -316,6 +338,29 @@
         "priority": "integer"
       },
       "description": "Create issue and run moderation."
+    },
+    {
+      "name": "create_embed_submission",
+      "method": "POST",
+      "path": "/api/embed/projects/{owner_handle}/{project_slug}/submissions",
+      "auth": "none",
+      "audience": "browser_only",
+      "agent_access": false,
+      "required_body": {
+        "display_name": "string",
+        "email": "string",
+        "issue_type": "string",
+        "title": "string",
+        "description": "string",
+        "turnstile_token": "string"
+      },
+      "success": {
+        "status": 202,
+        "body": {
+          "status": "verification_sent"
+        }
+      },
+      "description": "Browser widget intake only. Creates a pending email-verification record, never an issue directly. Agents must use create_issue instead."
     },
     {
       "name": "get_issue",

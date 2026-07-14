@@ -165,3 +165,44 @@ class IssueComment(models.Model):
 
     def __str__(self):
         return f"Comment #{self.pk} on issue #{self.issue_id}"
+
+
+class EmbeddedIssueSubmission(models.Model):
+    project = models.ForeignKey(
+        Project,
+        related_name="embedded_issue_submissions",
+        on_delete=models.CASCADE,
+    )
+    display_name = models.CharField(max_length=120, blank=True)
+    email = models.EmailField(blank=True)
+    email_fingerprint = models.CharField(max_length=64, db_index=True)
+    issue_type = models.CharField(
+        max_length=16,
+        choices=Issue.Type.choices,
+        blank=True,
+    )
+    title = models.CharField(max_length=200, blank=True)
+    description = models.TextField(blank=True)
+    token_hash = models.CharField(max_length=64, unique=True)
+    expires_at = models.DateTimeField(db_index=True)
+    verified_at = models.DateTimeField(null=True, blank=True)
+    issue = models.OneToOneField(
+        Issue,
+        related_name="embedded_submission",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(
+                fields=["project", "email_fingerprint", "created_at"],
+                name="embed_proj_email_created_idx",
+            )
+        ]
+
+    def __str__(self):
+        return f"Embedded submission for {self.project}"

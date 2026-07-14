@@ -1,0 +1,48 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex,nofollow">
+    <title>Verify request · FeatureRequest</title>
+    <link rel="stylesheet" href="{% static 'projects/embed-widget.css' %}">
+  </head>
+  <body class="fr-verify-body">
+    <main class="fr-verify-card">
+      <a class="fr-brand" href="/">
+        <span class="fr-brand__mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="6" height="6" rx="1"/><path d="m3 17 2 2 4-4"/><path d="M13 6h8"/><path d="M13 12h8"/><path d="M13 18h8"/></svg>
+        </span>
+        <strong>FeatureRequest</strong>
+      </a>
+
+      {% if state == "confirm" %}
+        <div class="fr-verify-heading">
+          <p class="fr-eyebrow">Email verified</p>
+          <h1>Review and publish</h1>
+          <p>Your request will be published on {{ project.name }} after confirmation.</p>
+        </div>
+        <dl class="fr-request-summary">
+          <div><dt>From</dt><dd>{{ submission.display_name }}</dd></div>
+          <div><dt>Type</dt><dd>{{ submission.get_issue_type_display }}</dd></div>
+          <div><dt>Title</dt><dd>{{ submission.title }}</dd></div>
+          {% if submission.description %}<div><dt>Details</dt><dd>{{ submission.description|linebreaksbr }}</dd></div>{% endif %}
+        </dl>
+        <form method="post" class="fr-verify-actions">
+          {% csrf_token %}
+          <a href="{{ board_url }}">Cancel</a>
+          <button type="submit">Publish request</button>
+        </form>
+        <p class="fr-verify-note">Publishing signs you in to a lightweight FeatureRequest account so you can manage this request later.</p>
+      {% else %}
+        <div class="fr-verify-heading">
+          <p class="fr-eyebrow fr-eyebrow--error">Verification unavailable</p>
+          <h1>The request was not published</h1>
+          <p>{{ message }}</p>
+        </div>
+        {% if board_url %}<a class="fr-secondary-link" href="{{ board_url }}">View project requests</a>{% endif %}
+      {% endif %}
+    </main>
+  </body>
+</html>

@@ -108,6 +108,12 @@
 
   const root = document.getElementById("app");
   const bootstrap = window.__FR_BOOTSTRAP__ || {};
+  const WIDGET_SCRIPT_URL = new URL(
+    typeof window.__FR_WIDGET_SCRIPT_URL__ === "string" && window.__FR_WIDGET_SCRIPT_URL__
+      ? window.__FR_WIDGET_SCRIPT_URL__
+      : "/static/projects/embed-widget.js",
+    window.location.origin,
+  ).href;
   const isInitialMobileViewport =
     typeof window.matchMedia === "function" && window.matchMedia("(max-width: 767px)").matches;
 
@@ -191,6 +197,10 @@
     projectUrlDraft: "",
     projectFeedback: "",
     projectFeedbackTone: "",
+    embedWidgetLabel: "Feedback",
+    embedWidgetPosition: "right",
+    embedWidgetColor: "#06B6D4",
+    embedWidgetCopyFeedback: "",
     projectDraftProjectId: null,
     isProjectSaving: false,
     isNewProjectSubmitting: false,
@@ -1266,6 +1276,10 @@
     state.projectUrlDraft = selectedProject?.url || "";
     state.projectFeedback = "";
     state.projectFeedbackTone = "";
+    state.embedWidgetLabel = "Feedback";
+    state.embedWidgetPosition = "right";
+    state.embedWidgetColor = "#06B6D4";
+    state.embedWidgetCopyFeedback = "";
   }
 
   function ensureSelectedIssueComments(selectedIssue) {
@@ -1869,7 +1883,7 @@
           <div class="flex flex-wrap items-center gap-3">
           <button type="button" data-action="upvote" class="flex items-center gap-1.5 px-3 py-1.5 border border-[#e5e7eb] rounded-sm-ds text-[#111827] font-semibold text-xs hover:bg-[#f3f4f6] transition-colors disabled:opacity-50"${disabledAttr(state.isIssueUpdating)}>${icon("thumbs-up", 18, "text-[#06B6D4]")}Upvote (${Number(issue.upvotes_count || 0)})</button>
           <div class="hidden sm:block h-4 w-[1px] bg-[#e5e7eb]"></div>
-          <div class="flex items-center gap-2">${userAvatar(issue.author_avatar_url, issue.author_handle || `user-${issue.author_id}`, "w-6 h-6", "bg-cyan-50 border border-cyan-100 text-[#06B6D4]", "text-[9px] font-bold")}<span class="text-[10px] font-mono text-[#6b7280] uppercase">Created by @${escapeHtml(issue.author_handle || `user-${issue.author_id}`)} • ${formatLongDate(issue.created_at)}</span></div>
+          <div class="flex items-center gap-2">${userAvatar(issue.author_avatar_url, issue.author_display_name || issue.author_handle || `user-${issue.author_id}`, "w-6 h-6", "bg-cyan-50 border border-cyan-100 text-[#06B6D4]", "text-[9px] font-bold")}<span class="text-[10px] font-mono text-[#6b7280] uppercase">Created by ${escapeHtml(issue.author_display_name || `@${issue.author_handle || `user-${issue.author_id}`}`)} • ${formatLongDate(issue.created_at)}</span></div>
           </div>
         </div>
         <div class="flex flex-wrap items-center gap-2">
@@ -2141,12 +2155,70 @@
             ${state.projectFeedback ? `<p class="text-xs ${state.projectFeedbackTone === "error" ? "text-[#dc2626]" : state.projectFeedbackTone === "success" ? "text-[#16a34a]" : "text-[#6b7280]"}">${escapeHtml(state.projectFeedback)}</p>` : ""}
             <div class="flex justify-end"><button type="button" data-action="save-project" class="px-6 py-2 bg-[#06B6D4] text-white text-sm font-bold rounded-sm-ds hover:bg-cyan-600 shadow-sm transition-all disabled:opacity-45"${disabledAttr(!project || !computed.isOwnerViewer || state.isProjectSaving)}>${state.isProjectSaving ? "Saving..." : "Save Changes"}</button></div>
           </section>
+          ${project ? renderEmbedWidgetSettings(project, computed) : ""}
           <section class="space-y-6">
             <div class="pb-4 border-b border-[#e5e7eb]"><h3 class="text-sm font-bold uppercase tracking-widest text-[#dc2626]">Danger Zone</h3></div>
             <div class="p-4 border border-rose-100 bg-rose-50 rounded-md-ds flex flex-col md:flex-row gap-4 md:items-center md:justify-between"><div class="space-y-1"><p class="text-sm font-bold text-[#111827]">Delete this project</p><p class="text-xs text-[#6b7280]">Once deleted, all data including issues and comments will be permanently removed.</p></div><button type="button" data-action="open-delete-modal" class="px-4 py-2 bg-[#dc2626] text-white text-xs font-bold rounded-sm-ds hover:bg-red-700 transition-all shadow-sm"${disabledAttr(!project || !computed.isOwnerViewer || state.isProjectDeleting)}>Delete Project</button></div>
           </section>
         </div>
       </div>`;
+  }
+
+  function normalizedEmbedWidgetColor() {
+    const candidate = String(state.embedWidgetColor || "").trim().toUpperCase();
+    return /^#[0-9A-F]{6}$/.test(candidate) ? candidate : "#06B6D4";
+  }
+
+  function hasValidEmbedWidgetColor() {
+    return /^#[0-9A-F]{6}$/i.test(String(state.embedWidgetColor || "").trim());
+  }
+
+  function embedWidgetSnippet(project) {
+    const label = String(state.embedWidgetLabel || "Feedback").trim().slice(0, 32) || "Feedback";
+    const position = state.embedWidgetPosition === "left" ? "left" : "right";
+    return [
+      "<script",
+      `  src="${escapeAttr(WIDGET_SCRIPT_URL)}"`,
+      `  data-fr-origin="${escapeAttr(window.location.origin)}"`,
+      `  data-fr-owner="${escapeAttr(project.owner_handle || state.ownerHandle)}"`,
+      `  data-fr-project="${escapeAttr(project.slug)}"`,
+      `  data-fr-label="${escapeAttr(label)}"`,
+      `  data-fr-position="${position}"`,
+      `  data-fr-color="${normalizedEmbedWidgetColor()}"`,
+      "  defer",
+      "></script>",
+    ].join("\n");
+  }
+
+  function renderEmbedWidgetSettings(project, computed) {
+    const disabled = !computed.isOwnerViewer;
+    const color = normalizedEmbedWidgetColor();
+    const previewUrl = `/embed/${encodeURIComponent(project.owner_handle || state.ownerHandle)}/${encodeURIComponent(project.slug)}/?preview=1&accent=${encodeURIComponent(color)}`;
+    const snippet = embedWidgetSnippet(project);
+    const scriptOrigin = new URL(WIDGET_SCRIPT_URL, window.location.origin).origin;
+    return `
+      <section class="space-y-6">
+        <div class="pb-4 border-b border-[#e5e7eb]"><h3 class="text-sm font-bold uppercase tracking-widest text-[#6b7280]">Embed Widget</h3></div>
+        <p class="text-sm text-[#6b7280]">Add a feedback launcher to any website. These options are written into the snippet and are not stored on the project.</p>
+        <div class="grid grid-cols-1 lg:grid-cols-5 gap-8">
+          <div class="lg:col-span-2 space-y-5">
+            <div class="space-y-1.5"><label class="text-[10px] font-mono font-bold text-[#6b7280] uppercase">Button label</label><input type="text" maxlength="32" data-bind="embedWidgetLabel" value="${escapeAttr(state.embedWidgetLabel)}" class="w-full px-3 py-2 border border-[#e5e7eb] rounded-sm-ds text-sm bg-white outline-none focus:ring-1 focus:ring-[#06B6D4]"${disabledAttr(disabled)}></div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div class="space-y-1.5"><label class="text-[10px] font-mono font-bold text-[#6b7280] uppercase">Position</label><select data-bind="embedWidgetPosition" class="w-full px-3 py-2 border border-[#e5e7eb] rounded-sm-ds text-sm bg-white outline-none focus:ring-1 focus:ring-[#06B6D4]"${disabledAttr(disabled)}><option value="right"${selectedAttr("right", state.embedWidgetPosition)}>Bottom right</option><option value="left"${selectedAttr("left", state.embedWidgetPosition)}>Bottom left</option></select></div>
+              <div class="space-y-1.5"><label class="text-[10px] font-mono font-bold text-[#6b7280] uppercase">Accent color</label><div class="flex gap-2"><span class="w-9 h-9 shrink-0 border border-[#e5e7eb] rounded-sm-ds" style="background:${color}"></span><input type="text" maxlength="7" data-bind="embedWidgetColor" value="${escapeAttr(state.embedWidgetColor)}" class="min-w-0 w-full px-3 py-2 border border-[#e5e7eb] rounded-sm-ds font-mono text-xs uppercase bg-white outline-none focus:ring-1 focus:ring-[#06B6D4]"${disabledAttr(disabled)}></div>${state.embedWidgetColor && !hasValidEmbedWidgetColor() ? `<p class="text-[10px] text-[#dc2626]">Use a six-digit hex color such as #06B6D4.</p>` : ""}</div>
+            </div>
+            <div class="p-4 bg-[#f9fafb] border border-[#e5e7eb] rounded-md-ds space-y-3">
+              <div class="flex items-center justify-between gap-3"><span class="text-[10px] font-mono font-bold text-[#6b7280] uppercase">Installation script</span><button type="button" data-action="copy-embed-widget" class="text-[10px] font-mono font-bold text-[#06B6D4] uppercase hover:underline"${disabledAttr(disabled)}>${state.embedWidgetCopyFeedback || "Copy code"}</button></div>
+              <pre class="max-h-56 overflow-auto p-3 bg-white border border-[#e5e7eb] rounded-sm-ds text-[10px] leading-relaxed font-mono text-[#4b5563] whitespace-pre-wrap break-all"><code>${escapeHtml(snippet)}</code></pre>
+              <p class="text-[10px] leading-relaxed text-[#9ca3af]">Strict CSP: allow <code class="font-mono">script-src ${escapeHtml(scriptOrigin)}</code>, <code class="font-mono">style-src ${escapeHtml(scriptOrigin)}</code>, and <code class="font-mono">frame-src ${escapeHtml(window.location.origin)}</code>.</p>
+            </div>
+          </div>
+          <div class="lg:col-span-3 min-h-[560px] border border-[#e5e7eb] rounded-md-ds bg-[#f3f4f6] overflow-hidden relative">
+            <div class="h-9 px-3 flex items-center justify-between border-b border-[#e5e7eb] bg-[#f9fafb]"><span class="text-[10px] font-mono font-bold uppercase tracking-wider text-[#9ca3af]">Live panel preview</span><span class="px-2 py-0.5 bg-white border border-[#e5e7eb] rounded-sm-ds text-[9px] font-mono text-[#6b7280]">Submit disabled</span></div>
+            <iframe src="${escapeAttr(previewUrl)}" title="${escapeAttr(project.name)} feedback widget preview" class="block w-full h-[520px] border-0 bg-white" sandbox="allow-scripts allow-same-origin"></iframe>
+          </div>
+        </div>
+      </section>`;
   }
 
   function renderProjectFields(computed, isNewProject) {
@@ -3767,6 +3839,18 @@
         break;
       case "copy-api-token":
         copyValueAndNotify(state.apiTokenSecrets[element.dataset.id], "Token copied.");
+        break;
+      case "copy-embed-widget":
+        if (computed.selectedProject && computed.isOwnerViewer) {
+          copyToClipboard(embedWidgetSnippet(computed.selectedProject)).then((copied) => {
+            state.embedWidgetCopyFeedback = copied ? "Copied" : "Copy failed";
+            render();
+            window.setTimeout(() => {
+              state.embedWidgetCopyFeedback = "";
+              render();
+            }, 1600);
+          });
+        }
         break;
       case "close-new-project":
         state.isNewProjectSubmitting = false;

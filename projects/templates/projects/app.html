@@ -1,4 +1,5 @@
 {% load static %}
+{% static 'projects/embed-widget.js' as embed_widget_script_url %}
 <!doctype html>
 <html lang="en">
   <head>
@@ -16,6 +17,7 @@
     <script>
       window.__FR_BOOTSTRAP__ = {{ fr_bootstrap_json|safe }};
       window.__FR_ADMIN_PATH__ = "{{ admin_url|escapejs }}";
+      window.__FR_WIDGET_SCRIPT_URL__ = "{{ embed_widget_script_url|escapejs }}";
     </script>
     <div id="app"></div>
     <script src="{% static 'projects/app.js' %}" defer></script>

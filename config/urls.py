@@ -14,7 +14,7 @@ from accounts.views import (
     stripe_webhook,
 )
 from config.api import api
-from projects.views import frontend_app
+from projects.views import embed_submission_verify, embed_widget, frontend_app
 
 
 urlpatterns = [
@@ -36,6 +36,16 @@ urlpatterns = [
     ),
     path("api/", api.urls),
     path("auth/magic-link", LoginView.as_view(), name="magic-link-login"),
+    path(
+        "embed/submissions/<str:token>/verify/",
+        embed_submission_verify,
+        name="embed-submission-verify",
+    ),
+    path(
+        "embed/<str:owner_handle>/<slug:project_slug>/",
+        embed_widget,
+        name="embed-widget",
+    ),
     path("SKILL.md", feature_request_skill_catalog, name="feature-request-skill-catalog-legacy"),
     path(
         ".agents/skills/feature-request/SKILL.md",

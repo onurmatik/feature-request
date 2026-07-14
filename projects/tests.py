@@ -1,13 +1,19 @@
 import json
 from datetime import timedelta
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError
-from django.test import TestCase, override_settings
+from django.test import RequestFactory, TestCase, override_settings
 from django.utils import timezone
 
-from .models import Issue, IssueComment, IssueUpvote, Project
+from .embed import (
+    EmbedSubmissionError,
+    email_fingerprint,
+    token_digest,
+    validate_turnstile,
+)
+from .models import EmbeddedIssueSubmission, Issue, IssueComment, IssueUpvote, Project
 
 
 class IssueModelsTest(TestCase):
@@ -933,3 +939,354 @@ class ProjectApiTest(TestCase):
         delete_response = self.client.delete(f"/api/projects/{self.project.pk}")
         self.assertEqual(edit_response.status_code, 403)
         self.assertEqual(delete_response.status_code, 403)
+
+
+@override_settings(
+    OPENAI_API_KEY="",
+    TURNSTILE_SITEKEY="test-site-key",
+    TURNSTILE_SECRETKEY="test-secret-key",
+    EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+)
+class EmbedWidgetTest(TestCase):
+    def setUp(self):
+        user_model = get_user_model()
+        self.owner = user_model.objects.create_user(
+            email="owner@example.com",
+            handle="widget_owner",
+            display_name="Widget Owner",
+            password="test-pass-123",
+        )
+        self.project = Project.objects.create(
+            owner=self.owner,
+            name="Widget Project",
+            slug="widget-project",
+        )
+
+    @property
+    def embed_url(self):
+        return f"/embed/{self.owner.handle}/{self.project.slug}/"
+
+    @property
+    def submission_url(self):
+        return (
+            f"/api/embed/projects/{self.owner.handle}/{self.project.slug}/submissions"
+        )
+
+    def payload(self, **overrides):
+        payload = {
+            "display_name": "Visitor Name",
+            "email": "visitor@example.com",
+            "issue_type": Issue.Type.FEATURE,
+            "title": "Add a compact mode",
+            "description": "It would help on smaller screens.",
+            "turnstile_token": "turnstile-response",
+        }
+        payload.update(overrides)
+        return payload
+
+    def make_pending(self, *, email="visitor@example.com", expires_at=None):
+        raw_token = f"verify-token-{EmbeddedIssueSubmission.objects.count() + 1}"
+        submission = EmbeddedIssueSubmission.objects.create(
+            project=self.project,
+            display_name="Visitor Name",
+            email=email,
+            email_fingerprint=email_fingerprint(email),
+            issue_type=Issue.Type.BUG,
+            title="A verified browser issue",
+            description="Steps to reproduce the problem.",
+            token_hash=token_digest(raw_token),
+            expires_at=expires_at or timezone.now() + timedelta(minutes=30),
+        )
+        return raw_token, submission
+
+    def post_submission(self, payload=None):
+        return self.client.post(
+            self.submission_url,
+            data=json.dumps(payload or self.payload()),
+            content_type="application/json",
+        )
+
+    def test_embed_route_is_frameable_and_preview_disables_submission(self):
+        response = self.client.get(f"{self.embed_url}?preview=1&accent=%23FF00AA")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("X-Frame-Options", response.headers)
+        self.assertIn("frame-ancestors *", response["Content-Security-Policy"])
+        self.assertContains(response, "Preview mode")
+        self.assertContains(response, "disabled")
+        self.assertNotContains(response, "challenges.cloudflare.com/turnstile")
+        self.assertContains(response, "View requests")
+        self.assertContains(response, "--fr-accent: #FF00AA")
+
+    def test_embed_route_returns_404_for_unknown_project(self):
+        response = self.client.get("/embed/nobody/missing/")
+        self.assertEqual(response.status_code, 404)
+
+    def test_embed_metadata_is_safely_escaped(self):
+        embed_url = self.embed_url
+        self.project.name = '<script>alert("x")</script>'
+        self.project.save(update_fields=["name"])
+
+        response = self.client.get(embed_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, '<script>alert("x")</script>')
+        self.assertContains(response, "&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;")
+
+    def test_submission_returns_404_for_unknown_project(self):
+        response = self.client.post(
+            "/api/embed/projects/nobody/missing/submissions",
+            data=json.dumps(self.payload()),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 404)
+
+    @patch("projects.embed.send_mail", return_value=1)
+    @patch("projects.api.validate_turnstile")
+    def test_submission_sends_verification_without_creating_issue(
+        self, validate_turnstile, send_mail
+    ):
+        response = self.post_submission()
+
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(response.json(), {"status": "verification_sent"})
+        validate_turnstile.assert_called_once()
+        send_mail.assert_called_once()
+        self.assertEqual(Issue.objects.count(), 0)
+        pending = EmbeddedIssueSubmission.objects.get()
+        self.assertEqual(pending.email, "visitor@example.com")
+        self.assertIn("/embed/submissions/", send_mail.call_args.args[1])
+        self.assertIn("/verify/", send_mail.call_args.args[1])
+
+    @patch("projects.api.validate_turnstile")
+    def test_invalid_email_is_rejected_before_turnstile(self, validate_turnstile):
+        response = self.post_submission(self.payload(email="not-an-email"))
+
+        self.assertEqual(response.status_code, 400)
+        validate_turnstile.assert_not_called()
+        self.assertEqual(EmbeddedIssueSubmission.objects.count(), 0)
+
+    @patch("projects.api.validate_turnstile")
+    def test_empty_description_is_rejected_before_turnstile(self, validate_turnstile):
+        response = self.post_submission(self.payload(description="   "))
+
+        self.assertEqual(response.status_code, 400)
+        validate_turnstile.assert_not_called()
+        self.assertEqual(EmbeddedIssueSubmission.objects.count(), 0)
+
+    @patch("projects.api.validate_turnstile")
+    def test_turnstile_failure_is_returned_without_pending_submission(
+        self, validate_turnstile
+    ):
+        validate_turnstile.side_effect = EmbedSubmissionError(
+            400, "Human verification failed."
+        )
+
+        response = self.post_submission()
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(EmbeddedIssueSubmission.objects.count(), 0)
+
+    @override_settings(OPENAI_API_KEY="test-openai-key")
+    @patch("projects.embed.send_mail", return_value=1)
+    @patch("projects.api.validate_turnstile")
+    def test_moderation_rejection_does_not_send_email(
+        self, validate_turnstile, send_mail
+    ):
+        mocked_client = Mock()
+        mocked_client.responses.create.return_value = Mock(output_text="REJECT: spam")
+
+        with patch("projects.api.OpenAI", return_value=mocked_client):
+            response = self.post_submission()
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"], "Issue rejected by moderation: spam")
+        send_mail.assert_not_called()
+        self.assertEqual(EmbeddedIssueSubmission.objects.count(), 0)
+
+    @override_settings(OPENAI_API_KEY="test-openai-key")
+    @patch("projects.embed.send_mail", return_value=1)
+    @patch("projects.api.validate_turnstile")
+    def test_moderation_failure_returns_503_without_email(
+        self, validate_turnstile, send_mail
+    ):
+        mocked_client = Mock()
+        mocked_client.responses.create.side_effect = RuntimeError("moderation timeout")
+
+        with patch("projects.api.OpenAI", return_value=mocked_client):
+            response = self.post_submission()
+
+        self.assertEqual(response.status_code, 503)
+        send_mail.assert_not_called()
+        self.assertEqual(EmbeddedIssueSubmission.objects.count(), 0)
+
+    @patch("projects.embed.send_mail", side_effect=RuntimeError("mail unavailable"))
+    @patch("projects.api.validate_turnstile")
+    def test_email_failure_removes_pending_submission(
+        self, validate_turnstile, send_mail
+    ):
+        response = self.post_submission()
+
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(EmbeddedIssueSubmission.objects.count(), 0)
+
+    @patch("projects.embed.send_mail", return_value=1)
+    @patch("projects.api.validate_turnstile")
+    def test_submission_is_throttled_after_three_emails_per_hour(
+        self, validate_turnstile, send_mail
+    ):
+        responses = [self.post_submission() for _ in range(4)]
+
+        self.assertEqual([response.status_code for response in responses], [202, 202, 202, 429])
+        self.assertEqual(EmbeddedIssueSubmission.objects.count(), 3)
+        self.assertEqual(send_mail.call_count, 3)
+
+    def test_verification_get_only_reviews_and_does_not_publish(self):
+        raw_token, _submission = self.make_pending()
+
+        response = self.client.get(f"/embed/submissions/{raw_token}/verify/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Publish request")
+        self.assertContains(response, "A verified browser issue")
+        self.assertEqual(Issue.objects.count(), 0)
+
+    @patch("projects.api._notify_owner_on_new_issue")
+    def test_verification_reuses_existing_user_scrubs_pending_data_and_notifies_owner(
+        self, notify_owner
+    ):
+        existing = get_user_model().objects.create_user(
+            email="visitor@example.com",
+            handle="known_visitor",
+            display_name="Known Visitor",
+            password="test-pass-123",
+        )
+        raw_token, submission = self.make_pending(email=existing.email)
+
+        response = self.client.post(f"/embed/submissions/{raw_token}/verify/")
+
+        issue = Issue.objects.get()
+        submission.refresh_from_db()
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            response["Location"],
+            f"/{self.owner.handle}/{self.project.slug}/issues/{issue.id}/",
+        )
+        self.assertEqual(issue.author, existing)
+        self.assertEqual(issue.status, Issue.Status.OPEN)
+        self.assertEqual(issue.priority, Issue.Priority.MEDIUM)
+        self.assertEqual(submission.issue, issue)
+        self.assertEqual(submission.email, "")
+        self.assertEqual(submission.display_name, "")
+        self.assertEqual(submission.title, "")
+        self.assertIsNotNone(submission.verified_at)
+        self.assertEqual(int(self.client.session["_auth_user_id"]), existing.id)
+        notify_owner.assert_called_once_with(response.wsgi_request, issue, existing)
+
+    @patch("projects.api._notify_owner_on_new_issue")
+    def test_verification_creates_lightweight_account_without_exposing_email_in_handle(
+        self, notify_owner
+    ):
+        raw_token, _submission = self.make_pending(email="new.person@example.com")
+
+        response = self.client.post(f"/embed/submissions/{raw_token}/verify/")
+
+        issue = Issue.objects.get()
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(issue.author.email, "new.person@example.com")
+        self.assertEqual(issue.author.display_name, "Visitor Name")
+        self.assertTrue(issue.author.handle.startswith("guest_visitor_name_"))
+        self.assertNotIn("new", issue.author.handle)
+        self.assertFalse(issue.author.has_usable_password())
+        notify_owner.assert_called_once()
+
+    @patch("projects.api._notify_owner_on_new_issue")
+    def test_double_verification_post_is_idempotent(self, notify_owner):
+        raw_token, _submission = self.make_pending()
+        verify_url = f"/embed/submissions/{raw_token}/verify/"
+
+        first = self.client.post(verify_url)
+        second = self.client.post(verify_url)
+
+        self.assertEqual(first.status_code, 302)
+        self.assertEqual(second.status_code, 302)
+        self.assertEqual(first["Location"], second["Location"])
+        self.assertEqual(Issue.objects.count(), 1)
+        notify_owner.assert_called_once()
+
+    def test_expired_and_invalid_verification_tokens_do_not_publish(self):
+        raw_token, _submission = self.make_pending(
+            expires_at=timezone.now() - timedelta(seconds=1)
+        )
+
+        expired = self.client.post(f"/embed/submissions/{raw_token}/verify/")
+        invalid = self.client.get("/embed/submissions/not-a-token/verify/")
+
+        self.assertEqual(expired.status_code, 410)
+        self.assertEqual(invalid.status_code, 404)
+        self.assertEqual(Issue.objects.count(), 0)
+
+    def test_issue_response_includes_backward_compatible_author_display_name(self):
+        author = get_user_model().objects.create_user(
+            email="display@example.com",
+            handle="display_handle",
+            display_name="Display Name",
+            password="test-pass-123",
+        )
+        issue = Issue.objects.create(
+            project=self.project,
+            author=author,
+            title="Visible author name",
+        )
+
+        response = self.client.get(f"/api/issues/{issue.id}")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["author_id"], author.id)
+        self.assertEqual(payload["author_handle"], author.handle)
+        self.assertEqual(payload["author_display_name"], "Display Name")
+
+    def test_turnstile_siteverify_accepts_matching_hostname_and_action(self):
+        request = RequestFactory().post("/api/embed", HTTP_HOST="testserver")
+        upstream = MagicMock()
+        upstream.__enter__.return_value.read.return_value = json.dumps(
+            {
+                "success": True,
+                "hostname": "testserver",
+                "action": "embed_submission",
+            }
+        ).encode("utf-8")
+
+        with patch("projects.embed.urlopen", return_value=upstream) as urlopen:
+            validate_turnstile(request, "valid-token")
+
+        urlopen.assert_called_once()
+        self.assertEqual(urlopen.call_args.kwargs["timeout"], 5)
+
+    def test_turnstile_siteverify_rejects_wrong_action(self):
+        request = RequestFactory().post("/api/embed", HTTP_HOST="testserver")
+        upstream = MagicMock()
+        upstream.__enter__.return_value.read.return_value = json.dumps(
+            {
+                "success": True,
+                "hostname": "testserver",
+                "action": "different_action",
+            }
+        ).encode("utf-8")
+
+        with patch("projects.embed.urlopen", return_value=upstream):
+            with self.assertRaises(EmbedSubmissionError) as caught:
+                validate_turnstile(request, "valid-token")
+
+        self.assertEqual(caught.exception.status_code, 400)
+
+    def test_turnstile_siteverify_timeout_is_temporary_failure(self):
+        request = RequestFactory().post("/api/embed", HTTP_HOST="testserver")
+
+        with patch("projects.embed.urlopen", side_effect=TimeoutError):
+            with self.assertRaises(EmbedSubmissionError) as caught:
+                validate_turnstile(request, "valid-token")
+
+        self.assertEqual(caught.exception.status_code, 503)

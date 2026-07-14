@@ -76,6 +76,9 @@ Operate on board data via API:
   - `GET /api/issues/{issue_id}`
 - Create issue:
   - `POST /api/projects/{owner_handle}/{project_slug}/issues`
+  - Agents must continue to use this authenticated endpoint. The public
+    `/api/embed/projects/{owner_handle}/{project_slug}/submissions` route is browser-only,
+    requires Turnstile plus email verification, and must not be used for agent writes.
 - Add comment:
   - `POST /api/issues/{issue_id}/comments`
 - Edit comment:

@@ -9,7 +9,9 @@ from html import escape
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
 from django.core.mail import send_mail
+from django.core.validators import validate_email
 from django.db.models import Count, F, Max, Q
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
@@ -19,6 +21,11 @@ from openai import OpenAI
 
 from accounts.models import gravatar_url_for_email
 
+from .embed import (
+    EmbedSubmissionError,
+    create_pending_submission,
+    validate_turnstile,
+)
 from .models import Issue, IssueComment, IssueUpvote, Project
 
 router = Router(tags=["issues"])
@@ -30,6 +37,19 @@ class IssueCreateIn(Schema):
     title: str
     description: str = ""
     priority: int = Issue.Priority.MEDIUM
+
+
+class EmbedSubmissionIn(Schema):
+    display_name: str
+    email: str
+    issue_type: str = Issue.Type.FEATURE
+    title: str
+    description: str = ""
+    turnstile_token: str
+
+
+class EmbedSubmissionOut(Schema):
+    status: str
 
 
 class ProjectOut(Schema):
@@ -80,6 +100,7 @@ class IssueOut(Schema):
     project_id: int
     author_id: int
     author_handle: str
+    author_display_name: str
     author_avatar_url: str
     issue_type: str
     title: str
@@ -492,6 +513,7 @@ def _issue_to_dict(issue: Issue):
         "project_id": issue.project_id,
         "author_id": issue.author_id,
         "author_handle": issue.author.handle,
+        "author_display_name": (issue.author.display_name or issue.author.handle).strip(),
         "author_avatar_url": gravatar_url_for_email(issue.author.email),
         "issue_type": issue.issue_type,
         "title": issue.title,
@@ -951,6 +973,58 @@ def create_issue(request, owner_handle: str, project_slug: str, payload: IssueCr
     )
     _notify_owner_on_new_issue(request, issue, user)
     return 201, _issue_to_dict(issue)
+
+
+@router.post(
+    "/embed/projects/{owner_handle}/{project_slug}/submissions",
+    response={202: EmbedSubmissionOut},
+    tags=["embed"],
+)
+def create_embed_submission(
+    request,
+    owner_handle: str,
+    project_slug: str,
+    payload: EmbedSubmissionIn,
+):
+    project = _get_project(owner_handle, project_slug)
+    display_name = _clean_non_empty(payload.display_name, "Display name")
+    email = str(payload.email or "").strip().lower()
+    title = _clean_non_empty(payload.title, "Issue title")
+    description = _clean_non_empty(payload.description, "Description")
+
+    if len(display_name) > 120:
+        raise HttpError(400, "Display name must be 120 characters or fewer.")
+    try:
+        validate_email(email)
+    except ValidationError:
+        raise HttpError(400, "Please provide a valid email address.")
+    if len(title) > 200:
+        raise HttpError(400, "Issue title must be 200 characters or fewer.")
+    if len(description) > 5000:
+        raise HttpError(400, "Description must be 5000 characters or fewer.")
+    _validate_issue_type(payload.issue_type)
+
+    try:
+        validate_turnstile(request, payload.turnstile_token)
+        _moderate_issue_submission(payload.issue_type, title, description)
+        create_pending_submission(
+            request,
+            project,
+            display_name=display_name,
+            email=email,
+            issue_type=payload.issue_type,
+            title=title,
+            description=description,
+        )
+    except EmbedSubmissionError as exc:
+        raise HttpError(exc.status_code, exc.message)
+    except HttpError:
+        raise
+    except Exception:
+        logger.exception("Embed submission verification email failed.")
+        raise HttpError(502, "The verification email could not be sent.")
+
+    return 202, {"status": "verification_sent"}
 
 
 @router.get("/issues/{issue_id}", response=IssueOut)
