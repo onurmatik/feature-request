@@ -107,6 +107,7 @@
   const RESERVED_HANDLES = new Set(["messages", "settings", ADMIN_PATH_PARTS[0]].filter(Boolean));
 
   const root = document.getElementById("app");
+  let embedWidgetCopyFeedbackTimeoutId = null;
   const bootstrap = window.__FR_BOOTSTRAP__ || {};
   const WIDGET_SCRIPT_URL = new URL(
     typeof window.__FR_WIDGET_SCRIPT_URL__ === "string" && window.__FR_WIDGET_SCRIPT_URL__
@@ -3844,10 +3845,17 @@
         if (computed.selectedProject && computed.isOwnerViewer) {
           copyToClipboard(embedWidgetSnippet(computed.selectedProject)).then((copied) => {
             state.embedWidgetCopyFeedback = copied ? "Copied" : "Copy failed";
-            render();
-            window.setTimeout(() => {
+            element.textContent = state.embedWidgetCopyFeedback;
+            if (embedWidgetCopyFeedbackTimeoutId !== null) {
+              window.clearTimeout(embedWidgetCopyFeedbackTimeoutId);
+            }
+            embedWidgetCopyFeedbackTimeoutId = window.setTimeout(() => {
               state.embedWidgetCopyFeedback = "";
-              render();
+              const copyButton = root.querySelector('[data-action="copy-embed-widget"]');
+              if (copyButton) {
+                copyButton.textContent = "Copy code";
+              }
+              embedWidgetCopyFeedbackTimeoutId = null;
             }, 1600);
           });
         }

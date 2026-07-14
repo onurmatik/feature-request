@@ -82,7 +82,7 @@
       window.turnstile?.reset();
     } finally {
       submitButton.disabled = false;
-      submitButton.textContent = "Send verification link";
+      submitButton.textContent = "Submit";
     }
   });
 

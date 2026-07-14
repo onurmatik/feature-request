@@ -24,10 +24,10 @@ body {
 button, input, select, textarea { font: inherit; }
 button, a { -webkit-tap-highlight-color: transparent; }
 
-.fr-embed-body { min-height: 100dvh; overflow: hidden; }
+.fr-embed-body { height: 100dvh; overflow: hidden; }
 
 .fr-panel {
-  min-height: 100dvh;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
   background: #fff;
@@ -94,6 +94,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 
 .fr-turnstile { min-height: 65px; }
 .fr-feedback { min-height: 16px; margin: -4px 0 0; color: var(--fr-muted); font-size: 11px; line-height: 1.4; }
+.fr-feedback:empty { display: none; }
 .fr-feedback--error, .fr-feedback[data-tone="error"] { color: var(--fr-danger); }
 .fr-submit, .fr-verify-actions button {
   min-height: 38px;

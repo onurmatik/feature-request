@@ -1016,6 +1016,8 @@ class EmbedWidgetTest(TestCase):
         self.assertContains(response, "disabled")
         self.assertNotContains(response, "challenges.cloudflare.com/turnstile")
         self.assertContains(response, "View requests")
+        self.assertContains(response, "Submit")
+        self.assertNotContains(response, "Send verification link")
         self.assertContains(response, "--fr-accent: #FF00AA")
 
     def test_embed_route_returns_404_for_unknown_project(self):
