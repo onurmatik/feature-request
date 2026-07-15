@@ -66,6 +66,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 
 .fr-panel__content { flex: 1; min-height: 0; overflow-y: auto; padding: 18px 16px; }
 .fr-form { display: grid; gap: 14px; }
+.fr-form[hidden] { display: none; }
 .fr-field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .fr-field { display: grid; gap: 6px; }
 .fr-field > span, .fr-eyebrow {
@@ -92,7 +93,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .fr-field textarea { resize: vertical; min-height: 104px; }
 .fr-field input:focus, .fr-field select:focus, .fr-field textarea:focus { border-color: var(--fr-accent); box-shadow: 0 0 0 1px var(--fr-accent); }
 
-.fr-turnstile { min-height: 0; }
+.cf-turnstile.fr-turnstile { min-height: 0; }
 .fr-feedback { min-height: 16px; margin: -4px 0 0; color: var(--fr-muted); font-size: 11px; line-height: 1.4; }
 .fr-feedback:empty { display: none; }
 .fr-feedback--error, .fr-feedback[data-tone="error"] { color: var(--fr-danger); }

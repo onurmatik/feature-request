@@ -60,7 +60,8 @@ def _embed_csp_response(response):
 def _verification_response(request, context, status=200):
     response = render(request, "projects/embed_verify.html", context, status=status)
     response["Cache-Control"] = "no-store"
-    response["Referrer-Policy"] = "no-referrer"
+    # Keep the tokenized path out of referrers without making form Origin null.
+    response["Referrer-Policy"] = "strict-origin"
     return response
 
 

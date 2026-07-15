@@ -3,8 +3,9 @@ from datetime import timedelta
 from unittest.mock import MagicMock, Mock, patch
 
 from django.contrib.auth import get_user_model
+from django.contrib.staticfiles import finders
 from django.db import IntegrityError
-from django.test import RequestFactory, TestCase, override_settings
+from django.test import Client, RequestFactory, TestCase, override_settings
 from django.utils import timezone
 
 from .embed import (
@@ -1030,6 +1031,13 @@ class EmbedWidgetTest(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'data-appearance="interaction-only"')
 
+    def test_embed_form_hidden_state_overrides_grid_layout(self):
+        stylesheet_path = finders.find("projects/embed-widget.css")
+        with open(stylesheet_path, encoding="utf-8") as stylesheet:
+            css = stylesheet.read()
+
+        self.assertIn(".fr-form[hidden] { display: none; }", css)
+
     def test_embed_metadata_is_safely_escaped(self):
         embed_url = self.embed_url
         self.project.name = '<script>alert("x")</script>'
@@ -1156,9 +1164,29 @@ class EmbedWidgetTest(TestCase):
         response = self.client.get(f"/embed/submissions/{raw_token}/verify/")
 
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Referrer-Policy"], "strict-origin")
         self.assertContains(response, "Publish request")
         self.assertContains(response, "A verified browser issue")
         self.assertEqual(Issue.objects.count(), 0)
+
+    @patch("projects.api._notify_owner_on_new_issue")
+    def test_verification_form_posts_with_enforced_csrf_checks(self, notify_owner):
+        raw_token, _submission = self.make_pending()
+        verify_url = f"/embed/submissions/{raw_token}/verify/"
+        csrf_client = Client(enforce_csrf_checks=True)
+
+        get_response = csrf_client.get(verify_url, secure=True)
+        csrf_token = get_response.cookies["csrftoken"].value
+        post_response = csrf_client.post(
+            verify_url,
+            {"csrfmiddlewaretoken": csrf_token},
+            secure=True,
+            HTTP_ORIGIN="https://testserver",
+        )
+
+        self.assertEqual(post_response.status_code, 302)
+        self.assertEqual(Issue.objects.count(), 1)
+        notify_owner.assert_called_once()
 
     @patch("projects.api._notify_owner_on_new_issue")
     def test_verification_reuses_existing_user_scrubs_pending_data_and_notifies_owner(
