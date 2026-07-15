@@ -35,3 +35,21 @@ class FaviconRoutingTest(TestCase):
             response,
             f'<link rel="icon" type="image/svg+xml" href="{static("projects/favicon.svg")}">',
         )
+
+
+class FeedbackWidgetInstallationTest(TestCase):
+    def test_frontend_loads_feedback_widget_once_before_body_closes(self):
+        response = self.client.get("/")
+        html = response.content.decode()
+        widget_script = """    <script
+      src="https://featurerequest-assets.s3.amazonaws.com/static/projects/embed-widget.js"
+      data-fr-origin="https://featurerequest.io"
+      data-fr-owner="onurmatik"
+      data-fr-project="feature-request"
+      data-fr-position="right"
+      data-fr-color="#06B6D4"
+      defer
+    ></script>"""
+
+        self.assertEqual(html.count(widget_script), 1)
+        self.assertIn(f"{widget_script}\n  </body>", html)
