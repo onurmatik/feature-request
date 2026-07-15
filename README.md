@@ -60,14 +60,14 @@ example, or copy the generated snippet from settings:
   data-fr-origin="https://featurerequest.io"
   data-fr-owner="owner_handle"
   data-fr-project="project-slug"
-  data-fr-label="Feedback"
   data-fr-position="right"
   data-fr-color="#06B6D4"
   defer
 ></script>
 ```
 
-The widget accepts `left` or `right` placement and a six-digit hex accent color. It never
+The widget uses an icon-only conversation-bubble launcher and accepts `left` or `right`
+placement plus a six-digit hex accent color. It never
 receives an API token and only submits to the FeatureRequest origin. A request remains
 pending until the visitor opens the email link and confirms publication with the CSRF-
 protected **Publish request** form. Published widget requests use server-assigned Medium

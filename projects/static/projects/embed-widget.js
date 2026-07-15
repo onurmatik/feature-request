@@ -80,9 +80,6 @@
     launcher.setAttribute("aria-controls", panel.id);
     launcher.setAttribute("aria-label", `Open ${label}`);
     launcher.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15a4 4 0 0 1-4 4H7l-4 4V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/></svg>';
-    const launcherLabel = document.createElement("span");
-    launcherLabel.textContent = label;
-    launcher.appendChild(launcherLabel);
 
     function setOpen(open) {
       wrapper.classList.toggle("fr-widget--open", open);

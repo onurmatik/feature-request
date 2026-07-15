@@ -198,9 +198,9 @@
     projectUrlDraft: "",
     projectFeedback: "",
     projectFeedbackTone: "",
-    embedWidgetLabel: "Feedback",
     embedWidgetPosition: "right",
     embedWidgetColor: "#06B6D4",
+    embedWidgetCodeTab: "script",
     embedWidgetCopyFeedback: "",
     projectDraftProjectId: null,
     isProjectSaving: false,
@@ -1227,6 +1227,11 @@
   function render() {
     const activeElement = document.activeElement;
     const focusKey = activeElement?.dataset?.bind || "";
+    const preservedScrollPositions = [...root.querySelectorAll("[data-preserve-scroll]")].map((element) => ({
+      key: element.dataset.preserveScroll,
+      top: element.scrollTop,
+      left: element.scrollLeft,
+    }));
     const focusSelection =
       focusKey && typeof activeElement.selectionStart === "number"
         ? { start: activeElement.selectionStart, end: activeElement.selectionEnd }
@@ -1236,6 +1241,15 @@
     syncProjectDrafts(computed.selectedProject);
 
     root.innerHTML = isLandingRoute() ? renderLanding() : renderApplication(computed);
+    for (const position of preservedScrollPositions) {
+      const nextElement = [...root.querySelectorAll("[data-preserve-scroll]")].find(
+        (element) => element.dataset.preserveScroll === position.key,
+      );
+      if (nextElement) {
+        nextElement.scrollTop = position.top;
+        nextElement.scrollLeft = position.left;
+      }
+    }
     if (focusKey && window.CSS?.escape) {
       const nextElement = getVisibleBoundElement(focusKey);
       if (nextElement) {
@@ -1277,9 +1291,9 @@
     state.projectUrlDraft = selectedProject?.url || "";
     state.projectFeedback = "";
     state.projectFeedbackTone = "";
-    state.embedWidgetLabel = "Feedback";
     state.embedWidgetPosition = "right";
     state.embedWidgetColor = "#06B6D4";
+    state.embedWidgetCodeTab = "script";
     state.embedWidgetCopyFeedback = "";
   }
 
@@ -2146,7 +2160,7 @@
   function renderProjectSettingsView(computed) {
     const project = computed.selectedProject;
     return `
-      <div class="flex-1 bg-white flex flex-col overflow-y-auto">
+      <div class="flex-1 bg-white flex flex-col overflow-y-auto" data-preserve-scroll="project-settings">
         <div class="max-w-3xl mx-auto w-full px-6 md:px-8 py-10 space-y-12">
           <div><h2 class="text-2xl font-bold text-[#111827] mb-2">Project Settings</h2><p class="text-sm text-[#6b7280]">Manage your project metadata and administrative controls.</p></div>
           <section class="space-y-6">
@@ -2175,7 +2189,6 @@
   }
 
   function embedWidgetSnippet(project) {
-    const label = String(state.embedWidgetLabel || "Feedback").trim().slice(0, 32) || "Feedback";
     const position = state.embedWidgetPosition === "left" ? "left" : "right";
     return [
       "<script",
@@ -2183,7 +2196,6 @@
       `  data-fr-origin="${escapeAttr(window.location.origin)}"`,
       `  data-fr-owner="${escapeAttr(project.owner_handle || state.ownerHandle)}"`,
       `  data-fr-project="${escapeAttr(project.slug)}"`,
-      `  data-fr-label="${escapeAttr(label)}"`,
       `  data-fr-position="${position}"`,
       `  data-fr-color="${normalizedEmbedWidgetColor()}"`,
       "  defer",
@@ -2191,11 +2203,43 @@
     ].join("\n");
   }
 
+  function embedWidgetAgentInstructions(project) {
+    const position = state.embedWidgetPosition === "left" ? "bottom left" : "bottom right";
+    const scriptOrigin = new URL(WIDGET_SCRIPT_URL, window.location.origin).origin;
+    return [
+      "Install the FeatureRequest feedback widget in this project.",
+      "",
+      "Requirements:",
+      "- Add the script below once in the shared site layout, immediately before the closing </body> tag, so it loads on every page.",
+      "- Keep the owner and project values exactly as provided.",
+      `- Keep the icon-only conversation-bubble launcher at the ${position} of the viewport.`,
+      "- Preserve the launcher's accessible name and do not add a visible text label.",
+      `- If the site uses a strict Content Security Policy, allow script-src ${scriptOrigin}, style-src ${scriptOrigin}, and frame-src ${window.location.origin}.`,
+      "- Do not add an API token or expose any secret.",
+      "",
+      "Script:",
+      embedWidgetSnippet(project),
+      "",
+      "After implementation, verify that the launcher opens the feedback panel and that Escape closes it.",
+    ].join("\n");
+  }
+
+  function embedWidgetCodeValue(project) {
+    return state.embedWidgetCodeTab === "agent"
+      ? embedWidgetAgentInstructions(project)
+      : embedWidgetSnippet(project);
+  }
+
+  function embedWidgetCopyLabel() {
+    return state.embedWidgetCodeTab === "agent" ? "Copy instructions" : "Copy code";
+  }
+
   function renderEmbedWidgetSettings(project, computed) {
     const disabled = !computed.isOwnerViewer;
     const color = normalizedEmbedWidgetColor();
     const previewUrl = `/embed/${encodeURIComponent(project.owner_handle || state.ownerHandle)}/${encodeURIComponent(project.slug)}/?preview=1&accent=${encodeURIComponent(color)}`;
-    const snippet = embedWidgetSnippet(project);
+    const codeValue = embedWidgetCodeValue(project);
+    const isAgentTab = state.embedWidgetCodeTab === "agent";
     const scriptOrigin = new URL(WIDGET_SCRIPT_URL, window.location.origin).origin;
     return `
       <section class="space-y-6">
@@ -2203,15 +2247,22 @@
         <p class="text-sm text-[#6b7280]">Add a feedback launcher to any website. These options are written into the snippet and are not stored on the project.</p>
         <div class="grid grid-cols-1 lg:grid-cols-5 gap-8">
           <div class="lg:col-span-2 space-y-5">
-            <div class="space-y-1.5"><label class="text-[10px] font-mono font-bold text-[#6b7280] uppercase">Button label</label><input type="text" maxlength="32" data-bind="embedWidgetLabel" value="${escapeAttr(state.embedWidgetLabel)}" class="w-full px-3 py-2 border border-[#e5e7eb] rounded-sm-ds text-sm bg-white outline-none focus:ring-1 focus:ring-[#06B6D4]"${disabledAttr(disabled)}></div>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div class="space-y-1.5"><label class="text-[10px] font-mono font-bold text-[#6b7280] uppercase">Position</label><select data-bind="embedWidgetPosition" class="w-full px-3 py-2 border border-[#e5e7eb] rounded-sm-ds text-sm bg-white outline-none focus:ring-1 focus:ring-[#06B6D4]"${disabledAttr(disabled)}><option value="right"${selectedAttr("right", state.embedWidgetPosition)}>Bottom right</option><option value="left"${selectedAttr("left", state.embedWidgetPosition)}>Bottom left</option></select></div>
               <div class="space-y-1.5"><label class="text-[10px] font-mono font-bold text-[#6b7280] uppercase">Accent color</label><div class="flex gap-2"><span class="w-9 h-9 shrink-0 border border-[#e5e7eb] rounded-sm-ds" style="background:${color}"></span><input type="text" maxlength="7" data-bind="embedWidgetColor" value="${escapeAttr(state.embedWidgetColor)}" class="min-w-0 w-full px-3 py-2 border border-[#e5e7eb] rounded-sm-ds font-mono text-xs uppercase bg-white outline-none focus:ring-1 focus:ring-[#06B6D4]"${disabledAttr(disabled)}></div>${state.embedWidgetColor && !hasValidEmbedWidgetColor() ? `<p class="text-[10px] text-[#dc2626]">Use a six-digit hex color such as #06B6D4.</p>` : ""}</div>
             </div>
             <div class="p-4 bg-[#f9fafb] border border-[#e5e7eb] rounded-md-ds space-y-3">
-              <div class="flex items-center justify-between gap-3"><span class="text-[10px] font-mono font-bold text-[#6b7280] uppercase">Installation script</span><button type="button" data-action="copy-embed-widget" class="text-[10px] font-mono font-bold text-[#06B6D4] uppercase hover:underline"${disabledAttr(disabled)}>${state.embedWidgetCopyFeedback || "Copy code"}</button></div>
-              <pre class="max-h-56 overflow-auto p-3 bg-white border border-[#e5e7eb] rounded-sm-ds text-[10px] leading-relaxed font-mono text-[#4b5563] whitespace-pre-wrap break-all"><code>${escapeHtml(snippet)}</code></pre>
-              <p class="text-[10px] leading-relaxed text-[#9ca3af]">Strict CSP: allow <code class="font-mono">script-src ${escapeHtml(scriptOrigin)}</code>, <code class="font-mono">style-src ${escapeHtml(scriptOrigin)}</code>, and <code class="font-mono">frame-src ${escapeHtml(window.location.origin)}</code>.</p>
+              <div class="flex items-center justify-between gap-3">
+                <div class="flex items-center gap-4 border-b border-[#e5e7eb] mb-1" role="tablist" aria-label="Embed widget code">
+                  <button type="button" role="tab" aria-selected="${isAgentTab ? "false" : "true"}" data-action="select-embed-widget-code-tab" data-tab="script" class="pb-2 text-[10px] font-mono font-bold uppercase tracking-wider ${isAgentTab ? "text-[#6b7280] hover:text-[#111827]" : "text-[#111827] border-b border-[#06B6D4]"}">Script</button>
+                  <button type="button" role="tab" aria-selected="${isAgentTab ? "true" : "false"}" data-action="select-embed-widget-code-tab" data-tab="agent" class="pb-2 text-[10px] font-mono font-bold uppercase tracking-wider ${isAgentTab ? "text-[#111827] border-b border-[#06B6D4]" : "text-[#6b7280] hover:text-[#111827]"}">Agent</button>
+                </div>
+                <button type="button" data-action="copy-embed-widget" aria-live="polite" class="text-[10px] font-mono font-bold text-[#06B6D4] uppercase hover:underline"${disabledAttr(disabled)}>${state.embedWidgetCopyFeedback || embedWidgetCopyLabel()}</button>
+              </div>
+              <div role="tabpanel" aria-label="${isAgentTab ? "Agent instructions" : "Installation script"}">
+                <pre class="max-h-56 overflow-auto p-3 bg-white border border-[#e5e7eb] rounded-sm-ds text-[10px] leading-relaxed font-mono text-[#4b5563] whitespace-pre-wrap break-all"><code>${escapeHtml(codeValue)}</code></pre>
+                ${isAgentTab ? "" : `<p class="mt-3 text-[10px] leading-relaxed text-[#9ca3af]">Strict CSP: allow <code class="font-mono">script-src ${escapeHtml(scriptOrigin)}</code>, <code class="font-mono">style-src ${escapeHtml(scriptOrigin)}</code>, and <code class="font-mono">frame-src ${escapeHtml(window.location.origin)}</code>.</p>`}
+              </div>
             </div>
           </div>
           <div class="lg:col-span-3 min-h-[560px] border border-[#e5e7eb] rounded-md-ds bg-[#f3f4f6] overflow-hidden relative">
@@ -3841,9 +3892,18 @@
       case "copy-api-token":
         copyValueAndNotify(state.apiTokenSecrets[element.dataset.id], "Token copied.");
         break;
+      case "select-embed-widget-code-tab":
+        state.embedWidgetCodeTab = element.dataset.tab === "agent" ? "agent" : "script";
+        state.embedWidgetCopyFeedback = "";
+        if (embedWidgetCopyFeedbackTimeoutId !== null) {
+          window.clearTimeout(embedWidgetCopyFeedbackTimeoutId);
+          embedWidgetCopyFeedbackTimeoutId = null;
+        }
+        render();
+        break;
       case "copy-embed-widget":
         if (computed.selectedProject && computed.isOwnerViewer) {
-          copyToClipboard(embedWidgetSnippet(computed.selectedProject)).then((copied) => {
+          copyToClipboard(embedWidgetCodeValue(computed.selectedProject)).then((copied) => {
             state.embedWidgetCopyFeedback = copied ? "Copied" : "Copy failed";
             element.textContent = state.embedWidgetCopyFeedback;
             if (embedWidgetCopyFeedbackTimeoutId !== null) {
@@ -3853,7 +3913,7 @@
               state.embedWidgetCopyFeedback = "";
               const copyButton = root.querySelector('[data-action="copy-embed-widget"]');
               if (copyButton) {
-                copyButton.textContent = "Copy code";
+                copyButton.textContent = embedWidgetCopyLabel();
               }
               embedWidgetCopyFeedbackTimeoutId = null;
             }, 1600);
