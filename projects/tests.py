@@ -1024,6 +1024,12 @@ class EmbedWidgetTest(TestCase):
         response = self.client.get("/embed/nobody/missing/")
         self.assertEqual(response.status_code, 404)
 
+    def test_embed_turnstile_only_appears_when_interaction_is_required(self):
+        response = self.client.get(self.embed_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'data-appearance="interaction-only"')
+
     def test_embed_metadata_is_safely_escaped(self):
         embed_url = self.embed_url
         self.project.name = '<script>alert("x")</script>'

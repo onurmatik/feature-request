@@ -92,7 +92,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .fr-field textarea { resize: vertical; min-height: 104px; }
 .fr-field input:focus, .fr-field select:focus, .fr-field textarea:focus { border-color: var(--fr-accent); box-shadow: 0 0 0 1px var(--fr-accent); }
 
-.fr-turnstile { min-height: 65px; }
+.fr-turnstile { min-height: 0; }
 .fr-feedback { min-height: 16px; margin: -4px 0 0; color: var(--fr-muted); font-size: 11px; line-height: 1.4; }
 .fr-feedback:empty { display: none; }
 .fr-feedback--error, .fr-feedback[data-tone="error"] { color: var(--fr-danger); }
