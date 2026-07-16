@@ -224,6 +224,70 @@ class IssueApiTest(TestCase):
         self.assertEqual(list_response.status_code, 200)
         self.assertEqual(len(list_response.json()), 1)
 
+    def test_active_status_filter_excludes_done_and_closed_issues(self):
+        expected_active_titles = {
+            self.issue.title,
+            "Planned request",
+            "Request in progress",
+        }
+        Issue.objects.create(
+            project=self.project,
+            author=self.owner,
+            title="Planned request",
+            status=Issue.Status.PLANNED,
+        )
+        Issue.objects.create(
+            project=self.project,
+            author=self.owner,
+            title="Request in progress",
+            status=Issue.Status.IN_PROGRESS,
+        )
+        Issue.objects.create(
+            project=self.project,
+            author=self.owner,
+            title="Completed request",
+            status=Issue.Status.DONE,
+        )
+        Issue.objects.create(
+            project=self.project,
+            author=self.owner,
+            title="Closed request",
+            status=Issue.Status.CLOSED,
+        )
+
+        project_response = self.client.get(
+            f"/api/projects/{self.owner.handle}/{self.project.slug}/issues",
+            {"status": "active"},
+        )
+        owner_response = self.client.get(
+            f"/api/owners/{self.owner.handle}/issues",
+            {"project_slug": self.project.slug, "status": "active"},
+        )
+
+        self.assertEqual(project_response.status_code, 200)
+        self.assertEqual(owner_response.status_code, 200)
+        self.assertEqual(
+            {item["title"] for item in project_response.json()},
+            expected_active_titles,
+        )
+        self.assertEqual(
+            {item["title"] for item in owner_response.json()},
+            expected_active_titles,
+        )
+
+    def test_active_filter_value_cannot_be_saved_as_issue_status(self):
+        self.client.force_login(self.owner)
+
+        response = self.client.patch(
+            f"/api/issues/{self.issue.id}",
+            data=json.dumps({"status": "active"}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.issue.refresh_from_db()
+        self.assertEqual(self.issue.status, Issue.Status.OPEN)
+
     @override_settings(OPENAI_API_KEY="test-openai-key")
     def test_create_issue_rejects_irrelevant_content_with_moderation(self):
         self.client.force_login(self.other_user)

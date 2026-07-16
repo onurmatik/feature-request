@@ -153,6 +153,17 @@ def _validate_status(status: str):
         raise HttpError(400, "Invalid status.")
 
 
+def _filter_issues_by_status(queryset, status: Optional[str]):
+    if not status:
+        return queryset
+    if status == "active":
+        return queryset.exclude(
+            status__in=[Issue.Status.DONE, Issue.Status.CLOSED]
+        )
+    _validate_status(status)
+    return queryset.filter(status=status)
+
+
 def _validate_priority(priority: int):
     allowed = {value for value, _ in Issue.Priority.choices}
     if priority not in allowed:
@@ -911,9 +922,7 @@ def list_owner_issues(
     if issue_type:
         _validate_issue_type(issue_type)
         queryset = queryset.filter(issue_type=issue_type)
-    if status:
-        _validate_status(status)
-        queryset = queryset.filter(status=status)
+    queryset = _filter_issues_by_status(queryset, status)
     if priority is not None:
         _validate_priority(priority)
         queryset = queryset.filter(priority=priority)
@@ -940,9 +949,7 @@ def list_project_issues(
     if issue_type:
         _validate_issue_type(issue_type)
         queryset = queryset.filter(issue_type=issue_type)
-    if status:
-        _validate_status(status)
-        queryset = queryset.filter(status=status)
+    queryset = _filter_issues_by_status(queryset, status)
     if priority is not None:
         _validate_priority(priority)
         queryset = queryset.filter(priority=priority)

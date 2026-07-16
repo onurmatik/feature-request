@@ -62,6 +62,7 @@ Operate on board data via API:
   - request: `issue_type`, `title`, `description`, `priority`.
   - comment: `body`.
   - optional filters: `issue_type`, `status`, `priority`, `limit`.
+  - `status=active` is a list-only filter that excludes `done` and `closed`.
 
 ### Required API Routes
 - Web-session agent onboarding only:

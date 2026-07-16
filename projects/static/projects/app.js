@@ -7,6 +7,7 @@
 
   const STATUS_OPTIONS = [
     { value: "", label: "All Statuses" },
+    { value: "active", label: "Active" },
     { value: "open", label: "Open" },
     { value: "planned", label: "Planned" },
     { value: "in_progress", label: "In Progress" },
@@ -14,7 +15,9 @@
     { value: "closed", label: "Closed" },
   ];
 
-  const DETAIL_STATUS_OPTIONS = STATUS_OPTIONS.filter((item) => item.value);
+  const DETAIL_STATUS_OPTIONS = STATUS_OPTIONS.filter(
+    (item) => item.value && item.value !== "active",
+  );
 
   const PRIORITY_OPTIONS = [
     { value: "", label: "All Priorities" },
@@ -127,7 +130,7 @@
     selectedIssueId: null,
     isIssueDetailOpen: false,
     typeFilter: "",
-    statusFilter: "open",
+    statusFilter: "active",
     priorityFilter: "",
     searchQuery: "",
     statusLine: "",
@@ -1816,7 +1819,7 @@
         : "Select a project to narrow the request list.";
     }
     if (state.typeFilter || state.statusFilter || state.priorityFilter || state.searchQuery.trim()) {
-      return "No requests match the active filters. Reset filters to see everything for this project.";
+      return "No requests match the active filters. Change filters or choose All Statuses to include completed requests.";
     }
     return "No requests yet for this project.";
   }
@@ -3310,7 +3313,7 @@
       state.isNewIssueOpen = false;
       state.newIssueFeedback = "";
       state.typeFilter = "";
-      state.statusFilter = "";
+      state.statusFilter = "active";
       state.priorityFilter = "";
       state.searchQuery = "";
       await Promise.all([refreshIssues(), refreshProjects()]);
@@ -3759,7 +3762,7 @@
         break;
       case "reset-filters":
         state.typeFilter = "";
-        state.statusFilter = "";
+        state.statusFilter = "active";
         state.priorityFilter = "";
         state.searchQuery = "";
         closeIssueDetailAndHistory();

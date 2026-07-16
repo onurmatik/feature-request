@@ -316,7 +316,8 @@
       "auth": "none",
       "description": "List issues for an owner, optional filters: project_slug, issue_type, status, priority.",
       "notes": [
-        "Issue/project-specific filters are validated by enum/range."
+        "Issue/project-specific filters are validated by enum/range.",
+        "Use status=active to exclude issues whose status is done or closed."
       ]
     },
     {
@@ -324,7 +325,7 @@
       "method": "GET",
       "path": "/api/projects/{owner_handle}/{project_slug}/issues",
       "auth": "none",
-      "description": "List issues for owner/project with optional filters."
+      "description": "List issues for owner/project with optional filters. Use status=active to exclude done and closed issues."
     },
     {
       "name": "create_issue",
