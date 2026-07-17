@@ -71,6 +71,7 @@ if AWS_STORAGE_BUCKET_NAME:
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "config.middleware.SiteHitsBotMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -159,6 +160,8 @@ STRIPE_PRICE_ID_30 = os.getenv("STRIPE_PRICE_ID_30", "")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
 TURNSTILE_SITEKEY = os.getenv("TURNSTILE_SITEKEY", "")
 TURNSTILE_SECRETKEY = os.getenv("TURNSTILE_SECRETKEY", "")
+SITEHITS_BOT_KEY = os.getenv("SITEHITS_BOT_KEY", "")
+SITEHITS_BOT_TIMEOUT_SECONDS = 2.0
 
 
 # Email & Authentication

@@ -114,6 +114,7 @@ Create a `.env` file at the repository root (or set environment variables) for l
 - `STRIPE_WEBHOOK_SECRET`
 - `TURNSTILE_SITEKEY`
 - `TURNSTILE_SECRETKEY`
+- `SITEHITS_BOT_KEY` (server-side bot-event collector key)
 - `EMAIL_BACKEND`
 - `ADMIN_EMAIL`
 - `STATIC_URL`, `STATIC_ROOT`

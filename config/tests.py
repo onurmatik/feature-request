@@ -53,3 +53,17 @@ class FeedbackWidgetInstallationTest(TestCase):
 
         self.assertEqual(html.count(widget_script), 1)
         self.assertIn(f"{widget_script}\n  </body>", html)
+
+
+class SiteHitsBrowserTrackerTest(TestCase):
+    def test_existing_browser_tracker_is_unchanged_and_has_no_bot_key(self):
+        response = self.client.get("/")
+        html = response.content.decode()
+        browser_tracker = (
+            '<script defer src="https://sitehits.io/js/script.js" '
+            'data-site-key="sh_vLsGeHosB7zxFqHKWnQ6R5q2" '
+            'data-api-url="https://sitehits.io/api/events"></script>'
+        )
+
+        self.assertEqual(html.count(browser_tracker), 1)
+        self.assertNotIn("shb_", html)
