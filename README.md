@@ -115,6 +115,12 @@ Create a `.env` file at the repository root (or set environment variables) for l
 - `TURNSTILE_SITEKEY`
 - `TURNSTILE_SECRETKEY`
 - `SITEHITS_BOT_KEY` (server-side bot-event collector key)
+- `FEATURE_REQUEST_API_BASE_URL` (defaults to `http://127.0.0.1:8000/api`)
+- `FEATURE_REQUEST_MCP_HOST` (defaults to `127.0.0.1`)
+- `FEATURE_REQUEST_MCP_PORT` (defaults to `8001`)
+- `FEATURE_REQUEST_MCP_SERVER_URL` (defaults to `http://127.0.0.1:8001/mcp`)
+- `FEATURE_REQUEST_MCP_AUTH_ISSUER_URL` (defaults to `http://127.0.0.1:8000`)
+- `FEATURE_REQUEST_MCP_API_TIMEOUT_SECONDS` (defaults to `20`)
 - `EMAIL_BACKEND`
 - `ADMIN_EMAIL`
 - `STATIC_URL`, `STATIC_ROOT`
@@ -181,9 +187,16 @@ Project responses include `open_issues_count`, which counts issues with status `
 - `GET /api/owners/{owner_handle}/interacted-projects`
 - `GET /api/owners/{owner_handle}/issues`
 - `GET /api/projects/{owner_handle}/{project_slug}/issues`
+- `GET /api/projects/{owner_handle}/{project_slug}/duplicate-candidates`
 - `POST /api/projects/{owner_handle}/{project_slug}/issues`
 - `GET /api/issues/{issue_id}`
 - `PATCH /api/issues/{issue_id}`
+- `GET /api/issues/{issue_id}/activity`
+- `PATCH|DELETE /api/issues/{issue_id}/duplicate`
+- `GET|POST /api/issues/{issue_id}/delivery-artifacts`
+- `DELETE /api/issues/{issue_id}/delivery-artifacts/{artifact_id}`
+- `GET /api/me/request-queue`
+- `GET /api/me/issue-changes`
 - `POST /api/issues/{issue_id}/upvote/toggle`
 - `GET /api/issues/{issue_id}/comments`
 - `POST /api/issues/{issue_id}/comments`
@@ -197,6 +210,95 @@ Project responses include `open_issues_count`, which counts issues with status `
 - `POST /api/billing/checkout`
 - `POST /api/owners/{owner_handle}/messages`
 - `GET /api/me/messages`
+
+## MCP Server
+
+FeatureRequest includes a Python MCPServer exposing the P1 request operating workflow over
+Streamable HTTP. It uses the existing `fr_...` bearer tokens and preserves their
+current `can_write` behavior; it does not define a separate MCP permission model.
+
+The MCP server supplies deterministic queue signals, explainable duplicate candidates,
+activity events, and delivery evidence records. It does not make semantic priority or
+duplicate decisions for the calling agent, and a stored delivery URL is not verification.
+The activity/change feed starts recording with the P1 migration; it does not reconstruct
+historical events for existing requests.
+
+Run Django and the MCP server as separate local processes:
+
+```bash
+python manage.py runserver 127.0.0.1:8000
+python -m feature_request_mcp
+```
+
+The MCP endpoint is then available at:
+
+```text
+http://127.0.0.1:8001/mcp
+```
+
+Alternatively, run the ASGI application directly:
+
+```bash
+uvicorn feature_request_mcp.asgi:application --host 127.0.0.1 --port 8001
+```
+
+Every MCP request must include:
+
+```text
+Authorization: Bearer <FeatureRequest API token>
+```
+
+The repository is a dual-format agent plugin:
+
+- Agent Plugins 1.0.0 portable package: `plugin.json`, `mcp.json`, and
+  `skills/feature-request/SKILL.md`.
+- Codex-native companion package: `.codex-plugin/plugin.json` and `.mcp.json`.
+
+The portable `mcp.json` uses the Agent Plugins 1.0.0 `streamable-http` transport and
+leaves authentication to the MCP client, as required by the portable specification.
+The Codex-native `.mcp.json` connects to the same local server and reads the bearer
+token from `FEATURE_REQUEST_API_TOKEN`:
+
+```bash
+export FEATURE_REQUEST_API_TOKEN=fr_your_existing_token
+```
+
+For plugin development, run the two processes above before connecting. Clients using
+the portable package must be configured to send the same bearer token. Before a
+production plugin release, change both MCP configuration URLs, set
+`FEATURE_REQUEST_MCP_SERVER_URL=https://featurerequest.io/mcp`, and expose that
+Streamable HTTP route over HTTPS.
+
+P1 project tools:
+
+- `list_projects`
+- `get_project`
+- `create_project`
+- `update_project`
+- `delete_project` (destructive; requires `get_project`, explicit user direction, and a matching confirmation id)
+
+P1 request and evidence tools:
+
+- `list_requests`
+- `get_request`
+- `list_request_comments`
+- `get_queue_snapshot`
+- `find_duplicate_candidates`
+- `list_request_activity`
+- `list_request_changes`
+- `list_delivery_artifacts`
+- `create_request`
+- `update_request`
+- `transition_request`
+- `add_request_comment`
+- `update_request_comment`
+- `link_duplicate_request`
+- `unlink_duplicate_request`
+- `link_delivery_artifact`
+- `unlink_delivery_artifact`
+
+Token create/revoke, billing/checkout, bulk close, and bulk mutation are intentionally not
+exposed as MCP tools.
 
 ### Quick curl examples
 

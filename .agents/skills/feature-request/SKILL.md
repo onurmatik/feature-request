@@ -36,8 +36,14 @@ User asks an agent to read or mutate feature requests for a public board.
 
 ### Purpose
 Operate on board data via API:
-- read projects
+- read, create, update, and explicitly delete projects
 - read requests/issues
+- read owner-scoped queue signals and cursor-based request changes
+- find explainable duplicate candidates and manage reversible canonical links
+- record delivery artifact links for agent-side verification
+- update requests/issues
+- transition request status
+- read comments
 - create requests
 - add comments
 - edit comments
@@ -47,6 +53,17 @@ Operate on board data via API:
 - `portfolio-triage`: read-only queue snapshot across all projects owned by the authenticated user.
 - `project-triage`: read-only queue snapshot for one `owner_handle/project_slug`.
 - `project-implementation`: use one project's FeatureRequest issues as the source of truth for local repo implementation work.
+
+### Agent/MCP Decision Boundary
+- FeatureRequest stores facts and controlled state; the calling agent performs semantic judgment.
+- Treat current priority, votes, comments, status, and activity timestamps as queue evidence.
+- Treat duplicate similarity scores, matched terms, and score components as candidates only.
+- Use the returned algorithm identifier when comparing scores across runs or versions.
+- Never create a duplicate link solely because a similarity score is high; inspect both requests first.
+- A delivery artifact is only a stored URL. Inspect it with the agent's repository, GitHub, CI,
+  deployment, or release tools before describing delivery as verified.
+- Linking a duplicate or delivery artifact never changes request priority or status automatically.
+- Activity/change events begin when P1 is deployed; do not infer a complete pre-P1 audit history.
 
 ### Required Inputs
 - Base URL:
@@ -64,6 +81,56 @@ Operate on board data via API:
   - optional filters: `issue_type`, `status`, `priority`, `limit`.
   - `status=active` is a list-only filter that excludes `done` and `closed`.
 
+### P1 MCP Server
+- Transport: Streamable HTTP at `/mcp`.
+- Authentication: use an existing FeatureRequest bearer token.
+- Permission inheritance:
+  - resolve the token through the existing `ApiToken` model;
+  - act as the token's user;
+  - preserve the existing `can_write` behavior;
+  - do not add a separate MCP permission or scope model.
+- The server intentionally does not expose `get_connection_context`; call `list_projects`
+  when the authenticated user's owner/project context is unknown.
+- P1 project tools:
+  - `list_projects`
+  - `get_project`
+  - `create_project`
+  - `update_project`
+  - `delete_project`
+- P1 request and evidence tools:
+  - `list_requests`
+  - `get_request`
+  - `list_request_comments`
+  - `get_queue_snapshot`
+  - `find_duplicate_candidates`
+  - `list_request_activity`
+  - `list_request_changes`
+  - `list_delivery_artifacts`
+  - `create_request`
+  - `update_request`
+  - `transition_request`
+  - `add_request_comment`
+  - `update_request_comment`
+  - `link_duplicate_request`
+  - `unlink_duplicate_request`
+  - `link_delivery_artifact`
+  - `unlink_delivery_artifact`
+- `delete_project` is destructive: call `get_project` first, require explicit user direction,
+  and pass the same project id as `confirm_project_id`.
+- Keep status transitions separate from content/priority updates.
+- Do not transition a request to `done` or `closed` without explicit user direction
+  and delivery evidence that the calling agent has inspected.
+- Intentionally not exposed through MCP: token create/revoke, billing/checkout, bulk close,
+  and bulk mutation.
+
+### Plugin Package Compatibility
+- Portable package contract: Agent Plugins 1.0.0 root `plugin.json`, root `mcp.json`,
+  and immediate-child skills under `skills/`.
+- The portable MCP declaration uses `streamable-http`; authentication is configured by
+  the consuming client because Agent Plugins 1.0.0 does not define credential references.
+- Codex-native metadata remains in `.codex-plugin/plugin.json` and `.mcp.json`; keep its
+  name, version, MCP URL, and shared `skills/` content aligned with the portable package.
+
 ### Required API Routes
 - Web-session agent onboarding only:
   - `POST /api/auth/agent-token/connect`
@@ -71,10 +138,29 @@ Operate on board data via API:
 - Read projects:
   - `GET /api/projects`
   - `GET /api/owners/{owner_handle}/projects`
+- Manage owned projects:
+  - `POST /api/projects`
+  - `GET /api/projects/{project_id}`
+  - `PATCH /api/projects/{project_id}`
+  - `DELETE /api/projects/{project_id}`
 - Read issues:
   - `GET /api/owners/{owner_handle}/issues`
   - `GET /api/projects/{owner_handle}/{project_slug}/issues`
   - `GET /api/issues/{issue_id}`
+- Read queue and activity evidence:
+  - `GET /api/me/request-queue`
+  - `GET /api/me/issue-changes`
+  - `GET /api/issues/{issue_id}/activity`
+- Find and manage duplicates:
+  - `GET /api/projects/{owner_handle}/{project_slug}/duplicate-candidates`
+  - `PATCH /api/issues/{issue_id}/duplicate`
+  - `DELETE /api/issues/{issue_id}/duplicate`
+- Manage delivery evidence:
+  - `GET /api/issues/{issue_id}/delivery-artifacts`
+  - `POST /api/issues/{issue_id}/delivery-artifacts`
+  - `DELETE /api/issues/{issue_id}/delivery-artifacts/{artifact_id}`
+- Update issue:
+  - `PATCH /api/issues/{issue_id}`
 - Create issue:
   - `POST /api/projects/{owner_handle}/{project_slug}/issues`
   - Agents must continue to use this authenticated endpoint. The public
@@ -82,6 +168,8 @@ Operate on board data via API:
     requires Turnstile plus email verification, and must not be used for agent writes.
 - Add comment:
   - `POST /api/issues/{issue_id}/comments`
+- Read comments:
+  - `GET /api/issues/{issue_id}/comments`
 - Edit comment:
   - `PATCH /api/issues/{issue_id}/comments/{comment_id}`
 - Toggle upvote:
@@ -92,19 +180,37 @@ Operate on board data via API:
 2. If a raw API token is present, use it directly as `Authorization: Bearer <token>`.
 3. Use `POST /api/auth/agent-token/connect` or `/refresh` only for browser/session onboarding flows where no raw token has been provided.
 4. If read requested:
-   - for portfolio triage, call `GET /api/projects`, then issue lists for those projects.
+   - for portfolio triage, call `GET /api/me/request-queue`; use the returned current fields and signals as evidence for the agent's own prioritization.
    - for project-scoped triage or implementation, call `GET /api/projects/{owner_handle}/{project_slug}/issues` directly with optional filters.
    - if one issue is target, call issue detail.
-5. If creating request:
-   - call create issue endpoint with required body.
-6. If adding comment:
+5. If managing a project:
+   - use the focused create/get/update project route.
+   - before delete, read the project by id and proceed only when the user explicitly requested deletion.
+6. If creating request:
+   - optionally call duplicate candidates with the proposed title/description.
+   - inspect plausible candidates; do not treat the score as a decision.
+   - call create issue endpoint with required body when a new canonical request is still appropriate.
+7. If classifying a duplicate:
+   - read both issues, ensure they represent the same underlying request, then link the duplicate to the root canonical issue.
+   - unlink the relationship when evidence changes; never transition or reprioritize as a side effect.
+8. If updating request content or priority:
+   - call update issue with only the requested fields.
+9. If transitioning request status:
+   - call update issue with only `status`.
+   - do not use `done` or `closed` without explicit user direction and delivery evidence.
+10. If adding comment:
    - call create comment endpoint with `{"body": "<text>"}`.
-7. If editing comment:
+11. If editing comment:
    - call update comment endpoint with `{"body": "<text>"}`.
-8. If upvote requested:
+12. If upvote requested:
    - call upvote toggle endpoint and read returned `upvoted` + `upvotes_count`.
-9. Return a normalized result object (see output format).
-10. On failures, return error object with action and actionable recovery step.
+13. If recording delivery:
+   - link the artifact URL with its kind and label.
+   - inspect the external artifact independently; the stored link is not verification.
+   - only then comment or transition when explicitly requested.
+14. For polling or follow-up, call the cursor-based change feed with the last `next_cursor`.
+15. Return a normalized result object (see output format).
+16. On failures, return error object with action and actionable recovery step.
 
 ### Project-Scoped Implementation Guidance
 - Treat FeatureRequest as the ticket source of truth.
@@ -114,6 +220,8 @@ Operate on board data via API:
 - Before code changes, produce a short implementation plan.
 - Run relevant tests after edits.
 - After implementation, add a concise comment back to the issue when write access is available.
+- Link relevant pull request, commit, deployment, or release URLs as delivery artifacts.
+- Verify those artifacts with the coding agent's external tools; FeatureRequest does not verify them.
 - Do not mark an issue `done` automatically; reserve `done`/`closed` for merge or release confirmation.
 
 ### Expected Output Format
@@ -121,7 +229,7 @@ Return compact JSON:
 ```json
 {
   "ok": true,
-  "action": "read_issues|create_issue|add_comment|toggle_upvote",
+  "action": "<focused MCP or API action name>",
   "request": {
     "method": "POST",
     "path": "/api/projects/{owner_handle}/{project_slug}/issues",

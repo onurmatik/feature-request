@@ -1,0 +1,41 @@
+{
+  "name": "feature-request",
+  "version": "0.2.0",
+  "description": "Evidence-backed feature request intake, triage, delivery tracking, and project operations.",
+  "author": {
+    "name": "FeatureRequest",
+    "url": "https://featurerequest.io"
+  },
+  "homepage": "https://featurerequest.io",
+  "repository": "https://github.com/onurmatik/feature-request",
+  "license": "MIT",
+  "keywords": [
+    "feedback",
+    "feature-requests",
+    "triage",
+    "product-management",
+    "agents"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "FeatureRequest",
+    "shortDescription": "Operate the request lifecycle",
+    "longDescription": "Collect, inspect, normalize, and prioritize product feedback; manage explainable duplicate links; connect requests to delivery evidence; and track lifecycle activity without replacing the calling agent's judgment.",
+    "developerName": "FeatureRequest",
+    "category": "Productivity",
+    "capabilities": [
+      "Request intake and triage",
+      "Explainable duplicate evidence",
+      "Delivery artifact tracking",
+      "Project operations"
+    ],
+    "websiteURL": "https://featurerequest.io",
+    "defaultPrompt": [
+      "Triage my active FeatureRequest queue and explain your priority decisions.",
+      "Find duplicate candidates for this request and compare the evidence.",
+      "Pick one ready request, implement it, and link delivery evidence."
+    ],
+    "brandColor": "#06B6D4"
+  }
+}

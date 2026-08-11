@@ -15,7 +15,8 @@ from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views.decorators.http import require_http_methods
 
 from .embed import get_or_create_embed_user, token_digest
-from .models import EmbeddedIssueSubmission, Issue, Project
+from .events import record_issue_event
+from .models import EmbeddedIssueSubmission, Issue, IssueEvent, Project
 
 
 logger = logging.getLogger(__name__)
@@ -227,6 +228,12 @@ def embed_submission_verify(request, token):
                 description=locked.description,
                 status=Issue.Status.OPEN,
                 priority=Issue.Priority.MEDIUM,
+            )
+            record_issue_event(
+                issue=issue,
+                event_type=IssueEvent.Type.CREATED,
+                actor=user,
+                data={"source": "embed"},
             )
             created_issue = True
             locked.issue = issue

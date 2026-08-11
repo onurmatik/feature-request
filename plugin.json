@@ -1,0 +1,20 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "feature-request",
+  "version": "0.2.0",
+  "description": "Evidence-backed feature request intake, triage, delivery tracking, and project operations.",
+  "author": {
+    "name": "FeatureRequest",
+    "url": "https://featurerequest.io"
+  },
+  "homepage": "https://featurerequest.io",
+  "repository": "https://github.com/onurmatik/feature-request",
+  "license": "MIT",
+  "keywords": [
+    "feedback",
+    "feature-requests",
+    "triage",
+    "product-management",
+    "agents"
+  ]
+}

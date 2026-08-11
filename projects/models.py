@@ -103,6 +103,13 @@ class Issue(models.Model):
         default=Priority.MEDIUM,
         db_index=True,
     )
+    duplicate_of = models.ForeignKey(
+        "self",
+        related_name="duplicates",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -165,6 +172,84 @@ class IssueComment(models.Model):
 
     def __str__(self):
         return f"Comment #{self.pk} on issue #{self.issue_id}"
+
+
+class IssueDeliveryArtifact(models.Model):
+    class Kind(models.TextChoices):
+        PULL_REQUEST = "pull_request", "Pull request"
+        COMMIT = "commit", "Commit"
+        DEPLOYMENT = "deployment", "Deployment"
+        RELEASE = "release", "Release"
+        OTHER = "other", "Other"
+
+    issue = models.ForeignKey(
+        Issue,
+        related_name="delivery_artifacts",
+        on_delete=models.CASCADE,
+    )
+    added_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="issue_delivery_artifacts",
+        on_delete=models.CASCADE,
+    )
+    kind = models.CharField(max_length=32, choices=Kind.choices)
+    url = models.URLField(max_length=2048)
+    label = models.CharField(max_length=200, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["issue", "url"],
+                name="unique_delivery_artifact_url_per_issue",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.kind} for issue #{self.issue_id}"
+
+
+class IssueEvent(models.Model):
+    class Type(models.TextChoices):
+        CREATED = "created", "Created"
+        UPDATED = "updated", "Updated"
+        COMMENT_ADDED = "comment_added", "Comment added"
+        COMMENT_UPDATED = "comment_updated", "Comment updated"
+        UPVOTE_ADDED = "upvote_added", "Upvote added"
+        UPVOTE_REMOVED = "upvote_removed", "Upvote removed"
+        DUPLICATE_LINKED = "duplicate_linked", "Duplicate linked"
+        DUPLICATE_UNLINKED = "duplicate_unlinked", "Duplicate unlinked"
+        DELIVERY_LINKED = "delivery_linked", "Delivery linked"
+        DELIVERY_UNLINKED = "delivery_unlinked", "Delivery unlinked"
+
+    issue = models.ForeignKey(
+        Issue,
+        related_name="events",
+        on_delete=models.CASCADE,
+    )
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="issue_events",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+    )
+    event_type = models.CharField(max_length=32, choices=Type.choices, db_index=True)
+    data = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["id"]
+        indexes = [
+            models.Index(
+                fields=["issue", "id"],
+                name="issue_event_issue_id_idx",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.event_type} on issue #{self.issue_id}"
 
 
 class EmbeddedIssueSubmission(models.Model):

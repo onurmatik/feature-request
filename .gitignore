@@ -1,6 +1,9 @@
 .*
 !.agents/
 !.agents/**
+!.codex-plugin/
+!.codex-plugin/plugin.json
+!.mcp.json
 .venv/
 __pycache__/
 *.py[cod]

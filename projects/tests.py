@@ -14,7 +14,15 @@ from .embed import (
     token_digest,
     validate_turnstile,
 )
-from .models import EmbeddedIssueSubmission, Issue, IssueComment, IssueUpvote, Project
+from .models import (
+    EmbeddedIssueSubmission,
+    Issue,
+    IssueComment,
+    IssueDeliveryArtifact,
+    IssueEvent,
+    IssueUpvote,
+    Project,
+)
 
 
 class IssueModelsTest(TestCase):
@@ -287,6 +295,36 @@ class IssueApiTest(TestCase):
         self.assertEqual(response.status_code, 400)
         self.issue.refresh_from_db()
         self.assertEqual(self.issue.status, Issue.Status.OPEN)
+
+    def test_issue_lists_support_bounded_limit(self):
+        Issue.objects.create(
+            project=self.project,
+            author=self.owner,
+            title="Another request for limit testing",
+        )
+
+        project_response = self.client.get(
+            f"/api/projects/{self.owner.handle}/{self.project.slug}/issues",
+            {"limit": 1},
+        )
+        owner_response = self.client.get(
+            f"/api/owners/{self.owner.handle}/issues",
+            {"project_slug": self.project.slug, "limit": 1},
+        )
+        invalid_response = self.client.get(
+            f"/api/owners/{self.owner.handle}/issues",
+            {"limit": 101},
+        )
+
+        self.assertEqual(project_response.status_code, 200)
+        self.assertEqual(owner_response.status_code, 200)
+        self.assertEqual(len(project_response.json()), 1)
+        self.assertEqual(len(owner_response.json()), 1)
+        self.assertEqual(invalid_response.status_code, 400)
+        self.assertEqual(
+            invalid_response.json()["detail"],
+            "limit must be between 1 and 100.",
+        )
 
     @override_settings(OPENAI_API_KEY="test-openai-key")
     def test_create_issue_rejects_irrelevant_content_with_moderation(self):
@@ -1390,3 +1428,214 @@ class EmbedWidgetTest(TestCase):
                 validate_turnstile(request, "valid-token")
 
         self.assertEqual(caught.exception.status_code, 503)
+
+
+@override_settings(OPENAI_API_KEY="")
+class RequestOperatingSystemApiTest(TestCase):
+    def setUp(self):
+        user_model = get_user_model()
+        self.owner = user_model.objects.create_user(
+            email="p1-owner@example.com",
+            handle="p1_owner",
+            password="test-pass-123",
+            subscription_tier="pro_30",
+            subscription_status="active",
+        )
+        self.visitor = user_model.objects.create_user(
+            email="p1-visitor@example.com",
+            handle="p1_visitor",
+            password="test-pass-123",
+        )
+        self.other_owner = user_model.objects.create_user(
+            email="p1-other@example.com",
+            handle="p1_other",
+            password="test-pass-123",
+        )
+        self.project = Project.objects.create(
+            owner=self.owner,
+            name="Agent Board",
+            slug="agent-board",
+        )
+        self.other_project = Project.objects.create(
+            owner=self.other_owner,
+            name="Other Board",
+            slug="other-board",
+        )
+        self.canonical = Issue.objects.create(
+            project=self.project,
+            author=self.owner,
+            title="Add dark mode support",
+            description="Let users switch the dashboard to a dark color theme.",
+            priority=Issue.Priority.HIGH,
+        )
+        self.possible_duplicate = Issue.objects.create(
+            project=self.project,
+            author=self.visitor,
+            title="Dark mode for dashboard",
+            description="Please support a dark dashboard theme.",
+            priority=Issue.Priority.MEDIUM,
+        )
+        self.closed_issue = Issue.objects.create(
+            project=self.project,
+            author=self.owner,
+            title="Completed request",
+            status=Issue.Status.DONE,
+            priority=Issue.Priority.CRITICAL,
+        )
+        self.external_issue = Issue.objects.create(
+            project=self.other_project,
+            author=self.other_owner,
+            title="Dark mode elsewhere",
+        )
+
+    def test_duplicate_candidates_are_explainable_evidence_without_mutation(self):
+        self.client.force_login(self.owner)
+        response = self.client.get(
+            f"/api/projects/{self.owner.handle}/{self.project.slug}/duplicate-candidates",
+            {
+                "title": "Dashboard dark mode support",
+                "description": "Users need a dark theme for the dashboard.",
+                "exclude_issue_id": self.possible_duplicate.id,
+                "limit": 5,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        candidates = response.json()
+        self.assertEqual(candidates[0]["issue_id"], self.canonical.id)
+        self.assertEqual(candidates[0]["algorithm"], "weighted_jaccard_v1")
+        self.assertGreater(candidates[0]["similarity_score"], 0)
+        self.assertIn("dark", candidates[0]["matched_terms"])
+        self.assertEqual(candidates[0]["score_components"]["title_weight"], 0.7)
+        self.possible_duplicate.refresh_from_db()
+        self.assertIsNone(self.possible_duplicate.duplicate_of_id)
+
+    def test_duplicate_link_is_reversible_and_does_not_change_lifecycle_fields(self):
+        self.client.force_login(self.owner)
+        original_status = self.possible_duplicate.status
+        original_priority = self.possible_duplicate.priority
+
+        link_response = self.client.patch(
+            f"/api/issues/{self.possible_duplicate.id}/duplicate",
+            data=json.dumps({"canonical_issue_id": self.canonical.id}),
+            content_type="application/json",
+        )
+        self.assertEqual(link_response.status_code, 200)
+        self.assertEqual(link_response.json()["duplicate_of_id"], self.canonical.id)
+        self.possible_duplicate.refresh_from_db()
+        self.assertEqual(self.possible_duplicate.status, original_status)
+        self.assertEqual(self.possible_duplicate.priority, original_priority)
+        self.assertEqual(
+            self.possible_duplicate.events.get().event_type,
+            IssueEvent.Type.DUPLICATE_LINKED,
+        )
+
+        unlink_response = self.client.delete(
+            f"/api/issues/{self.possible_duplicate.id}/duplicate"
+        )
+        self.assertEqual(unlink_response.status_code, 200)
+        self.assertIsNone(unlink_response.json()["duplicate_of_id"])
+        self.assertEqual(
+            list(self.possible_duplicate.events.values_list("event_type", flat=True)),
+            [IssueEvent.Type.DUPLICATE_LINKED, IssueEvent.Type.DUPLICATE_UNLINKED],
+        )
+
+    def test_duplicate_link_rejects_cross_project_canonical(self):
+        self.client.force_login(self.owner)
+        response = self.client.patch(
+            f"/api/issues/{self.possible_duplicate.id}/duplicate",
+            data=json.dumps({"canonical_issue_id": self.external_issue.id}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIsNone(Issue.objects.get(id=self.possible_duplicate.id).duplicate_of_id)
+
+    def test_delivery_artifact_link_is_idempotent_and_does_not_verify_delivery(self):
+        self.client.force_login(self.owner)
+        payload = {
+            "kind": IssueDeliveryArtifact.Kind.PULL_REQUEST,
+            "url": "https://github.com/example/repo/pull/42",
+            "label": "Implementation PR",
+        }
+        first = self.client.post(
+            f"/api/issues/{self.canonical.id}/delivery-artifacts",
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+        second = self.client.post(
+            f"/api/issues/{self.canonical.id}/delivery-artifacts",
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+
+        self.assertEqual(first.status_code, 200)
+        self.assertTrue(first.json()["created"])
+        self.assertFalse(second.json()["created"])
+        self.assertEqual(self.canonical.delivery_artifacts.count(), 1)
+        self.canonical.refresh_from_db()
+        self.assertEqual(self.canonical.status, Issue.Status.OPEN)
+        self.assertEqual(
+            list(self.canonical.events.values_list("event_type", flat=True)),
+            [IssueEvent.Type.DELIVERY_LINKED],
+        )
+
+        artifact_id = first.json()["artifact"]["id"]
+        delete_response = self.client.delete(
+            f"/api/issues/{self.canonical.id}/delivery-artifacts/{artifact_id}"
+        )
+        self.assertEqual(delete_response.status_code, 204)
+        self.assertFalse(IssueDeliveryArtifact.objects.filter(id=artifact_id).exists())
+        self.assertEqual(
+            list(self.canonical.events.values_list("event_type", flat=True)),
+            [IssueEvent.Type.DELIVERY_LINKED, IssueEvent.Type.DELIVERY_UNLINKED],
+        )
+
+    def test_queue_snapshot_is_owner_scoped_and_keeps_current_priority_as_data(self):
+        self.client.force_login(self.owner)
+        response = self.client.get("/api/me/request-queue", {"limit": 100})
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["projects_count"], 1)
+        self.assertEqual(payload["active_requests_count"], 2)
+        self.assertEqual(
+            [item["id"] for item in payload["requests"]],
+            [self.canonical.id, self.possible_duplicate.id],
+        )
+        self.assertEqual(payload["priority_counts"][str(Issue.Priority.HIGH)], 1)
+        self.assertNotIn(self.closed_issue.id, [item["id"] for item in payload["requests"]])
+        self.assertNotIn(self.external_issue.id, [item["id"] for item in payload["requests"]])
+
+    def test_activity_and_cursor_change_feed_are_structured_and_owner_scoped(self):
+        self.client.force_login(self.owner)
+        update_response = self.client.patch(
+            f"/api/issues/{self.canonical.id}",
+            data=json.dumps({"priority": Issue.Priority.CRITICAL}),
+            content_type="application/json",
+        )
+        self.assertEqual(update_response.status_code, 200)
+        event = self.canonical.events.get()
+
+        activity_response = self.client.get(
+            f"/api/issues/{self.canonical.id}/activity"
+        )
+        self.assertEqual(activity_response.status_code, 200)
+        self.assertEqual(activity_response.json()[0]["event_type"], IssueEvent.Type.UPDATED)
+        self.assertEqual(
+            activity_response.json()[0]["data"]["changes"]["priority"],
+            {"from": Issue.Priority.HIGH, "to": Issue.Priority.CRITICAL},
+        )
+
+        feed_response = self.client.get("/api/me/issue-changes", {"after_id": 0})
+        self.assertEqual(feed_response.status_code, 200)
+        self.assertEqual(feed_response.json()["next_cursor"], event.id)
+        empty_response = self.client.get(
+            "/api/me/issue-changes",
+            {"after_id": event.id},
+        )
+        self.assertEqual(empty_response.json()["events"], [])
+        self.assertEqual(empty_response.json()["next_cursor"], event.id)
+
+        self.client.force_login(self.other_owner)
+        other_feed = self.client.get("/api/me/issue-changes", {"after_id": 0})
+        self.assertEqual(other_feed.json()["events"], [])

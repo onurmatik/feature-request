@@ -1,7 +1,14 @@
 from django.contrib import admin, messages
 from django.utils.html import format_html_join
 
-from .models import Issue, IssueComment, IssueUpvote, Project
+from .models import (
+    Issue,
+    IssueComment,
+    IssueDeliveryArtifact,
+    IssueEvent,
+    IssueUpvote,
+    Project,
+)
 from .api import _normalize_project_url, _resolve_favicon_url_with_debug
 
 
@@ -137,3 +144,22 @@ class IssueCommentAdmin(admin.ModelAdmin):
     search_fields = ("body", "issue__title", "author__email", "author__handle")
     ordering = ("-created_at",)
     autocomplete_fields = ("issue", "author")
+
+
+@admin.register(IssueDeliveryArtifact)
+class IssueDeliveryArtifactAdmin(admin.ModelAdmin):
+    list_display = ("id", "issue", "kind", "url", "added_by", "created_at")
+    list_filter = ("kind", "created_at")
+    search_fields = ("issue__title", "url", "label", "added_by__handle")
+    ordering = ("-created_at",)
+    autocomplete_fields = ("issue", "added_by")
+
+
+@admin.register(IssueEvent)
+class IssueEventAdmin(admin.ModelAdmin):
+    list_display = ("id", "issue", "event_type", "actor", "created_at")
+    list_filter = ("event_type", "created_at")
+    search_fields = ("issue__title", "actor__handle")
+    ordering = ("-id",)
+    autocomplete_fields = ("issue", "actor")
+    readonly_fields = ("issue", "actor", "event_type", "data", "created_at")

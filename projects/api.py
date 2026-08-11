@@ -1,7 +1,8 @@
 import logging
+import re
 import ssl
 from html.parser import HTMLParser
-from typing import Optional
+from typing import Any, Optional
 from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin, urlparse
 from urllib.request import Request, urlopen
@@ -11,10 +12,11 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.core.mail import send_mail
-from django.core.validators import validate_email
+from django.core.validators import URLValidator, validate_email
 from django.db.models import Count, F, Max, Q
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from ninja import Router, Schema
 from ninja.errors import HttpError
 from openai import OpenAI
@@ -26,7 +28,15 @@ from .embed import (
     create_pending_submission,
     validate_turnstile,
 )
-from .models import Issue, IssueComment, IssueUpvote, Project
+from .events import record_issue_event
+from .models import (
+    Issue,
+    IssueComment,
+    IssueDeliveryArtifact,
+    IssueEvent,
+    IssueUpvote,
+    Project,
+)
 
 router = Router(tags=["issues"])
 logger = logging.getLogger(__name__)
@@ -107,8 +117,11 @@ class IssueOut(Schema):
     description: str
     status: str
     priority: int
+    duplicate_of_id: Optional[int]
     upvotes_count: int
     comments_count: int
+    delivery_artifacts_count: int
+    last_activity_at: str
     created_at: str
     updated_at: str
 
@@ -132,6 +145,72 @@ class CommentOut(Schema):
     body: str
     created_at: str
     updated_at: str
+
+
+class DuplicateCandidateOut(Schema):
+    issue_id: int
+    title: str
+    description: str
+    issue_type: str
+    status: str
+    priority: int
+    duplicate_of_id: Optional[int]
+    algorithm: str
+    similarity_score: float
+    matched_terms: list[str]
+    score_components: dict[str, float]
+
+
+class DuplicateLinkIn(Schema):
+    canonical_issue_id: int
+
+
+class DeliveryArtifactIn(Schema):
+    kind: str
+    url: str
+    label: str = ""
+
+
+class DeliveryArtifactOut(Schema):
+    id: int
+    issue_id: int
+    added_by_id: int
+    added_by_handle: str
+    kind: str
+    url: str
+    label: str
+    created_at: str
+
+
+class DeliveryArtifactLinkOut(Schema):
+    created: bool
+    artifact: DeliveryArtifactOut
+
+
+class IssueEventOut(Schema):
+    id: int
+    issue_id: int
+    project_id: int
+    event_type: str
+    actor_id: Optional[int]
+    actor_handle: Optional[str]
+    data: dict[str, Any]
+    created_at: str
+
+
+class ChangeFeedOut(Schema):
+    events: list[IssueEventOut]
+    next_cursor: int
+    has_more: bool
+
+
+class QueueSnapshotOut(Schema):
+    generated_at: str
+    projects_count: int
+    active_requests_count: int
+    status_counts: dict[str, int]
+    priority_counts: dict[str, int]
+    requests: list[IssueOut]
 
 
 def _require_auth_user(request):
@@ -170,6 +249,25 @@ def _validate_priority(priority: int):
         raise HttpError(400, "Invalid priority.")
 
 
+def _validate_delivery_kind(kind: str):
+    allowed = {value for value, _ in IssueDeliveryArtifact.Kind.choices}
+    if kind not in allowed:
+        raise HttpError(400, "Invalid delivery artifact kind.")
+
+
+def _validate_limit(limit: int, *, maximum: int = 100):
+    if limit < 1 or limit > maximum:
+        raise HttpError(400, f"limit must be between 1 and {maximum}.")
+    return limit
+
+
+def _limit_issues(queryset, limit: Optional[int]):
+    if limit is None:
+        return queryset
+    _validate_limit(limit)
+    return queryset[:limit]
+
+
 def _can_manage_issue(user, issue: Issue):
     return user.id == issue.project.owner_id or user.id == issue.author_id
 
@@ -183,6 +281,76 @@ def _clean_non_empty(value: str, field_name: str):
     if not cleaned:
         raise HttpError(400, f"{field_name} cannot be empty.")
     return cleaned
+
+
+_DUPLICATE_TERM_PATTERN = re.compile(r"[^\W_]+", re.UNICODE)
+_DUPLICATE_STOP_WORDS = {
+    "a",
+    "an",
+    "and",
+    "are",
+    "as",
+    "at",
+    "be",
+    "bir",
+    "bu",
+    "da",
+    "de",
+    "for",
+    "ile",
+    "in",
+    "is",
+    "it",
+    "of",
+    "on",
+    "or",
+    "the",
+    "to",
+    "ve",
+}
+
+
+def _duplicate_terms(value: str):
+    return {
+        term
+        for term in _DUPLICATE_TERM_PATTERN.findall((value or "").casefold())
+        if len(term) > 1 and term not in _DUPLICATE_STOP_WORDS
+    }
+
+
+def _jaccard_similarity(left: set[str], right: set[str]):
+    if not left or not right:
+        return 0.0
+    return len(left & right) / len(left | right)
+
+
+def _duplicate_candidate_dict(issue: Issue, *, title: str, description: str):
+    query_title_terms = _duplicate_terms(title)
+    issue_title_terms = _duplicate_terms(issue.title)
+    query_content_terms = query_title_terms | _duplicate_terms(description)
+    issue_content_terms = issue_title_terms | _duplicate_terms(issue.description)
+    title_score = _jaccard_similarity(query_title_terms, issue_title_terms)
+    content_score = _jaccard_similarity(query_content_terms, issue_content_terms)
+    similarity_score = (0.7 * title_score) + (0.3 * content_score)
+
+    return {
+        "issue_id": issue.id,
+        "title": issue.title,
+        "description": issue.description,
+        "issue_type": issue.issue_type,
+        "status": issue.status,
+        "priority": issue.priority,
+        "duplicate_of_id": issue.duplicate_of_id,
+        "algorithm": "weighted_jaccard_v1",
+        "similarity_score": round(similarity_score, 4),
+        "matched_terms": sorted(query_content_terms & issue_content_terms),
+        "score_components": {
+            "title_jaccard": round(title_score, 4),
+            "content_jaccard": round(content_score, 4),
+            "title_weight": 0.7,
+            "content_weight": 0.3,
+        },
+    }
 
 
 class _FaviconHTMLParser(HTMLParser):
@@ -519,6 +687,14 @@ def _moderate_board_content(label: str, content: str, issue_type: str | None = N
 def _issue_to_dict(issue: Issue):
     upvotes_count = getattr(issue, "upvotes_count", None)
     comments_count = getattr(issue, "comments_count", None)
+    delivery_artifacts_count = getattr(issue, "delivery_artifacts_count", None)
+    activity_values = [
+        issue.created_at,
+        issue.updated_at,
+        getattr(issue, "_last_comment_at", None),
+        getattr(issue, "_last_event_at", None),
+    ]
+    last_activity_at = max(value for value in activity_values if value is not None)
     return {
         "id": issue.id,
         "project_id": issue.project_id,
@@ -531,8 +707,15 @@ def _issue_to_dict(issue: Issue):
         "description": issue.description,
         "status": issue.status,
         "priority": issue.priority,
+        "duplicate_of_id": issue.duplicate_of_id,
         "upvotes_count": upvotes_count if upvotes_count is not None else issue.upvotes.count(),
         "comments_count": comments_count if comments_count is not None else issue.comments.count(),
+        "delivery_artifacts_count": (
+            delivery_artifacts_count
+            if delivery_artifacts_count is not None
+            else issue.delivery_artifacts.count()
+        ),
+        "last_activity_at": last_activity_at.isoformat(),
         "created_at": issue.created_at.isoformat(),
         "updated_at": issue.updated_at.isoformat(),
     }
@@ -597,6 +780,32 @@ def _comment_to_dict(comment: IssueComment):
         "body": comment.body,
         "created_at": comment.created_at.isoformat(),
         "updated_at": comment.updated_at.isoformat(),
+    }
+
+
+def _delivery_artifact_to_dict(artifact: IssueDeliveryArtifact):
+    return {
+        "id": artifact.id,
+        "issue_id": artifact.issue_id,
+        "added_by_id": artifact.added_by_id,
+        "added_by_handle": artifact.added_by.handle,
+        "kind": artifact.kind,
+        "url": artifact.url,
+        "label": artifact.label,
+        "created_at": artifact.created_at.isoformat(),
+    }
+
+
+def _issue_event_to_dict(event: IssueEvent):
+    return {
+        "id": event.id,
+        "issue_id": event.issue_id,
+        "project_id": event.issue.project_id,
+        "event_type": event.event_type,
+        "actor_id": event.actor_id,
+        "actor_handle": event.actor.handle if event.actor_id else None,
+        "data": event.data,
+        "created_at": event.created_at.isoformat(),
     }
 
 
@@ -721,10 +930,12 @@ def _get_owner(owner_handle: str):
 
 
 def _get_annotated_issue_queryset():
-    return Issue.objects.select_related("project", "author").annotate(
+    return Issue.objects.select_related("project", "author", "duplicate_of").annotate(
         upvotes_count=Count("upvotes", distinct=True),
         comments_count=Count("comments", distinct=True),
-        _last_comment_at=Coalesce(Max("comments__created_at"), F("created_at")),
+        delivery_artifacts_count=Count("delivery_artifacts", distinct=True),
+        _last_comment_at=Coalesce(Max("comments__updated_at"), F("created_at")),
+        _last_event_at=Max("events__created_at"),
     )
 
 
@@ -909,6 +1120,7 @@ def list_owner_issues(
     issue_type: Optional[str] = None,
     status: Optional[str] = None,
     priority: Optional[int] = None,
+    limit: Optional[int] = None,
 ):
     owner = _get_owner(owner_handle)
     visible_projects = Project.objects.filter(owner=owner)
@@ -927,7 +1139,10 @@ def list_owner_issues(
         _validate_priority(priority)
         queryset = queryset.filter(priority=priority)
 
-    ordered_query = queryset.order_by("-_last_comment_at", "-created_at", "-id")
+    ordered_query = _limit_issues(
+        queryset.order_by("-_last_comment_at", "-created_at", "-id"),
+        limit,
+    )
     return [_issue_to_dict(issue) for issue in ordered_query]
 
 
@@ -942,6 +1157,7 @@ def list_project_issues(
     issue_type: Optional[str] = None,
     status: Optional[str] = None,
     priority: Optional[int] = None,
+    limit: Optional[int] = None,
 ):
     project = _get_project(owner_handle, project_slug)
     queryset = _get_annotated_issue_queryset().filter(project=project)
@@ -954,7 +1170,52 @@ def list_project_issues(
         _validate_priority(priority)
         queryset = queryset.filter(priority=priority)
 
-    return [_issue_to_dict(issue) for issue in queryset]
+    return [_issue_to_dict(issue) for issue in _limit_issues(queryset, limit)]
+
+
+@router.get(
+    "/projects/{owner_handle}/{project_slug}/duplicate-candidates",
+    response=list[DuplicateCandidateOut],
+)
+def find_duplicate_candidates(
+    request,
+    owner_handle: str,
+    project_slug: str,
+    title: str,
+    description: str = "",
+    exclude_issue_id: Optional[int] = None,
+    limit: int = 5,
+):
+    _require_auth_user(request)
+    project = _get_project(owner_handle, project_slug)
+    title = _clean_non_empty(title, "Issue title")
+    description = description.strip()
+    _validate_limit(limit, maximum=20)
+
+    queryset = Issue.objects.filter(project=project)
+    if exclude_issue_id is not None:
+        if not queryset.filter(id=exclude_issue_id).exists():
+            raise HttpError(400, "exclude_issue_id must belong to the target project.")
+        queryset = queryset.exclude(id=exclude_issue_id)
+
+    candidates = [
+        _duplicate_candidate_dict(
+            issue,
+            title=title,
+            description=description,
+        )
+        for issue in queryset
+    ]
+    candidates = [candidate for candidate in candidates if candidate["similarity_score"] > 0]
+    candidates.sort(
+        key=lambda candidate: (
+            candidate["similarity_score"],
+            len(candidate["matched_terms"]),
+            candidate["issue_id"],
+        ),
+        reverse=True,
+    )
+    return candidates[:limit]
 
 
 @router.post(
@@ -978,7 +1239,14 @@ def create_issue(request, owner_handle: str, project_slug: str, payload: IssueCr
         description=description,
         priority=payload.priority,
     )
+    record_issue_event(
+        issue=issue,
+        event_type=IssueEvent.Type.CREATED,
+        actor=user,
+        data={"source": "api"},
+    )
     _notify_owner_on_new_issue(request, issue, user)
+    issue = _get_annotated_issue_queryset().get(id=issue.id)
     return 201, _issue_to_dict(issue)
 
 
@@ -1049,28 +1317,279 @@ def update_issue(request, issue_id: int, payload: IssueUpdateIn):
         raise HttpError(403, "Not allowed to update this issue.")
 
     updated_fields = []
+    changes = {}
 
     if payload.title is not None:
-        issue.title = _clean_non_empty(payload.title, "Issue title")
-        updated_fields.append("title")
+        title = _clean_non_empty(payload.title, "Issue title")
+        if title != issue.title:
+            changes["title"] = {"from": issue.title, "to": title}
+            issue.title = title
+            updated_fields.append("title")
     if payload.description is not None:
-        issue.description = payload.description.strip()
-        updated_fields.append("description")
+        description = payload.description.strip()
+        if description != issue.description:
+            changes["description"] = {"from": issue.description, "to": description}
+            issue.description = description
+            updated_fields.append("description")
     if payload.status is not None:
         _validate_status(payload.status)
-        issue.status = payload.status
-        updated_fields.append("status")
+        if payload.status != issue.status:
+            changes["status"] = {"from": issue.status, "to": payload.status}
+            issue.status = payload.status
+            updated_fields.append("status")
     if payload.priority is not None:
         _validate_priority(payload.priority)
-        issue.priority = payload.priority
-        updated_fields.append("priority")
+        if payload.priority != issue.priority:
+            changes["priority"] = {"from": issue.priority, "to": payload.priority}
+            issue.priority = payload.priority
+            updated_fields.append("priority")
 
     if updated_fields:
         updated_fields.append("updated_at")
         issue.save(update_fields=updated_fields)
-        issue = _get_annotated_issue_queryset().get(id=issue.id)
+        record_issue_event(
+            issue=issue,
+            event_type=IssueEvent.Type.UPDATED,
+            actor=user,
+            data={"changes": changes},
+        )
+
+    issue = _get_annotated_issue_queryset().get(id=issue.id)
 
     return _issue_to_dict(issue)
+
+
+@router.get("/me/request-queue", response=QueueSnapshotOut)
+def get_request_queue(request, project_id: Optional[int] = None, limit: int = 100):
+    user = _require_auth_user(request)
+    _validate_limit(limit)
+    projects = Project.objects.filter(owner=user)
+    if project_id is not None:
+        projects = projects.filter(id=project_id)
+        if not projects.exists():
+            raise HttpError(404, "Project not found.")
+
+    queryset = (
+        _get_annotated_issue_queryset()
+        .filter(project__in=projects)
+        .exclude(status__in=[Issue.Status.DONE, Issue.Status.CLOSED])
+        .order_by("-priority", "-updated_at", "-id")
+    )
+    active_requests_count = queryset.count()
+    requests = list(queryset[:limit])
+    status_counts = {
+        status: queryset.filter(status=status).count()
+        for status in [
+            Issue.Status.OPEN,
+            Issue.Status.PLANNED,
+            Issue.Status.IN_PROGRESS,
+        ]
+    }
+    priority_counts = {
+        str(priority): queryset.filter(priority=priority).count()
+        for priority in [
+            Issue.Priority.LOW,
+            Issue.Priority.MEDIUM,
+            Issue.Priority.HIGH,
+            Issue.Priority.CRITICAL,
+        ]
+    }
+    return {
+        "generated_at": timezone.now().isoformat(),
+        "projects_count": projects.count(),
+        "active_requests_count": active_requests_count,
+        "status_counts": status_counts,
+        "priority_counts": priority_counts,
+        "requests": [_issue_to_dict(issue) for issue in requests],
+    }
+
+
+@router.get("/me/issue-changes", response=ChangeFeedOut)
+def list_issue_changes(request, after_id: int = 0, limit: int = 50):
+    user = _require_auth_user(request)
+    if after_id < 0:
+        raise HttpError(400, "after_id cannot be negative.")
+    _validate_limit(limit)
+    queryset = (
+        IssueEvent.objects.select_related("actor", "issue__project")
+        .filter(issue__project__owner=user, id__gt=after_id)
+        .order_by("id")
+    )
+    events = list(queryset[:limit])
+    next_cursor = events[-1].id if events else after_id
+    return {
+        "events": [_issue_event_to_dict(event) for event in events],
+        "next_cursor": next_cursor,
+        "has_more": queryset.filter(id__gt=next_cursor).exists(),
+    }
+
+
+@router.get("/issues/{issue_id}/activity", response=list[IssueEventOut])
+def list_issue_activity(request, issue_id: int, limit: int = 100):
+    user = _require_auth_user(request)
+    _validate_limit(limit)
+    issue = get_object_or_404(Issue.objects.select_related("project"), id=issue_id)
+    if not _can_manage_issue(user, issue):
+        raise HttpError(403, "Not allowed to view this issue activity.")
+    events = list(
+        issue.events.select_related("actor", "issue__project")
+        .order_by("-id")[:limit]
+    )
+    events.reverse()
+    return [_issue_event_to_dict(event) for event in events]
+
+
+@router.patch("/issues/{issue_id}/duplicate", response=IssueOut)
+def link_issue_duplicate(request, issue_id: int, payload: DuplicateLinkIn):
+    user = _require_auth_user(request)
+    issue = get_object_or_404(Issue.objects.select_related("project"), id=issue_id)
+    if not _can_manage_issue(user, issue):
+        raise HttpError(403, "Not allowed to classify this issue as a duplicate.")
+    canonical = get_object_or_404(
+        Issue.objects.select_related("project"),
+        id=payload.canonical_issue_id,
+    )
+    if canonical.id == issue.id:
+        raise HttpError(400, "An issue cannot be a duplicate of itself.")
+    if canonical.project_id != issue.project_id:
+        raise HttpError(400, "Duplicate issues must belong to the same project.")
+    if canonical.duplicate_of_id is not None:
+        raise HttpError(400, "Choose the root canonical issue, not another duplicate.")
+    if issue.duplicates.exists():
+        raise HttpError(400, "This issue is canonical for other duplicates and cannot be linked.")
+
+    if issue.duplicate_of_id != canonical.id:
+        previous_canonical_id = issue.duplicate_of_id
+        issue.duplicate_of = canonical
+        issue.save(update_fields=["duplicate_of", "updated_at"])
+        record_issue_event(
+            issue=issue,
+            event_type=IssueEvent.Type.DUPLICATE_LINKED,
+            actor=user,
+            data={
+                "canonical_issue_id": canonical.id,
+                "previous_canonical_issue_id": previous_canonical_id,
+            },
+        )
+
+    issue = _get_annotated_issue_queryset().get(id=issue.id)
+    return _issue_to_dict(issue)
+
+
+@router.delete("/issues/{issue_id}/duplicate", response=IssueOut)
+def unlink_issue_duplicate(request, issue_id: int):
+    user = _require_auth_user(request)
+    issue = get_object_or_404(Issue.objects.select_related("project"), id=issue_id)
+    if not _can_manage_issue(user, issue):
+        raise HttpError(403, "Not allowed to remove this duplicate link.")
+
+    if issue.duplicate_of_id is not None:
+        canonical_issue_id = issue.duplicate_of_id
+        issue.duplicate_of = None
+        issue.save(update_fields=["duplicate_of", "updated_at"])
+        record_issue_event(
+            issue=issue,
+            event_type=IssueEvent.Type.DUPLICATE_UNLINKED,
+            actor=user,
+            data={"canonical_issue_id": canonical_issue_id},
+        )
+
+    issue = _get_annotated_issue_queryset().get(id=issue.id)
+    return _issue_to_dict(issue)
+
+
+@router.get(
+    "/issues/{issue_id}/delivery-artifacts",
+    response=list[DeliveryArtifactOut],
+)
+def list_issue_delivery_artifacts(request, issue_id: int):
+    user = _require_auth_user(request)
+    issue = get_object_or_404(Issue.objects.select_related("project"), id=issue_id)
+    if not _can_manage_issue(user, issue):
+        raise HttpError(403, "Not allowed to view this issue's delivery artifacts.")
+    artifacts = issue.delivery_artifacts.select_related("added_by").all()
+    return [_delivery_artifact_to_dict(artifact) for artifact in artifacts]
+
+
+@router.post(
+    "/issues/{issue_id}/delivery-artifacts",
+    response=DeliveryArtifactLinkOut,
+)
+def link_issue_delivery_artifact(
+    request,
+    issue_id: int,
+    payload: DeliveryArtifactIn,
+):
+    user = _require_auth_user(request)
+    issue = get_object_or_404(Issue.objects.select_related("project"), id=issue_id)
+    if not _can_manage_issue(user, issue):
+        raise HttpError(403, "Not allowed to link delivery evidence to this issue.")
+    _validate_delivery_kind(payload.kind)
+    url = _clean_non_empty(payload.url, "Artifact URL")
+    try:
+        URLValidator(schemes=["http", "https"])(url)
+    except ValidationError:
+        raise HttpError(400, "Artifact URL must be a valid http or https URL.")
+    label = payload.label.strip()
+    if len(label) > 200:
+        raise HttpError(400, "Artifact label must be 200 characters or fewer.")
+
+    artifact, created = IssueDeliveryArtifact.objects.get_or_create(
+        issue=issue,
+        url=url,
+        defaults={
+            "added_by": user,
+            "kind": payload.kind,
+            "label": label,
+        },
+    )
+    if created:
+        record_issue_event(
+            issue=issue,
+            event_type=IssueEvent.Type.DELIVERY_LINKED,
+            actor=user,
+            data={
+                "artifact_id": artifact.id,
+                "kind": artifact.kind,
+                "url": artifact.url,
+                "label": artifact.label,
+            },
+        )
+    artifact = IssueDeliveryArtifact.objects.select_related("added_by").get(id=artifact.id)
+    return {
+        "created": created,
+        "artifact": _delivery_artifact_to_dict(artifact),
+    }
+
+
+@router.delete(
+    "/issues/{issue_id}/delivery-artifacts/{artifact_id}",
+    response={204: None},
+)
+def unlink_issue_delivery_artifact(request, issue_id: int, artifact_id: int):
+    user = _require_auth_user(request)
+    issue = get_object_or_404(Issue.objects.select_related("project"), id=issue_id)
+    if not _can_manage_issue(user, issue):
+        raise HttpError(403, "Not allowed to unlink delivery evidence from this issue.")
+    artifact = get_object_or_404(
+        IssueDeliveryArtifact,
+        id=artifact_id,
+        issue=issue,
+    )
+    event_data = {
+        "artifact_id": artifact.id,
+        "kind": artifact.kind,
+        "url": artifact.url,
+        "label": artifact.label,
+    }
+    artifact.delete()
+    record_issue_event(
+        issue=issue,
+        event_type=IssueEvent.Type.DELIVERY_UNLINKED,
+        actor=user,
+        data=event_data,
+    )
+    return 204, None
 
 
 @router.post("/issues/{issue_id}/upvote/toggle", response=UpvoteToggleOut)
@@ -1082,14 +1601,24 @@ def toggle_issue_upvote(request, issue_id: int):
     if existing:
         existing.delete()
         upvoted = False
+        event_type = IssueEvent.Type.UPVOTE_REMOVED
     else:
         IssueUpvote.objects.create(issue=issue, user=user)
         upvoted = True
+        event_type = IssueEvent.Type.UPVOTE_ADDED
+
+    upvotes_count = issue.upvotes.count()
+    record_issue_event(
+        issue=issue,
+        event_type=event_type,
+        actor=user,
+        data={"upvotes_count": upvotes_count},
+    )
 
     return {
         "issue_id": issue.id,
         "upvoted": upvoted,
-        "upvotes_count": issue.upvotes.count(),
+        "upvotes_count": upvotes_count,
     }
 
 
@@ -1112,6 +1641,12 @@ def create_issue_comment(request, issue_id: int, payload: CommentCreateIn):
         author=user,
         body=body,
     )
+    record_issue_event(
+        issue=issue,
+        event_type=IssueEvent.Type.COMMENT_ADDED,
+        actor=user,
+        data={"comment_id": comment.id},
+    )
     comment = IssueComment.objects.select_related("author", "issue__project__owner").get(id=comment.id)
     _notify_owner_on_new_comment(request, comment)
     return 201, _comment_to_dict(comment)
@@ -1132,7 +1667,14 @@ def update_issue_comment(request, issue_id: int, comment_id: int, payload: Comme
     body = _clean_non_empty(payload.body, "Comment body")
     _moderate_comment_submission(body, comment.issue)
 
-    comment.body = body
-    comment.save(update_fields=["body", "updated_at"])
+    if body != comment.body:
+        comment.body = body
+        comment.save(update_fields=["body", "updated_at"])
+        record_issue_event(
+            issue=comment.issue,
+            event_type=IssueEvent.Type.COMMENT_UPDATED,
+            actor=user,
+            data={"comment_id": comment.id},
+        )
     comment = IssueComment.objects.select_related("author", "issue__project__owner").get(id=comment.id)
     return _comment_to_dict(comment)
