@@ -8,6 +8,17 @@ description: Operate FeatureRequest projects and evidence-backed request lifecyc
 Use this skill when the user wants to collect, inspect, triage, update, implement,
 or follow up on requests stored in FeatureRequest.
 
+## Agent Contract Handoff
+
+- This skill is a downstream operational adapter. `agent/contract.yaml` is the sole semantic
+  source for tool schemas, scopes, capabilities, ownership, approvals, errors, side effects,
+  idempotency, and retry behavior.
+- Agent Contract 1.0.0 defines `get_account_capabilities` as the target bootstrap tool.
+- MCP runtime conformance is currently `pending`; do not invoke or advertise that bootstrap or
+  the Contract's target mutation schemas until the separate MCP gate passes.
+- The flows below describe the observed current runtime and must not be used to reinterpret the
+  Contract. Once conformance passes, regenerate or verify this adapter against the pinned Contract.
+
 ## Decision Boundary
 
 - FeatureRequest supplies stored facts, deterministic queue signals, similarity evidence,
@@ -25,7 +36,8 @@ or follow up on requests stored in FeatureRequest.
 - The MCP client acts as that token's user and inherits its existing `can_write` behavior.
 - In an Agent Plugins 1.0.0 portable installation, configure the bearer credential in
   the consuming client; the portable `mcp.json` intentionally contains no token reference.
-- There is no separate detailed MCP permission model and no `get_connection_context` tool.
+- The current MCP runtime has no separate detailed permission model and exposes neither
+  `get_connection_context` nor the pending `get_account_capabilities` bootstrap target.
 - Call `list_projects` when owner or project context is unknown.
 - Do not expose raw tokens in output.
 

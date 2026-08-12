@@ -5,7 +5,15 @@ description: Manage feature request intake, normalization, triage, queue operati
 
 # Skills (Agent Task Catalog)
 
-This file is the single skill registry for the repository. Each section is an actionable skill with a deterministic flow.
+This file is the repository's downstream skill registry. Each section is an actionable skill
+with a deterministic flow, but normative agent semantics live only in `agent/contract.yaml`.
+Tool schemas, scopes, capabilities, ownership, approvals, errors, side effects, and retry rules
+must be referenced or mechanically projected from that Contract rather than redefined here.
+
+Agent Contract 1.0.0 names `get_account_capabilities` as the target bootstrap tool. MCP runtime
+conformance is currently `pending`, so this skill must not invoke the bootstrap or claim that the
+Contract's target mutation schemas are operational until the separate MCP gate passes. The P1
+MCP and API sections below document the observed current runtime during that handoff.
 
 ## Skill: `agent-onboard`
 ### Trigger
@@ -81,7 +89,7 @@ Operate on board data via API:
   - optional filters: `issue_type`, `status`, `priority`, `limit`.
   - `status=active` is a list-only filter that excludes `done` and `closed`.
 
-### P1 MCP Server
+### Current P1 MCP Runtime (Agent Contract Conformance Pending)
 - Transport: Streamable HTTP at `/mcp`.
 - Authentication: use an existing FeatureRequest bearer token.
 - Permission inheritance:
@@ -91,6 +99,11 @@ Operate on board data via API:
   - do not add a separate MCP permission or scope model.
 - The server intentionally does not expose `get_connection_context`; call `list_projects`
   when the authenticated user's owner/project context is unknown.
+- Agent Contract 1.0.0 targets `get_account_capabilities` as its capability/limit bootstrap,
+  but the current MCP runtime does not expose it. Do not invoke or advertise it until the MCP
+  implementation passes the versioned Contract conformance suite.
+- This tool list is current-runtime inventory only. The canonical public catalog and all
+  behavioral metadata are owned by `agent/contract.yaml`.
 - P1 project tools:
   - `list_projects`
   - `get_project`

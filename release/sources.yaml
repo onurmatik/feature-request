@@ -1,0 +1,38 @@
+schema_version: 1
+repository: https://github.com/onurmatik/feature-request
+
+descriptors:
+  agent_contract:
+    authoritative_store: github_release_asset
+    immutable_ref_pattern: agent-contract-v{agent_contract_version}
+    descriptor_path: release/contract-release.json
+    contract_path: agent/contract.yaml
+    contract_schema_path: agent/contract.schema.json
+    conformance_bundle_path: agent/conformance/{agent_contract_version}/
+    digest_algorithm: sha256
+    contract_digest_field: contract_sha256
+    contract_schema_digest_field: contract_schema_sha256
+    conformance_vectors_digest_field: conformance_vectors_sha256
+    conformance_vectors_digest_framing: utf8_relative_path_nul_raw_content_nul_v1
+    consumer_resolution: >-
+      Resolve the descriptor and conformance bundle from the immutable GitHub Release whose tag
+      matches agent-contract-v{agent_contract_version}; verify the release tag target, git commit,
+      Contract digest, Contract-schema digest and version, and conformance-vector digest before
+      consuming downstream. Reproduce the vector digest by sorting bundle members by UTF-8 relative
+      path and hashing each relative path, NUL, raw content, NUL sequence in order.
+      Never resolve a Contract release from a mutable branch path.
+
+promotion_environments:
+  - name: development
+    promotes_to: production
+    requires:
+      - contract_stage_gate
+      - deterministic_release_descriptor
+      - versioned_conformance_vectors
+  - name: production
+    promotes_to: null
+    requires:
+      - immutable_git_tag
+      - github_release
+      - digest_verification
+      - release_approval

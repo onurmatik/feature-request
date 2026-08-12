@@ -2,6 +2,21 @@
   "name": "FeatureRequest",
   "description": "Public feature request and feedback API for projects and issues.",
   "version": "0.2.0",
+  "document_role": "downstream_environment_api_and_mcp_adapter",
+  "agent_contract": {
+    "source": "agent/contract.yaml",
+    "schema": "agent/contract.schema.json",
+    "version": "1.0.0",
+    "role": "canonical_semantic_source",
+    "conformance_bundle": "agent/conformance/1.0.0/",
+    "projection_role": "This file describes environment bindings and the observed implementation surface; it does not redefine Agent Contract semantics.",
+    "bootstrap_target": "get_account_capabilities",
+    "runtime_conformance": {
+      "status": "pending",
+      "stage": "mcp_oauth",
+      "note": "The target bootstrap and Agent Contract 1.0.0 mutation schemas are not claimed as current runtime capabilities until the separate MCP conformance gate passes."
+    }
+  },
   "plugin": {
     "portable_standard": "Agent Plugins 1.0.0",
     "portable_manifest": "plugin.json",
@@ -163,15 +178,27 @@
     "transport": "streamable_http",
     "path": "/mcp",
     "implementation": "Python MCPServer",
+    "contract_projection": {
+      "source": "agent/contract.yaml",
+      "mapping_snapshot": "agent/mappings/mcp-1.0.0.json",
+      "conformance_status": "pending",
+      "bootstrap_target": "get_account_capabilities",
+      "bootstrap_runtime_status": "pending",
+      "notes": [
+        "The tools array below is an observed current-runtime inventory, not the normative Agent Contract catalog.",
+        "Do not expose or invoke get_account_capabilities until the MCP runtime implements Contract 1.0.0 and passes its downstream conformance gate.",
+        "Tool schemas, scopes, capabilities, ownership, approvals, errors, side effects, and retry semantics are projected from agent/contract.yaml."
+      ]
+    },
     "authentication": {
       "type": "existing_bearer_token",
       "token_format": "fr_<secret>",
       "permission_model": "inherit_api_token_user_and_can_write",
       "notes": [
-        "MCP does not define a separate detailed scope model in P1.",
+        "The observed P1 runtime does not define a separate detailed scope model; this is runtime documentation, not a redefinition of the Contract's per-tool read/write requirements.",
         "The authenticated MCP client acts as the API token user.",
         "Read-only tokens remain unable to call write API operations.",
-        "No get_connection_context tool is exposed; use list_projects when owner/project context is unknown.",
+        "The current runtime exposes neither get_connection_context nor the pending get_account_capabilities bootstrap target; use list_projects when owner/project context is unknown.",
         "MCP returns evidence and controlled mutations; the calling agent makes semantic priority, duplicate, and delivery decisions."
       ]
     },
@@ -292,6 +319,7 @@
           "status"
         ],
         "read_only": false,
+        "destructive": true,
         "guardrail": "Do not use done or closed without explicit user direction and merge or release evidence."
       },
       {

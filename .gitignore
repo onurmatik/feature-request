@@ -3,6 +3,9 @@
 !.agents/**
 !.codex-plugin/
 !.codex-plugin/plugin.json
+!.github/
+!.github/workflows/
+!.github/workflows/agent-contract.yml
 !.mcp.json
 .venv/
 __pycache__/

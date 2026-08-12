@@ -1,0 +1,1171 @@
+schema_version: "1"
+agent_contract_version: 1.0.0
+
+categories:
+  success: {status: covered, applies_to: all, vectors: [get_account_capabilities_success, list_projects_success, get_project_success, create_project_success, update_project_success, delete_project_success, list_requests_success, get_request_success, list_request_comments_success, get_queue_snapshot_success, find_duplicate_candidates_success, list_request_activity_success, list_request_changes_success, list_delivery_artifacts_success, create_request_success, link_duplicate_request_success, unlink_duplicate_request_success, link_delivery_artifact_success, unlink_delivery_artifact_success, update_request_success, transition_request_success, add_request_comment_success, update_request_comment_success]}
+  invalid_input: {status: covered, applies_to: all, vectors: [invalid_input_matrix]}
+  missing_capability: {status: covered, applies_to: [list_projects, get_project, create_project, update_project, delete_project, list_requests, get_request, list_request_comments, get_queue_snapshot, find_duplicate_candidates, list_request_activity, list_request_changes, list_delivery_artifacts, create_request, link_duplicate_request, unlink_duplicate_request, link_delivery_artifact, unlink_delivery_artifact, update_request, transition_request, add_request_comment, update_request_comment], vectors: [missing_capability_matrix]}
+  ownership_isolation: {status: covered, applies_to: [list_projects, get_project, update_project, delete_project, get_queue_snapshot, list_request_activity, list_request_changes, list_delivery_artifacts, link_duplicate_request, unlink_duplicate_request, link_delivery_artifact, unlink_delivery_artifact, update_request, transition_request, update_request_comment], vectors: [ownership_isolation_matrix, ownership_filtering_matrix]}
+  capability_plan_matrix: {status: covered, applies_to: all, vectors: [pro_plan_matrix]}
+  quota_concurrency: {status: covered, applies_to: [create_project, update_project, delete_project, link_duplicate_request, unlink_duplicate_request, link_delivery_artifact, unlink_delivery_artifact, update_request, transition_request, update_request_comment], vectors: [create_project_capacity_concurrency, revision_conflict_matrix]}
+  idempotent_replay: {status: covered, applies_to: [create_project, update_project, delete_project, create_request, link_duplicate_request, unlink_duplicate_request, link_delivery_artifact, unlink_delivery_artifact, update_request, transition_request, add_request_comment, update_request_comment], vectors: [mutation_replay_matrix, delivery_natural_key_reuse]}
+  idempotency_conflict: {status: covered, applies_to: [create_project, update_project, delete_project, create_request, link_duplicate_request, unlink_duplicate_request, link_delivery_artifact, unlink_delivery_artifact, update_request, transition_request, add_request_comment, update_request_comment], vectors: [mutation_conflict_matrix, delivery_natural_key_conflict]}
+  approval: {status: covered, applies_to: [delete_project, create_request, transition_request, add_request_comment, update_request_comment], vectors: [approval_matrix, approval_granted_matrix]}
+  uncertain_external_effect: {status: covered, applies_to: [create_request, add_request_comment, update_request_comment], vectors: [external_effect_uncertain_matrix, notification_unknown_after_commit_matrix]}
+  redaction: {status: covered, applies_to: all, vectors: [redaction_matrix]}
+  async_status: {status: not_applicable, applies_to: all, vectors: [], reason: Every 1.0.0 tool completes within a bounded request and no tool starts a long-running operation.}
+
+error_coverage:
+  invalid_input: {status: covered, vectors: [invalid_input_matrix]}
+  permission_denied: {status: covered, vectors: [ownership_isolation_matrix]}
+  not_found:
+    status: not_applicable
+    reason: No dedicated missing-resource fixture exists in the Contract-stage bundle; downstream service conformance must exercise each targetable tool's declared not_found behavior.
+  capacity_reached: {status: covered, vectors: [create_project_capacity_concurrency]}
+  quota_exhausted:
+    status: not_applicable
+    reason: Contract 1.0.0 defines no renewable usage quota; project_count is a lifetime capacity limit covered by capacity_reached.
+  rate_limited:
+    status: not_applicable
+    reason: Contract 1.0.0 defines no deterministic global call-rate policy from which a service-level vector can derive retry timing.
+  feature_unavailable: {status: covered, vectors: [missing_capability_matrix]}
+  revision_conflict: {status: covered, vectors: [revision_conflict_matrix]}
+  idempotency_conflict: {status: covered, vectors: [mutation_conflict_matrix, delivery_natural_key_conflict]}
+  moderation_rejected:
+    status: not_applicable
+    reason: Moderation classification is provider-dependent and has no deterministic rejected-content fixture in the Contract-stage bundle; downstream service conformance must inject the rejection outcome.
+  dependency_unavailable: {status: covered, vectors: [external_effect_uncertain_matrix]}
+  approval_required: {status: covered, vectors: [approval_matrix]}
+  confirmation_mismatch:
+    status: not_applicable
+    reason: The approval vectors cover missing and granted intent but do not include a separate mismatched confirm_project_id fixture; downstream service conformance must exercise the declared error.
+  invalid_state:
+    status: not_applicable
+    reason: No deterministic invalid duplicate-relationship or request-transition fixture is included in this Contract-stage bundle; downstream service conformance must exercise the declared state guards.
+
+vectors:
+  - id: get_account_capabilities_success
+    tool: get_account_capabilities
+    category: success
+    covers: [success]
+    input: &in_boot {}
+    context: &ctx_all
+      authenticated_actor_id: actor-1
+      authenticated_client_id: client-1
+      tenant_id: null
+      scopes: [read, write]
+      capabilities: [project_management, request_management, request_collaboration, duplicate_evidence, delivery_evidence, activity_feed]
+      ownership_fixture: authorized
+      plan: free
+    expected:
+      result: &account_free
+        capabilities: {project_management: true, request_management: true, request_collaboration: true, duplicate_evidence: true, delivery_evidence: true, activity_feed: true}
+        limits: {project_count: {used: 0, limit: 1, period: lifetime, reset_at: null}}
+      audit: &audit_read {profile: read, record_fields: [authenticated_actor_id, authenticated_client_id, tool_name, target_resource, authorization_decisions, redacted_input_hash, result_or_error_code, request_id, utc_timestamp]}
+
+  - id: list_projects_success
+    tool: list_projects
+    category: success
+    covers: [success]
+    input: &in_list_projects {}
+    context: *ctx_all
+    expected:
+      result: &project_list
+        projects:
+          - &project {id: 1, owner_id: 1, owner_handle: owner, name: Roadmap, slug: roadmap, tagline: Public roadmap, url: "https://example.com", favicon_url: "", open_issues_count: 1, revision: 1, created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z"}
+      audit: *audit_read
+
+  - id: get_project_success
+    tool: get_project
+    category: success
+    covers: [success]
+    input: &in_get_project {project_id: 1}
+    context: *ctx_all
+    expected: {result: *project, audit: *audit_read}
+
+  - id: create_project_success
+    tool: create_project
+    category: success
+    covers: [success]
+    input: &in_create_project {name: Roadmap, tagline: Public roadmap, url: "https://example.com", idempotency_key: idem-create-project-0001}
+    context: *ctx_all
+    expected:
+      result: *project
+      audit: &audit_write {profile: write, record_fields: [authenticated_actor_id, authenticated_client_id, tool_name, target_resource, authorization_decisions, redacted_input_hash, result_or_error_code, request_id, idempotency_id, utc_timestamp]}
+
+  - id: update_project_success
+    tool: update_project
+    category: success
+    covers: [success]
+    input: &in_update_project {project_id: 1, tagline: Updated roadmap, expected_revision: 1, idempotency_key: idem-update-project-0001}
+    context: *ctx_all
+    expected:
+      result: &project_updated {id: 1, owner_id: 1, owner_handle: owner, name: Roadmap, slug: roadmap, tagline: Updated roadmap, url: "https://example.com", favicon_url: "", open_issues_count: 1, revision: 2, created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:01:00Z"}
+      audit: *audit_write
+
+  - id: delete_project_success
+    tool: delete_project
+    category: success
+    covers: [success]
+    input: &in_delete_project {project_id: 1, confirm_project_id: 1, expected_revision: 1, idempotency_key: idem-delete-project-0001}
+    context: &ctx_delete_approved
+      authenticated_actor_id: actor-1
+      authenticated_client_id: client-1
+      tenant_id: null
+      scopes: [read, write]
+      capabilities: [project_management]
+      ownership_fixture: authorized_with_current_turn_explicit_user_intent_get_project_same_turn_and_matching_confirmation
+      plan: free
+    expected:
+      result: &delete_receipt {project_id: 1, deleted: true, deleted_revision: 1}
+      audit: &audit_destructive {profile: destructive, record_fields: [authenticated_actor_id, authenticated_client_id, tool_name, target_resource, authorization_decisions, redacted_input_hash, result_or_error_code, request_id, idempotency_id, approval_evidence, utc_timestamp]}
+
+  - id: list_requests_success
+    tool: list_requests
+    category: success
+    covers: [success]
+    input: &in_list_requests {owner_handle: owner, project_slug: roadmap, status: active, limit: 50}
+    context: *ctx_all
+    expected:
+      result: &request_list
+        requests:
+          - &request {id: 10, project_id: 1, author_id: 2, author_handle: author, author_display_name: Author, author_avatar_url: "", issue_type: feature, title: Dark mode, description: Add dark mode, status: open, priority: 2, duplicate_of_id: null, upvotes_count: 0, comments_count: 1, delivery_artifacts_count: 1, last_activity_at: "2026-01-01T00:00:00Z", revision: 1, created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z"}
+      audit: *audit_read
+
+  - id: get_request_success
+    tool: get_request
+    category: success
+    covers: [success]
+    input: &in_get_request {issue_id: 10}
+    context: *ctx_all
+    expected: {result: *request, audit: *audit_read}
+
+  - id: list_request_comments_success
+    tool: list_request_comments
+    category: success
+    covers: [success]
+    input: &in_list_comments {issue_id: 10}
+    context: *ctx_all
+    expected:
+      result: &comment_list
+        comments:
+          - &comment {id: 20, issue_id: 10, author_id: 2, author_handle: author, author_avatar_url: "", body: Please add this., revision: 1, created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z"}
+      audit: *audit_read
+
+  - id: get_queue_snapshot_success
+    tool: get_queue_snapshot
+    category: success
+    covers: [success]
+    input: &in_queue {project_id: 1, limit: 100}
+    context: *ctx_all
+    expected:
+      result: &queue {generated_at: "2026-01-01T00:00:00Z", projects_count: 1, active_requests_count: 1, status_counts: {open: 1, planned: 0, in_progress: 0}, priority_counts: {"1": 0, "2": 1, "3": 0, "4": 0}, requests: [*request]}
+      audit: *audit_read
+
+  - id: find_duplicate_candidates_success
+    tool: find_duplicate_candidates
+    category: success
+    covers: [success]
+    input: &in_candidates {owner_handle: owner, project_slug: roadmap, title: Dark theme, description: Add a dark mode, limit: 5}
+    context: *ctx_all
+    expected:
+      result: &candidate_list
+        candidates:
+          - &candidate {issue_id: 10, title: Dark mode, description: Add dark mode, issue_type: feature, status: open, priority: 2, duplicate_of_id: null, algorithm: weighted_jaccard_v1, similarity_score: 0.75, matched_terms: [dark, mode], score_components: {title_jaccard: 0.5, content_jaccard: 1.0, title_weight: 0.7, content_weight: 0.3}}
+      audit: *audit_read
+
+  - id: list_request_activity_success
+    tool: list_request_activity
+    category: success
+    covers: [success]
+    input: &in_activity {issue_id: 10, limit: 100}
+    context: *ctx_all
+    expected:
+      result: &event_list
+        events:
+          - &event {id: 30, issue_id: 10, project_id: 1, event_type: created, actor_id: 2, actor_handle: author, data: {source: mcp}, created_at: "2026-01-01T00:00:00Z"}
+      audit: *audit_read
+
+  - id: list_request_changes_success
+    tool: list_request_changes
+    category: success
+    covers: [success]
+    input: &in_changes {after_id: 0, limit: 50}
+    context: *ctx_all
+    expected:
+      result: &change_feed {events: [*event], next_cursor: 30, has_more: false}
+      audit: *audit_read
+
+  - id: list_delivery_artifacts_success
+    tool: list_delivery_artifacts
+    category: success
+    covers: [success]
+    input: &in_list_delivery {issue_id: 10}
+    context: *ctx_all
+    expected:
+      result: &artifact_list
+        artifacts:
+          - &artifact {id: 40, issue_id: 10, added_by_id: 1, added_by_handle: owner, kind: pull_request, url: "https://example.com/pull/1", label: PR 1, created_at: "2026-01-01T00:00:00Z"}
+      audit: *audit_read
+
+  - id: create_request_success
+    tool: create_request
+    category: success
+    covers: [success]
+    input: &in_create_request {owner_handle: owner, project_slug: roadmap, title: Dark mode, description: Add dark mode, issue_type: feature, priority: 2, idempotency_key: idem-create-request-0001}
+    context: &ctx_external_approved
+      authenticated_actor_id: actor-1
+      authenticated_client_id: client-1
+      tenant_id: null
+      scopes: [write]
+      capabilities: [request_management, request_collaboration]
+      ownership_fixture: authorized_with_current_turn_explicit_user_intent
+      plan: free
+    expected:
+      result: *request
+      audit: &audit_external {profile: external, record_fields: [authenticated_actor_id, authenticated_client_id, tool_name, target_resource, authorization_decisions, redacted_input_hash, result_or_error_code, request_id, idempotency_id, dependency_outcome, notification_outcome, utc_timestamp]}
+
+  - id: link_duplicate_request_success
+    tool: link_duplicate_request
+    category: success
+    covers: [success]
+    input: &in_link_duplicate {issue_id: 10, canonical_issue_id: 11, expected_revision: 1, idempotency_key: idem-link-duplicate-0001}
+    context: *ctx_all
+    expected:
+      result: &duplicate_receipt
+        changed: true
+        request: &request_duplicate_linked {id: 10, project_id: 1, author_id: 2, author_handle: author, author_display_name: Author, author_avatar_url: "", issue_type: feature, title: Dark mode, description: Add dark mode, status: open, priority: 2, duplicate_of_id: 11, upvotes_count: 0, comments_count: 1, delivery_artifacts_count: 1, last_activity_at: "2026-01-01T00:01:00Z", revision: 2, created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:01:00Z"}
+      audit: *audit_write
+
+  - id: unlink_duplicate_request_success
+    tool: unlink_duplicate_request
+    category: success
+    covers: [success]
+    input: &in_unlink_duplicate {issue_id: 10, expected_revision: 1, idempotency_key: idem-unlink-duplicate-01}
+    context: *ctx_all
+    expected:
+      result: &duplicate_noop {changed: false, request: *request}
+      audit: *audit_write
+
+  - id: link_delivery_artifact_success
+    tool: link_delivery_artifact
+    category: success
+    covers: [success]
+    input: &in_link_delivery {issue_id: 10, kind: pull_request, url: "https://example.com/pull/1", label: PR 1, expected_revision: 1, idempotency_key: idem-link-delivery-0001}
+    context: *ctx_all
+    expected:
+      result: &delivery_link {created: true, artifact: *artifact, request_revision: 2}
+      audit: *audit_write
+
+  - id: unlink_delivery_artifact_success
+    tool: unlink_delivery_artifact
+    category: success
+    covers: [success]
+    input: &in_unlink_delivery {issue_id: 10, artifact_id: 40, expected_revision: 1, idempotency_key: idem-unlink-delivery-01}
+    context: *ctx_all
+    expected:
+      result: &delivery_unlink {changed: true, issue_id: 10, artifact_id: 40, request_revision: 2}
+      audit: *audit_write
+
+  - id: update_request_success
+    tool: update_request
+    category: success
+    covers: [success]
+    input: &in_update_request {issue_id: 10, priority: 3, expected_revision: 1, idempotency_key: idem-update-request-0001}
+    context: *ctx_all
+    expected:
+      result: &request_priority_updated {id: 10, project_id: 1, author_id: 2, author_handle: author, author_display_name: Author, author_avatar_url: "", issue_type: feature, title: Dark mode, description: Add dark mode, status: open, priority: 3, duplicate_of_id: null, upvotes_count: 0, comments_count: 1, delivery_artifacts_count: 1, last_activity_at: "2026-01-01T00:01:00Z", revision: 2, created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:01:00Z"}
+      audit: *audit_write
+
+  - id: transition_request_success
+    tool: transition_request
+    category: success
+    covers: [success]
+    input: &in_transition {issue_id: 10, status: planned, expected_revision: 1, idempotency_key: idem-transition-req-0001}
+    context: *ctx_all
+    expected:
+      result: &request_planned {id: 10, project_id: 1, author_id: 2, author_handle: author, author_display_name: Author, author_avatar_url: "", issue_type: feature, title: Dark mode, description: Add dark mode, status: planned, priority: 2, duplicate_of_id: null, upvotes_count: 0, comments_count: 1, delivery_artifacts_count: 1, last_activity_at: "2026-01-01T00:01:00Z", revision: 2, created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:01:00Z"}
+      audit: *audit_destructive
+
+  - id: add_request_comment_success
+    tool: add_request_comment
+    category: success
+    covers: [success]
+    input: &in_add_comment {issue_id: 10, body: Please add this., idempotency_key: idem-add-comment-000001}
+    context: *ctx_external_approved
+    expected: {result: *comment, audit: *audit_external}
+
+  - id: update_request_comment_success
+    tool: update_request_comment
+    category: success
+    covers: [success]
+    input: &in_update_comment {issue_id: 10, comment_id: 20, body: Please add this soon., expected_revision: 1, idempotency_key: idem-update-comment-0001}
+    context: *ctx_external_approved
+    expected:
+      result: &comment_updated {id: 20, issue_id: 10, author_id: 2, author_handle: author, author_avatar_url: "", body: Please add this soon., revision: 2, created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:01:00Z"}
+      audit: *audit_external
+
+  - id: invalid_input_matrix
+    category: invalid_input
+    covers: [invalid_input]
+    matrix:
+      tools: &all_tools [get_account_capabilities, list_projects, get_project, create_project, update_project, delete_project, list_requests, get_request, list_request_comments, get_queue_snapshot, find_duplicate_candidates, list_request_activity, list_request_changes, list_delivery_artifacts, create_request, link_duplicate_request, unlink_duplicate_request, link_delivery_artifact, unlink_delivery_artifact, update_request, transition_request, add_request_comment, update_request_comment]
+    input_by_tool:
+      get_account_capabilities: &invalid_input {unexpected: true}
+      list_projects: *invalid_input
+      get_project: *invalid_input
+      create_project: *invalid_input
+      update_project: *invalid_input
+      delete_project: *invalid_input
+      list_requests: *invalid_input
+      get_request: *invalid_input
+      list_request_comments: *invalid_input
+      get_queue_snapshot: *invalid_input
+      find_duplicate_candidates: *invalid_input
+      list_request_activity: *invalid_input
+      list_request_changes: *invalid_input
+      list_delivery_artifacts: *invalid_input
+      create_request: *invalid_input
+      link_duplicate_request: *invalid_input
+      unlink_duplicate_request: *invalid_input
+      link_delivery_artifact: *invalid_input
+      unlink_delivery_artifact: *invalid_input
+      update_request: *invalid_input
+      transition_request: *invalid_input
+      add_request_comment: *invalid_input
+      update_request_comment: *invalid_input
+    context: *ctx_all
+    expected:
+      error_by_tool:
+        get_account_capabilities: &invalid_error {code: invalid_input, message: One or more inputs are invalid., retryable: false, request_id: req-invalid, details: {fields: [unexpected]}}
+        list_projects: *invalid_error
+        get_project: *invalid_error
+        create_project: *invalid_error
+        update_project: *invalid_error
+        delete_project: *invalid_error
+        list_requests: *invalid_error
+        get_request: *invalid_error
+        list_request_comments: *invalid_error
+        get_queue_snapshot: *invalid_error
+        find_duplicate_candidates: *invalid_error
+        list_request_activity: *invalid_error
+        list_request_changes: *invalid_error
+        list_delivery_artifacts: *invalid_error
+        create_request: *invalid_error
+        link_duplicate_request: *invalid_error
+        unlink_duplicate_request: *invalid_error
+        link_delivery_artifact: *invalid_error
+        unlink_delivery_artifact: *invalid_error
+        update_request: *invalid_error
+        transition_request: *invalid_error
+        add_request_comment: *invalid_error
+        update_request_comment: *invalid_error
+      audit:
+        profile_by_tool: {get_account_capabilities: read, list_projects: read, get_project: read, create_project: write, update_project: write, delete_project: destructive, list_requests: read, get_request: read, list_request_comments: read, get_queue_snapshot: read, find_duplicate_candidates: read, list_request_activity: read, list_request_changes: read, list_delivery_artifacts: read, create_request: external, link_duplicate_request: write, unlink_duplicate_request: write, link_delivery_artifact: write, unlink_delivery_artifact: write, update_request: write, transition_request: destructive, add_request_comment: external, update_request_comment: external}
+        record_fields: [authenticated_actor_id, authenticated_client_id, tool_name, target_resource, authorization_decisions, redacted_input_hash, result_or_error_code, request_id, idempotency_id, approval_evidence, dependency_outcome, notification_outcome, utc_timestamp]
+
+  - id: pro_plan_matrix
+    category: capability_plan_matrix
+    covers: [capability_plan_matrix]
+    matrix: {tools: *all_tools}
+    input_by_tool: &valid_inputs
+      get_account_capabilities: *in_boot
+      list_projects: *in_list_projects
+      get_project: *in_get_project
+      create_project: *in_create_project
+      update_project: *in_update_project
+      delete_project: *in_delete_project
+      list_requests: *in_list_requests
+      get_request: *in_get_request
+      list_request_comments: *in_list_comments
+      get_queue_snapshot: *in_queue
+      find_duplicate_candidates: *in_candidates
+      list_request_activity: *in_activity
+      list_request_changes: *in_changes
+      list_delivery_artifacts: *in_list_delivery
+      create_request: *in_create_request
+      link_duplicate_request: *in_link_duplicate
+      unlink_duplicate_request: *in_unlink_duplicate
+      link_delivery_artifact: *in_link_delivery
+      unlink_delivery_artifact: *in_unlink_delivery
+      update_request: *in_update_request
+      transition_request: *in_transition
+      add_request_comment: *in_add_comment
+      update_request_comment: *in_update_comment
+    context: &ctx_pro
+      authenticated_actor_id: actor-1
+      authenticated_client_id: client-1
+      tenant_id: null
+      scopes: [read, write]
+      capabilities: [project_management, request_management, request_collaboration, duplicate_evidence, delivery_evidence, activity_feed]
+      ownership_fixture: authorized_with_all_required_current_turn_approvals_and_preconditions
+      plan: pro_30
+    expected:
+      result_by_tool: &pro_results
+        get_account_capabilities: &account_pro
+          capabilities: {project_management: true, request_management: true, request_collaboration: true, duplicate_evidence: true, delivery_evidence: true, activity_feed: true}
+          limits: {project_count: {used: 1, limit: 30, period: lifetime, reset_at: null}}
+        list_projects: *project_list
+        get_project: *project
+        create_project: *project
+        update_project: *project_updated
+        delete_project: *delete_receipt
+        list_requests: *request_list
+        get_request: *request
+        list_request_comments: *comment_list
+        get_queue_snapshot: *queue
+        find_duplicate_candidates: *candidate_list
+        list_request_activity: *event_list
+        list_request_changes: *change_feed
+        list_delivery_artifacts: *artifact_list
+        create_request: *request
+        link_duplicate_request: *duplicate_receipt
+        unlink_duplicate_request: *duplicate_noop
+        link_delivery_artifact: *delivery_link
+        unlink_delivery_artifact: *delivery_unlink
+        update_request: *request_priority_updated
+        transition_request: *request_planned
+        add_request_comment: *comment
+        update_request_comment: *comment_updated
+      audit:
+        profile_by_tool: &profile_by_tool {get_account_capabilities: read, list_projects: read, get_project: read, create_project: write, update_project: write, delete_project: destructive, list_requests: read, get_request: read, list_request_comments: read, get_queue_snapshot: read, find_duplicate_candidates: read, list_request_activity: read, list_request_changes: read, list_delivery_artifacts: read, create_request: external, link_duplicate_request: write, unlink_duplicate_request: write, link_delivery_artifact: write, unlink_delivery_artifact: write, update_request: write, transition_request: destructive, add_request_comment: external, update_request_comment: external}
+        record_fields: [authenticated_actor_id, authenticated_client_id, tool_name, target_resource, authorization_decisions, redacted_input_hash, result_or_error_code, request_id, idempotency_id, approval_evidence, dependency_outcome, notification_outcome, utc_timestamp]
+
+  - id: missing_capability_matrix
+    category: missing_capability
+    covers: [missing_capability]
+    matrix:
+      tools: &gated_tools [list_projects, get_project, create_project, update_project, delete_project, list_requests, get_request, list_request_comments, get_queue_snapshot, find_duplicate_candidates, list_request_activity, list_request_changes, list_delivery_artifacts, create_request, link_duplicate_request, unlink_duplicate_request, link_delivery_artifact, unlink_delivery_artifact, update_request, transition_request, add_request_comment, update_request_comment]
+    input_by_tool:
+      list_projects: *in_list_projects
+      get_project: *in_get_project
+      create_project: *in_create_project
+      update_project: *in_update_project
+      delete_project: *in_delete_project
+      list_requests: *in_list_requests
+      get_request: *in_get_request
+      list_request_comments: *in_list_comments
+      get_queue_snapshot: *in_queue
+      find_duplicate_candidates: *in_candidates
+      list_request_activity: *in_activity
+      list_request_changes: *in_changes
+      list_delivery_artifacts: *in_list_delivery
+      create_request: *in_create_request
+      link_duplicate_request: *in_link_duplicate
+      unlink_duplicate_request: *in_unlink_duplicate
+      link_delivery_artifact: *in_link_delivery
+      unlink_delivery_artifact: *in_unlink_delivery
+      update_request: *in_update_request
+      transition_request: *in_transition
+      add_request_comment: *in_add_comment
+      update_request_comment: *in_update_comment
+    context:
+      authenticated_actor_id: actor-1
+      authenticated_client_id: client-1
+      tenant_id: null
+      scopes: [read, write]
+      capabilities: []
+      ownership_fixture: authorized
+      plan: free
+    expected:
+      error_by_tool:
+        list_projects: &project_capability_error {code: feature_unavailable, message: A required capability is unavailable., retryable: false, request_id: req-capability, details: {capability: project_management}}
+        get_project: *project_capability_error
+        create_project: *project_capability_error
+        update_project: *project_capability_error
+        delete_project: *project_capability_error
+        list_requests: &request_capability_error {code: feature_unavailable, message: A required capability is unavailable., retryable: false, request_id: req-capability, details: {capability: request_management}}
+        get_request: *request_capability_error
+        list_request_comments: &collaboration_capability_error {code: feature_unavailable, message: A required capability is unavailable., retryable: false, request_id: req-capability, details: {capability: request_collaboration}}
+        get_queue_snapshot: &activity_capability_error {code: feature_unavailable, message: A required capability is unavailable., retryable: false, request_id: req-capability, details: {capability: activity_feed}}
+        find_duplicate_candidates: &duplicate_capability_error {code: feature_unavailable, message: A required capability is unavailable., retryable: false, request_id: req-capability, details: {capability: duplicate_evidence}}
+        list_request_activity: *activity_capability_error
+        list_request_changes: *activity_capability_error
+        list_delivery_artifacts: &delivery_capability_error {code: feature_unavailable, message: A required capability is unavailable., retryable: false, request_id: req-capability, details: {capability: delivery_evidence}}
+        create_request: *request_capability_error
+        link_duplicate_request: *duplicate_capability_error
+        unlink_duplicate_request: *duplicate_capability_error
+        link_delivery_artifact: *delivery_capability_error
+        unlink_delivery_artifact: *delivery_capability_error
+        update_request: *request_capability_error
+        transition_request: *request_capability_error
+        add_request_comment: *collaboration_capability_error
+        update_request_comment: *collaboration_capability_error
+      audit: {profile_by_tool: *profile_by_tool, record_fields: [authenticated_actor_id, authenticated_client_id, tool_name, target_resource, authorization_decisions, redacted_input_hash, result_or_error_code, request_id, idempotency_id, approval_evidence, dependency_outcome, notification_outcome, utc_timestamp]}
+
+  - id: ownership_isolation_matrix
+    category: ownership_isolation
+    covers: [ownership_isolation]
+    matrix:
+      tools: &owned_tools [get_project, update_project, delete_project, get_queue_snapshot, list_request_activity, list_delivery_artifacts, link_duplicate_request, unlink_duplicate_request, link_delivery_artifact, unlink_delivery_artifact, update_request, transition_request, update_request_comment]
+    input_by_tool:
+      get_project: *in_get_project
+      update_project: *in_update_project
+      delete_project: *in_delete_project
+      get_queue_snapshot: *in_queue
+      list_request_activity: *in_activity
+      list_delivery_artifacts: *in_list_delivery
+      link_duplicate_request: *in_link_duplicate
+      unlink_duplicate_request: *in_unlink_duplicate
+      link_delivery_artifact: *in_link_delivery
+      unlink_delivery_artifact: *in_unlink_delivery
+      update_request: *in_update_request
+      transition_request: *in_transition
+      update_request_comment: *in_update_comment
+    context:
+      authenticated_actor_id: actor-2
+      authenticated_client_id: client-1
+      tenant_id: null
+      scopes: [read, write]
+      capabilities: [project_management, request_management, request_collaboration, duplicate_evidence, delivery_evidence, activity_feed]
+      ownership_fixture: target_owned_and_authored_by_actor_1_but_authenticated_actor_is_actor_2
+      plan: free
+    expected:
+      error_by_tool:
+        get_project: &permission_error {code: permission_denied, message: The operation is not permitted., retryable: false, request_id: req-owner, details: {}}
+        update_project: *permission_error
+        delete_project: *permission_error
+        get_queue_snapshot: *permission_error
+        list_request_activity: *permission_error
+        list_delivery_artifacts: *permission_error
+        link_duplicate_request: *permission_error
+        unlink_duplicate_request: *permission_error
+        link_delivery_artifact: *permission_error
+        unlink_delivery_artifact: *permission_error
+        update_request: *permission_error
+        transition_request: *permission_error
+        update_request_comment: *permission_error
+      audit:
+        profile_by_tool: {get_project: read, update_project: write, delete_project: destructive, get_queue_snapshot: read, list_request_activity: read, list_delivery_artifacts: read, link_duplicate_request: write, unlink_duplicate_request: write, link_delivery_artifact: write, unlink_delivery_artifact: write, update_request: write, transition_request: destructive, update_request_comment: external}
+        record_fields: [authenticated_actor_id, authenticated_client_id, tool_name, target_resource, authorization_decisions, redacted_input_hash, result_or_error_code, request_id, idempotency_id, approval_evidence, dependency_outcome, notification_outcome, utc_timestamp]
+
+  - id: ownership_filtering_matrix
+    category: ownership_isolation
+    covers: [ownership_isolation]
+    matrix: {tools: [list_projects, list_request_changes]}
+    input_by_tool: {list_projects: {}, list_request_changes: {after_id: 0, limit: 50}}
+    context:
+      authenticated_actor_id: actor-2
+      authenticated_client_id: client-1
+      tenant_id: null
+      scopes: [read]
+      capabilities: [project_management, activity_feed]
+      ownership_fixture: fixtures_exist_only_for_actor_1
+      plan: free
+    expected:
+      result_by_tool:
+        list_projects: {projects: []}
+        list_request_changes: {events: [], next_cursor: 0, has_more: false}
+      audit: {profile: read, record_fields: [authenticated_actor_id, authenticated_client_id, tool_name, target_resource, authorization_decisions, redacted_input_hash, result_or_error_code, request_id, utc_timestamp]}
+
+  - id: create_project_capacity_concurrency
+    tool: create_project
+    category: quota_concurrency
+    covers: [quota_concurrency]
+    input: *in_create_project
+    context:
+      authenticated_actor_id: actor-1
+      authenticated_client_id: client-1
+      tenant_id: null
+      scopes: [write]
+      capabilities: [project_management]
+      ownership_fixture: two_concurrent_creates_at_free_limit_zero_of_one
+      plan: free
+    expected:
+      error: {code: capacity_reached, message: A non-renewing resource limit has been reached., retryable: false, request_id: req-capacity, details: {used: 1, limit: 1, period: lifetime, reset_at: null}}
+      audit: *audit_write
+    notes: Exactly one concurrent create commits and consumes capacity; the losing transaction returns capacity_reached and creates no project.
+
+  - id: revision_conflict_matrix
+    category: quota_concurrency
+    covers: [quota_concurrency]
+    matrix:
+      tools: &revisioned_mutation_tools [update_project, delete_project, link_duplicate_request, unlink_duplicate_request, link_delivery_artifact, unlink_delivery_artifact, update_request, transition_request, update_request_comment]
+    input_by_tool:
+      update_project: *in_update_project
+      delete_project: *in_delete_project
+      link_duplicate_request: *in_link_duplicate
+      unlink_duplicate_request: *in_unlink_duplicate
+      link_delivery_artifact: *in_link_delivery
+      unlink_delivery_artifact: *in_unlink_delivery
+      update_request: *in_update_request
+      transition_request: *in_transition
+      update_request_comment: *in_update_comment
+    context:
+      authenticated_actor_id: actor-1
+      authenticated_client_id: client-1
+      tenant_id: null
+      scopes: [read, write]
+      capabilities: [project_management, request_management, request_collaboration, duplicate_evidence, delivery_evidence]
+      ownership_fixture: authorized_resources_are_revision_2_while_inputs_expect_revision_1_with_delete_preflight_matching_confirmation_and_required_current_turn_intent
+      plan: free
+    expected:
+      error_by_tool:
+        update_project: &revision_error {code: revision_conflict, message: The resource changed after it was read., retryable: false, request_id: req-revision, details: {expected_revision: 1, actual_revision: 2}}
+        delete_project: *revision_error
+        link_duplicate_request: *revision_error
+        unlink_duplicate_request: *revision_error
+        link_delivery_artifact: *revision_error
+        unlink_delivery_artifact: *revision_error
+        update_request: *revision_error
+        transition_request: *revision_error
+        update_request_comment: *revision_error
+      audit:
+        profile_by_tool: {update_project: write, delete_project: destructive, link_duplicate_request: write, unlink_duplicate_request: write, link_delivery_artifact: write, unlink_delivery_artifact: write, update_request: write, transition_request: destructive, update_request_comment: external}
+        record_fields: [authenticated_actor_id, authenticated_client_id, tool_name, target_resource, authorization_decisions, redacted_input_hash, result_or_error_code, request_id, idempotency_id, approval_evidence, dependency_outcome, notification_outcome, utc_timestamp]
+    notes: The stale expected_revision is rejected before mutation; no state, revision, notification, or external dependency effect occurs.
+
+  - id: mutation_replay_matrix
+    category: idempotent_replay
+    covers: [idempotent_replay]
+    matrix:
+      tools: &mutation_tools [create_project, update_project, delete_project, create_request, link_duplicate_request, unlink_duplicate_request, link_delivery_artifact, unlink_delivery_artifact, update_request, transition_request, add_request_comment, update_request_comment]
+    input_by_tool: &mutation_inputs
+      create_project: *in_create_project
+      update_project: *in_update_project
+      delete_project: *in_delete_project
+      create_request: *in_create_request
+      link_duplicate_request: *in_link_duplicate
+      unlink_duplicate_request: *in_unlink_duplicate
+      link_delivery_artifact: *in_link_delivery
+      unlink_delivery_artifact: *in_unlink_delivery
+      update_request: *in_update_request
+      transition_request: *in_transition
+      add_request_comment: *in_add_comment
+      update_request_comment: *in_update_comment
+    context:
+      authenticated_actor_id: actor-1
+      authenticated_client_id: client-1
+      tenant_id: null
+      scopes: [write]
+      capabilities: [project_management, request_management, request_collaboration, duplicate_evidence, delivery_evidence]
+      ownership_fixture: same_key_and_canonical_input_previously_succeeded
+      plan: free
+    expected:
+      result_by_tool: &mutation_results
+        create_project: *project
+        update_project: *project_updated
+        delete_project: *delete_receipt
+        create_request: *request
+        link_duplicate_request: *duplicate_receipt
+        unlink_duplicate_request: *duplicate_noop
+        link_delivery_artifact: *delivery_link
+        unlink_delivery_artifact: *delivery_unlink
+        update_request: *request_priority_updated
+        transition_request: *request_planned
+        add_request_comment: *comment
+        update_request_comment: *comment_updated
+      audit:
+        profile_by_tool: {create_project: write, update_project: write, delete_project: destructive, create_request: external, link_duplicate_request: write, unlink_duplicate_request: write, link_delivery_artifact: write, unlink_delivery_artifact: write, update_request: write, transition_request: destructive, add_request_comment: external, update_request_comment: external}
+        record_fields: [authenticated_actor_id, authenticated_client_id, tool_name, target_resource, authorization_decisions, redacted_input_hash, result_or_error_code, request_id, idempotency_id, approval_evidence, dependency_outcome, notification_outcome, utc_timestamp]
+    notes: Replay returns the byte-equivalent original result and does not increment a resource revision or repeat notification/moderation effects.
+
+  - id: mutation_conflict_matrix
+    category: idempotency_conflict
+    covers: [idempotency_conflict]
+    matrix: {tools: *mutation_tools}
+    input_by_tool: *mutation_inputs
+    context:
+      authenticated_actor_id: actor-1
+      authenticated_client_id: client-1
+      tenant_id: null
+      scopes: [write]
+      capabilities: [project_management, request_management, request_collaboration, duplicate_evidence, delivery_evidence]
+      ownership_fixture: same_key_previously_used_with_different_canonical_input
+      plan: free
+    expected:
+      error_by_tool:
+        create_project: &idempotency_error {code: idempotency_conflict, message: The idempotency key was already used with different input., retryable: false, request_id: req-idempotency, details: {idempotency_key: redacted-key-id}}
+        update_project: *idempotency_error
+        delete_project: *idempotency_error
+        create_request: *idempotency_error
+        link_duplicate_request: *idempotency_error
+        unlink_duplicate_request: *idempotency_error
+        link_delivery_artifact: *idempotency_error
+        unlink_delivery_artifact: *idempotency_error
+        update_request: *idempotency_error
+        transition_request: *idempotency_error
+        add_request_comment: *idempotency_error
+        update_request_comment: *idempotency_error
+      audit:
+        profile_by_tool: {create_project: write, update_project: write, delete_project: destructive, create_request: external, link_duplicate_request: write, unlink_duplicate_request: write, link_delivery_artifact: write, unlink_delivery_artifact: write, update_request: write, transition_request: destructive, add_request_comment: external, update_request_comment: external}
+        record_fields: [authenticated_actor_id, authenticated_client_id, tool_name, target_resource, authorization_decisions, redacted_input_hash, result_or_error_code, request_id, idempotency_id, approval_evidence, dependency_outcome, notification_outcome, utc_timestamp]
+
+  - id: delivery_natural_key_reuse
+    tool: link_delivery_artifact
+    category: idempotent_replay
+    covers: [idempotent_replay]
+    input: {issue_id: 10, kind: pull_request, url: "https://example.com/pull/1", label: PR 1, expected_revision: 2, idempotency_key: idem-link-delivery-0002}
+    context:
+      authenticated_actor_id: actor-1
+      authenticated_client_id: client-1
+      tenant_id: null
+      scopes: [write]
+      capabilities: [delivery_evidence]
+      ownership_fixture: same_issue_and_url_already_exist_with_same_kind_and_label
+      plan: free
+    expected:
+      result: {created: false, artifact: *artifact, request_revision: 2}
+      audit: *audit_write
+    notes: Natural-key reuse with a new idempotency key is a no-op and does not increment request revision.
+
+  - id: delivery_natural_key_conflict
+    tool: link_delivery_artifact
+    category: idempotency_conflict
+    covers: [idempotency_conflict]
+    input: {issue_id: 10, kind: release, url: "https://example.com/pull/1", label: Release 1, expected_revision: 2, idempotency_key: idem-link-delivery-0003}
+    context:
+      authenticated_actor_id: actor-1
+      authenticated_client_id: client-1
+      tenant_id: null
+      scopes: [write]
+      capabilities: [delivery_evidence]
+      ownership_fixture: same_issue_and_url_exist_with_different_kind_or_label
+      plan: free
+    expected:
+      error: *idempotency_error
+      audit: *audit_write
+    notes: Existing metadata is never silently returned when kind or label differs.
+
+  - id: approval_matrix
+    category: approval
+    covers: [approval]
+    matrix:
+      tools: &approval_tools [delete_project, create_request, transition_request, add_request_comment, update_request_comment]
+    input_by_tool:
+      delete_project: *in_delete_project
+      create_request: *in_create_request
+      transition_request: &in_terminal_transition {issue_id: 10, status: done, expected_revision: 1, idempotency_key: idem-terminal-state-0001}
+      add_request_comment: *in_add_comment
+      update_request_comment: *in_update_comment
+    context:
+      authenticated_actor_id: actor-1
+      authenticated_client_id: client-1
+      tenant_id: null
+      scopes: [write]
+      capabilities: [project_management, request_management, request_collaboration]
+      ownership_fixture: authorized_but_current_turn_user_intent_absent
+      plan: free
+    expected:
+      error_by_tool:
+        delete_project: {code: approval_required, message: Explicit current-turn user approval is required., retryable: false, request_id: req-approval, details: {operation: delete_project}}
+        create_request: {code: approval_required, message: Explicit current-turn user approval is required., retryable: false, request_id: req-approval, details: {operation: create_request}}
+        transition_request: {code: approval_required, message: Explicit current-turn user approval is required., retryable: false, request_id: req-approval, details: {operation: transition_request}}
+        add_request_comment: {code: approval_required, message: Explicit current-turn user approval is required., retryable: false, request_id: req-approval, details: {operation: add_request_comment}}
+        update_request_comment: {code: approval_required, message: Explicit current-turn user approval is required., retryable: false, request_id: req-approval, details: {operation: update_request_comment}}
+      audit:
+        profile_by_tool: {delete_project: destructive, create_request: external, transition_request: destructive, add_request_comment: external, update_request_comment: external}
+        record_fields: [authenticated_actor_id, authenticated_client_id, tool_name, target_resource, authorization_decisions, redacted_input_hash, result_or_error_code, request_id, idempotency_id, approval_evidence, dependency_outcome, notification_outcome, utc_timestamp]
+
+  - id: approval_granted_matrix
+    category: approval
+    covers: [approval]
+    matrix: {tools: *approval_tools}
+    input_by_tool:
+      delete_project: *in_delete_project
+      create_request: *in_create_request
+      transition_request: *in_terminal_transition
+      add_request_comment: *in_add_comment
+      update_request_comment: *in_update_comment
+    context:
+      authenticated_actor_id: actor-1
+      authenticated_client_id: client-1
+      tenant_id: null
+      scopes: [read, write]
+      capabilities: [project_management, request_management, request_collaboration, delivery_evidence]
+      ownership_fixture: explicit_current_turn_user_intent_with_delete_get_project_same_turn_matching_confirmation_and_terminal_delivery_evidence_inspected
+      plan: free
+    expected:
+      result_by_tool:
+        delete_project: *delete_receipt
+        create_request: *request
+        transition_request: &request_done {id: 10, project_id: 1, author_id: 2, author_handle: author, author_display_name: Author, author_avatar_url: "", issue_type: feature, title: Dark mode, description: Add dark mode, status: done, priority: 2, duplicate_of_id: null, upvotes_count: 0, comments_count: 1, delivery_artifacts_count: 1, last_activity_at: "2026-01-01T00:01:00Z", revision: 2, created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:01:00Z"}
+        add_request_comment: *comment
+        update_request_comment: *comment_updated
+      audit:
+        profile_by_tool: {delete_project: destructive, create_request: external, transition_request: destructive, add_request_comment: external, update_request_comment: external}
+        record_fields: [authenticated_actor_id, authenticated_client_id, tool_name, target_resource, authorization_decisions, redacted_input_hash, result_or_error_code, request_id, idempotency_id, approval_evidence, dependency_outcome, notification_outcome, utc_timestamp]
+    notes: Delete approval includes same-turn get_project and matching confirm_project_id; terminal transition approval includes inspected delivery evidence.
+
+  - id: external_effect_uncertain_matrix
+    category: uncertain_external_effect
+    covers: [uncertain_external_effect]
+    matrix:
+      tools: &external_tools [create_request, add_request_comment, update_request_comment]
+    input_by_tool:
+      create_request: *in_create_request
+      add_request_comment: *in_add_comment
+      update_request_comment: *in_update_comment
+    context:
+      authenticated_actor_id: actor-1
+      authenticated_client_id: client-1
+      tenant_id: null
+      scopes: [write]
+      capabilities: [request_management, request_collaboration]
+      ownership_fixture: content_moderation_dependency_unavailable_before_any_mutation
+      plan: free
+    expected:
+      error_by_tool:
+        create_request: &dependency_error {code: dependency_unavailable, message: A required dependency is temporarily unavailable., retryable: true, request_id: req-dependency, details: {dependency: content_moderation}}
+        add_request_comment: *dependency_error
+        update_request_comment: *dependency_error
+      audit:
+        profile: external
+        record_fields: [authenticated_actor_id, authenticated_client_id, tool_name, target_resource, authorization_decisions, redacted_input_hash, result_or_error_code, request_id, idempotency_id, dependency_outcome, notification_outcome, utc_timestamp]
+    notes: Moderation is unavailable before the database mutation, so no request or comment is committed; the caller performs an authoritative read before considering a same-key retry.
+
+  - id: notification_unknown_after_commit_matrix
+    category: uncertain_external_effect
+    covers: [uncertain_external_effect]
+    matrix: {tools: [create_request, add_request_comment]}
+    input_by_tool: {create_request: *in_create_request, add_request_comment: *in_add_comment}
+    context:
+      authenticated_actor_id: actor-1
+      authenticated_client_id: client-1
+      tenant_id: null
+      scopes: [write]
+      capabilities: [request_management, request_collaboration]
+      ownership_fixture: current_turn_user_intent_with_database_commit_succeeded_and_best_effort_notification_unknown
+      plan: free
+    expected:
+      result_by_tool: {create_request: *request, add_request_comment: *comment}
+      audit:
+        profile: external
+        record_fields: [authenticated_actor_id, authenticated_client_id, tool_name, target_resource, authorization_decisions, redacted_input_hash, result_or_error_code, request_id, idempotency_id, approval_evidence, dependency_outcome, notification_outcome, utc_timestamp]
+    notes: A notification failure or unknown outcome after commit does not turn the tool result into dependency_unavailable; the committed resource is returned as success and notification is not retried silently.
+
+  - id: redaction_matrix
+    category: redaction
+    covers: [redaction]
+    matrix: {tools: *all_tools}
+    input_by_tool: *valid_inputs
+    context: *ctx_pro
+    expected:
+      result_by_tool: *pro_results
+      audit:
+        profile_by_tool: *profile_by_tool
+        record_fields: [authenticated_actor_id, authenticated_client_id, tool_name, target_resource, authorization_decisions, redacted_input_hash, result_or_error_code, request_id, idempotency_id, approval_evidence, dependency_outcome, notification_outcome, utc_timestamp]
+    notes: Audit stores a canonical redacted input hash and excludes tokens, email, raw user content, raw URLs, stack traces, and internal trace identifiers.
+
+tool_coverage:
+  get_account_capabilities:
+    success: {status: covered, vectors: [get_account_capabilities_success]}
+    invalid_input: &cv_invalid {status: covered, vectors: [invalid_input_matrix]}
+    missing_capability: &na_bootstrap_capability {status: not_applicable, reason: Bootstrap intentionally requires no paid or plan capability.}
+    ownership_isolation: &na_actor_projection {status: not_applicable, reason: The result is computed only for the authenticated actor and accepts no foreign resource selector.}
+    capability_plan_matrix: &cv_plan {status: covered, vectors: [pro_plan_matrix]}
+    quota_concurrency: &na_quota {status: not_applicable, reason: This tool does not consume project capacity or a renewable quota.}
+    idempotent_replay: &na_idempotency {status: not_applicable, reason: Read-only tools do not mutate state and require no idempotency key.}
+    idempotency_conflict: *na_idempotency
+    approval: &na_approval {status: not_applicable, reason: The operation requires no current-turn confirmation.}
+    uncertain_external_effect: &na_external {status: not_applicable, reason: The tool has no external effect or outbound dependency side effect.}
+    redaction: &cv_redaction {status: covered, vectors: [redaction_matrix]}
+    async_status: &na_async {status: not_applicable, reason: The tool completes within one bounded request and creates no long-running operation.}
+
+  list_projects:
+    success: {status: covered, vectors: [list_projects_success]}
+    invalid_input: *cv_invalid
+    missing_capability: &cv_missing {status: covered, vectors: [missing_capability_matrix]}
+    ownership_isolation: {status: covered, vectors: [ownership_filtering_matrix]}
+    capability_plan_matrix: *cv_plan
+    quota_concurrency: *na_quota
+    idempotent_replay: *na_idempotency
+    idempotency_conflict: *na_idempotency
+    approval: *na_approval
+    uncertain_external_effect: *na_external
+    redaction: *cv_redaction
+    async_status: *na_async
+
+  get_project:
+    success: {status: covered, vectors: [get_project_success]}
+    invalid_input: *cv_invalid
+    missing_capability: *cv_missing
+    ownership_isolation: &cv_owner {status: covered, vectors: [ownership_isolation_matrix]}
+    capability_plan_matrix: *cv_plan
+    quota_concurrency: *na_quota
+    idempotent_replay: *na_idempotency
+    idempotency_conflict: *na_idempotency
+    approval: *na_approval
+    uncertain_external_effect: *na_external
+    redaction: *cv_redaction
+    async_status: *na_async
+
+  create_project:
+    success: {status: covered, vectors: [create_project_success]}
+    invalid_input: *cv_invalid
+    missing_capability: *cv_missing
+    ownership_isolation: &na_create_owner {status: not_applicable, reason: A successful create always assigns authenticated_actor_id as owner and has no foreign target.}
+    capability_plan_matrix: *cv_plan
+    quota_concurrency: {status: covered, vectors: [create_project_capacity_concurrency]}
+    idempotent_replay: &cv_replay {status: covered, vectors: [mutation_replay_matrix]}
+    idempotency_conflict: &cv_conflict {status: covered, vectors: [mutation_conflict_matrix]}
+    approval: *na_approval
+    uncertain_external_effect: *na_external
+    redaction: *cv_redaction
+    async_status: *na_async
+
+  update_project:
+    success: {status: covered, vectors: [update_project_success]}
+    invalid_input: *cv_invalid
+    missing_capability: *cv_missing
+    ownership_isolation: *cv_owner
+    capability_plan_matrix: *cv_plan
+    quota_concurrency: &cv_revision_conflict {status: covered, vectors: [revision_conflict_matrix]}
+    idempotent_replay: *cv_replay
+    idempotency_conflict: *cv_conflict
+    approval: *na_approval
+    uncertain_external_effect: *na_external
+    redaction: *cv_redaction
+    async_status: *na_async
+
+  delete_project:
+    success: {status: covered, vectors: [delete_project_success]}
+    invalid_input: *cv_invalid
+    missing_capability: *cv_missing
+    ownership_isolation: *cv_owner
+    capability_plan_matrix: *cv_plan
+    quota_concurrency: *cv_revision_conflict
+    idempotent_replay: *cv_replay
+    idempotency_conflict: *cv_conflict
+    approval: &cv_approval {status: covered, vectors: [approval_matrix, approval_granted_matrix]}
+    uncertain_external_effect: *na_external
+    redaction: *cv_redaction
+    async_status: *na_async
+
+  list_requests:
+    success: {status: covered, vectors: [list_requests_success]}
+    invalid_input: *cv_invalid
+    missing_capability: *cv_missing
+    ownership_isolation: &na_public_board {status: not_applicable, reason: The target is an authenticated public-board surface and does not grant access to private owner data.}
+    capability_plan_matrix: *cv_plan
+    quota_concurrency: *na_quota
+    idempotent_replay: *na_idempotency
+    idempotency_conflict: *na_idempotency
+    approval: *na_approval
+    uncertain_external_effect: *na_external
+    redaction: *cv_redaction
+    async_status: *na_async
+
+  get_request:
+    success: {status: covered, vectors: [get_request_success]}
+    invalid_input: *cv_invalid
+    missing_capability: *cv_missing
+    ownership_isolation: *na_public_board
+    capability_plan_matrix: *cv_plan
+    quota_concurrency: *na_quota
+    idempotent_replay: *na_idempotency
+    idempotency_conflict: *na_idempotency
+    approval: *na_approval
+    uncertain_external_effect: *na_external
+    redaction: *cv_redaction
+    async_status: *na_async
+
+  list_request_comments:
+    success: {status: covered, vectors: [list_request_comments_success]}
+    invalid_input: *cv_invalid
+    missing_capability: *cv_missing
+    ownership_isolation: *na_public_board
+    capability_plan_matrix: *cv_plan
+    quota_concurrency: *na_quota
+    idempotent_replay: *na_idempotency
+    idempotency_conflict: *na_idempotency
+    approval: *na_approval
+    uncertain_external_effect: *na_external
+    redaction: *cv_redaction
+    async_status: *na_async
+
+  get_queue_snapshot:
+    success: {status: covered, vectors: [get_queue_snapshot_success]}
+    invalid_input: *cv_invalid
+    missing_capability: *cv_missing
+    ownership_isolation: *cv_owner
+    capability_plan_matrix: *cv_plan
+    quota_concurrency: *na_quota
+    idempotent_replay: *na_idempotency
+    idempotency_conflict: *na_idempotency
+    approval: *na_approval
+    uncertain_external_effect: *na_external
+    redaction: *cv_redaction
+    async_status: *na_async
+
+  find_duplicate_candidates:
+    success: {status: covered, vectors: [find_duplicate_candidates_success]}
+    invalid_input: *cv_invalid
+    missing_capability: *cv_missing
+    ownership_isolation: *na_public_board
+    capability_plan_matrix: *cv_plan
+    quota_concurrency: *na_quota
+    idempotent_replay: *na_idempotency
+    idempotency_conflict: *na_idempotency
+    approval: *na_approval
+    uncertain_external_effect: *na_external
+    redaction: *cv_redaction
+    async_status: *na_async
+
+  list_request_activity:
+    success: {status: covered, vectors: [list_request_activity_success]}
+    invalid_input: *cv_invalid
+    missing_capability: *cv_missing
+    ownership_isolation: *cv_owner
+    capability_plan_matrix: *cv_plan
+    quota_concurrency: *na_quota
+    idempotent_replay: *na_idempotency
+    idempotency_conflict: *na_idempotency
+    approval: *na_approval
+    uncertain_external_effect: *na_external
+    redaction: *cv_redaction
+    async_status: *na_async
+
+  list_request_changes:
+    success: {status: covered, vectors: [list_request_changes_success]}
+    invalid_input: *cv_invalid
+    missing_capability: *cv_missing
+    ownership_isolation: {status: covered, vectors: [ownership_filtering_matrix]}
+    capability_plan_matrix: *cv_plan
+    quota_concurrency: *na_quota
+    idempotent_replay: *na_idempotency
+    idempotency_conflict: *na_idempotency
+    approval: *na_approval
+    uncertain_external_effect: *na_external
+    redaction: *cv_redaction
+    async_status: *na_async
+
+  list_delivery_artifacts:
+    success: {status: covered, vectors: [list_delivery_artifacts_success]}
+    invalid_input: *cv_invalid
+    missing_capability: *cv_missing
+    ownership_isolation: *cv_owner
+    capability_plan_matrix: *cv_plan
+    quota_concurrency: *na_quota
+    idempotent_replay: *na_idempotency
+    idempotency_conflict: *na_idempotency
+    approval: *na_approval
+    uncertain_external_effect: *na_external
+    redaction: *cv_redaction
+    async_status: *na_async
+
+  create_request:
+    success: {status: covered, vectors: [create_request_success]}
+    invalid_input: *cv_invalid
+    missing_capability: *cv_missing
+    ownership_isolation: *na_public_board
+    capability_plan_matrix: *cv_plan
+    quota_concurrency: *na_quota
+    idempotent_replay: *cv_replay
+    idempotency_conflict: *cv_conflict
+    approval: *cv_approval
+    uncertain_external_effect: &cv_external {status: covered, vectors: [external_effect_uncertain_matrix, notification_unknown_after_commit_matrix]}
+    redaction: *cv_redaction
+    async_status: *na_async
+
+  link_duplicate_request:
+    success: {status: covered, vectors: [link_duplicate_request_success]}
+    invalid_input: *cv_invalid
+    missing_capability: *cv_missing
+    ownership_isolation: *cv_owner
+    capability_plan_matrix: *cv_plan
+    quota_concurrency: *cv_revision_conflict
+    idempotent_replay: *cv_replay
+    idempotency_conflict: *cv_conflict
+    approval: *na_approval
+    uncertain_external_effect: *na_external
+    redaction: *cv_redaction
+    async_status: *na_async
+
+  unlink_duplicate_request:
+    success: {status: covered, vectors: [unlink_duplicate_request_success]}
+    invalid_input: *cv_invalid
+    missing_capability: *cv_missing
+    ownership_isolation: *cv_owner
+    capability_plan_matrix: *cv_plan
+    quota_concurrency: *cv_revision_conflict
+    idempotent_replay: *cv_replay
+    idempotency_conflict: *cv_conflict
+    approval: *na_approval
+    uncertain_external_effect: *na_external
+    redaction: *cv_redaction
+    async_status: *na_async
+
+  link_delivery_artifact:
+    success: {status: covered, vectors: [link_delivery_artifact_success]}
+    invalid_input: *cv_invalid
+    missing_capability: *cv_missing
+    ownership_isolation: *cv_owner
+    capability_plan_matrix: *cv_plan
+    quota_concurrency: *cv_revision_conflict
+    idempotent_replay: {status: covered, vectors: [mutation_replay_matrix, delivery_natural_key_reuse]}
+    idempotency_conflict: {status: covered, vectors: [mutation_conflict_matrix, delivery_natural_key_conflict]}
+    approval: *na_approval
+    uncertain_external_effect: *na_external
+    redaction: *cv_redaction
+    async_status: *na_async
+
+  unlink_delivery_artifact:
+    success: {status: covered, vectors: [unlink_delivery_artifact_success]}
+    invalid_input: *cv_invalid
+    missing_capability: *cv_missing
+    ownership_isolation: *cv_owner
+    capability_plan_matrix: *cv_plan
+    quota_concurrency: *cv_revision_conflict
+    idempotent_replay: *cv_replay
+    idempotency_conflict: *cv_conflict
+    approval: *na_approval
+    uncertain_external_effect: *na_external
+    redaction: *cv_redaction
+    async_status: *na_async
+
+  update_request:
+    success: {status: covered, vectors: [update_request_success]}
+    invalid_input: *cv_invalid
+    missing_capability: *cv_missing
+    ownership_isolation: *cv_owner
+    capability_plan_matrix: *cv_plan
+    quota_concurrency: *cv_revision_conflict
+    idempotent_replay: *cv_replay
+    idempotency_conflict: *cv_conflict
+    approval: *na_approval
+    uncertain_external_effect: *na_external
+    redaction: *cv_redaction
+    async_status: *na_async
+
+  transition_request:
+    success: {status: covered, vectors: [transition_request_success]}
+    invalid_input: *cv_invalid
+    missing_capability: *cv_missing
+    ownership_isolation: *cv_owner
+    capability_plan_matrix: *cv_plan
+    quota_concurrency: *cv_revision_conflict
+    idempotent_replay: *cv_replay
+    idempotency_conflict: *cv_conflict
+    approval: *cv_approval
+    uncertain_external_effect: *na_external
+    redaction: *cv_redaction
+    async_status: *na_async
+
+  add_request_comment:
+    success: {status: covered, vectors: [add_request_comment_success]}
+    invalid_input: *cv_invalid
+    missing_capability: *cv_missing
+    ownership_isolation: *na_public_board
+    capability_plan_matrix: *cv_plan
+    quota_concurrency: *na_quota
+    idempotent_replay: *cv_replay
+    idempotency_conflict: *cv_conflict
+    approval: *cv_approval
+    uncertain_external_effect: *cv_external
+    redaction: *cv_redaction
+    async_status: *na_async
+
+  update_request_comment:
+    success: {status: covered, vectors: [update_request_comment_success]}
+    invalid_input: *cv_invalid
+    missing_capability: *cv_missing
+    ownership_isolation: *cv_owner
+    capability_plan_matrix: *cv_plan
+    quota_concurrency: *cv_revision_conflict
+    idempotent_replay: *cv_replay
+    idempotency_conflict: *cv_conflict
+    approval: *cv_approval
+    uncertain_external_effect: {status: covered, vectors: [external_effect_uncertain_matrix]}
+    redaction: *cv_redaction
+    async_status: *na_async

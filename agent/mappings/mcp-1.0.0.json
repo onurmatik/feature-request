@@ -1,0 +1,329 @@
+{
+  "agent_contract_version": "1.0.0",
+  "schema_version": 1,
+  "source": "agent/contract.yaml",
+  "tools": {
+    "add_request_comment": {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": false
+      },
+      "security": [
+        {
+          "oauth2": [
+            "write"
+          ]
+        }
+      ]
+    },
+    "create_project": {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "security": [
+        {
+          "oauth2": [
+            "write"
+          ]
+        }
+      ]
+    },
+    "create_request": {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": false
+      },
+      "security": [
+        {
+          "oauth2": [
+            "write"
+          ]
+        }
+      ]
+    },
+    "delete_project": {
+      "annotations": {
+        "destructiveHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "security": [
+        {
+          "oauth2": [
+            "write"
+          ]
+        }
+      ]
+    },
+    "find_duplicate_candidates": {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "security": [
+        {
+          "oauth2": [
+            "read"
+          ]
+        }
+      ]
+    },
+    "get_account_capabilities": {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "security": [
+        {
+          "oauth2": [
+            "read"
+          ]
+        }
+      ]
+    },
+    "get_project": {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "security": [
+        {
+          "oauth2": [
+            "read"
+          ]
+        }
+      ]
+    },
+    "get_queue_snapshot": {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "security": [
+        {
+          "oauth2": [
+            "read"
+          ]
+        }
+      ]
+    },
+    "get_request": {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "security": [
+        {
+          "oauth2": [
+            "read"
+          ]
+        }
+      ]
+    },
+    "link_delivery_artifact": {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "security": [
+        {
+          "oauth2": [
+            "write"
+          ]
+        }
+      ]
+    },
+    "link_duplicate_request": {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "security": [
+        {
+          "oauth2": [
+            "write"
+          ]
+        }
+      ]
+    },
+    "list_delivery_artifacts": {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "security": [
+        {
+          "oauth2": [
+            "read"
+          ]
+        }
+      ]
+    },
+    "list_projects": {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "security": [
+        {
+          "oauth2": [
+            "read"
+          ]
+        }
+      ]
+    },
+    "list_request_activity": {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "security": [
+        {
+          "oauth2": [
+            "read"
+          ]
+        }
+      ]
+    },
+    "list_request_changes": {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "security": [
+        {
+          "oauth2": [
+            "read"
+          ]
+        }
+      ]
+    },
+    "list_request_comments": {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "security": [
+        {
+          "oauth2": [
+            "read"
+          ]
+        }
+      ]
+    },
+    "list_requests": {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "security": [
+        {
+          "oauth2": [
+            "read"
+          ]
+        }
+      ]
+    },
+    "transition_request": {
+      "annotations": {
+        "destructiveHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "security": [
+        {
+          "oauth2": [
+            "write"
+          ]
+        }
+      ]
+    },
+    "unlink_delivery_artifact": {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "security": [
+        {
+          "oauth2": [
+            "write"
+          ]
+        }
+      ]
+    },
+    "unlink_duplicate_request": {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "security": [
+        {
+          "oauth2": [
+            "write"
+          ]
+        }
+      ]
+    },
+    "update_project": {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "security": [
+        {
+          "oauth2": [
+            "write"
+          ]
+        }
+      ]
+    },
+    "update_request": {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "security": [
+        {
+          "oauth2": [
+            "write"
+          ]
+        }
+      ]
+    },
+    "update_request_comment": {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": false
+      },
+      "security": [
+        {
+          "oauth2": [
+            "write"
+          ]
+        }
+      ]
+    }
+  }
+}

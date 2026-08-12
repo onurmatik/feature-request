@@ -1,0 +1,85 @@
+name: Agent Contract
+
+on:
+  pull_request:
+    paths:
+      - "agent/**"
+      - "AGENTS.md"
+      - ".agents/skills/feature-request/SKILL.md"
+      - "skills/feature-request/SKILL.md"
+      - "release/**"
+      - "agents.json"
+      - "scripts/agent_contract.py"
+      - "requirements-agent-contract.txt"
+      - "tests/test_agent_contract.py"
+      - ".github/workflows/agent-contract.yml"
+  push:
+    branches: [main]
+    paths:
+      - "agent/**"
+      - "AGENTS.md"
+      - ".agents/skills/feature-request/SKILL.md"
+      - "skills/feature-request/SKILL.md"
+      - "release/**"
+      - "agents.json"
+      - "scripts/agent_contract.py"
+      - "requirements-agent-contract.txt"
+      - "tests/test_agent_contract.py"
+      - ".github/workflows/agent-contract.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  contract-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements-agent-contract.txt
+      - name: Install Contract gate dependencies
+        run: python -m pip install -r requirements-agent-contract.txt
+      - name: Validate canonical Contract and conformance vectors
+        run: python scripts/agent_contract.py validate
+      - name: Enforce Contract SemVer against previous revision
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          old_sha="$PUSH_BEFORE_SHA"
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            old_sha="$PR_BASE_SHA"
+          fi
+          case "$old_sha" in
+            ""|0000000000000000000000000000000000000000)
+              echo "No previous revision; skipping first Contract introduction."
+              exit 0
+              ;;
+          esac
+          if ! git cat-file -e "${old_sha}:agent/contract.yaml" 2>/dev/null; then
+            echo "Previous revision has no Agent Contract; skipping first introduction."
+            exit 0
+          fi
+          old_contract="$(mktemp)"
+          git show "${old_sha}:agent/contract.yaml" > "$old_contract"
+          python scripts/agent_contract.py semver-diff "$old_contract" agent/contract.yaml
+      - name: Verify deterministic MCP mapping snapshot
+        run: python scripts/agent_contract.py mapping --check
+      - name: Run Contract tooling tests
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: python -m unittest tests.test_agent_contract
+      - name: Verify deterministic candidate release descriptor
+        shell: bash
+        run: |
+          temp_dir="$(mktemp -d)"
+          python scripts/agent_contract.py build-release --git-commit "$GITHUB_SHA" --output "$temp_dir/first.json"
+          python scripts/agent_contract.py build-release --git-commit "$GITHUB_SHA" --output "$temp_dir/second.json"
+          cmp "$temp_dir/first.json" "$temp_dir/second.json"
