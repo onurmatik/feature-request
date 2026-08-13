@@ -1,744 +1,244 @@
 from __future__ import annotations
 
+import json
+import logging
 import os
-from datetime import datetime, timezone
-from typing import Any, Literal
-from urllib.parse import quote
+import re
+from types import SimpleNamespace
+from uuid import uuid4
 
 import django
-import httpx
 from asgiref.sync import sync_to_async
-from django.conf import settings
-from mcp.server.auth.middleware.auth_context import get_access_token
-from mcp.server.auth.provider import AccessToken
-from mcp.server.auth.settings import AuthSettings
-from mcp.server.mcpserver import MCPServer
-from mcp.types import ToolAnnotations
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
 django.setup()
 
-from accounts.models import ApiToken  # noqa: E402
-
-
-IssueType = Literal["feature", "bug"]
-IssuePriority = Literal[1, 2, 3, 4]
-IssueStatus = Literal["open", "planned", "in_progress", "done", "closed"]
-IssueStatusFilter = Literal[
-    "active",
-    "open",
-    "planned",
-    "in_progress",
-    "done",
-    "closed",
-]
-DeliveryArtifactKind = Literal[
-    "pull_request",
-    "commit",
-    "deployment",
-    "release",
-    "other",
-]
-
-
-READ_ONLY_ANNOTATIONS = ToolAnnotations(
-    read_only_hint=True,
-    destructive_hint=False,
-    idempotent_hint=True,
-    open_world_hint=False,
+from django.conf import settings  # noqa: E402
+from django.contrib.auth import get_user_model  # noqa: E402
+from django_embedded_mcp import (  # noqa: E402
+    DigestTokenVerifier,
+    MCPAuthCORSMiddleware,
+    build_auth_failure_challenge,
 )
-WRITE_ANNOTATIONS = ToolAnnotations(
-    read_only_hint=False,
-    destructive_hint=False,
-    idempotent_hint=False,
-    open_world_hint=False,
-)
-IDEMPOTENT_WRITE_ANNOTATIONS = ToolAnnotations(
-    read_only_hint=False,
-    destructive_hint=False,
-    idempotent_hint=True,
-    open_world_hint=False,
-)
-DESTRUCTIVE_WRITE_ANNOTATIONS = ToolAnnotations(
-    read_only_hint=False,
-    destructive_hint=True,
-    idempotent_hint=False,
-    open_world_hint=False,
-)
-TRANSITION_ANNOTATIONS = ToolAnnotations(
-    read_only_hint=False,
-    destructive_hint=True,
-    idempotent_hint=True,
-    open_world_hint=False,
+from django_embedded_mcp.mcp import build_transport_security_settings  # noqa: E402
+from mcp import MCPError  # noqa: E402
+from mcp.server import CacheHint, MCPServer  # noqa: E402
+from mcp.server.auth.middleware.auth_context import get_access_token  # noqa: E402
+from mcp.types import (  # noqa: E402
+    CallToolResult,
+    INTERNAL_ERROR,
+    METHOD_NOT_FOUND,
+    TextContent,
 )
 
+from agent_runtime.context import AgentContext  # noqa: E402
+from agent_runtime.audit import record_tool_audit  # noqa: E402
+from agent_runtime.contract import (  # noqa: E402
+    SERVER_VERSION,
+    contract,
+    public_registry,
+    server_instructions,
+)
+from agent_runtime.errors import ContractApplicationError, MissingScopeError  # noqa: E402
+from agent_runtime.service import service  # noqa: E402
+from mcp_oauth.services import record_access_token_use, resolve_access_token  # noqa: E402
 
-class FeatureRequestTokenVerifier:
-    """Resolve MCP bearer tokens through the existing FeatureRequest token model."""
 
-    async def verify_token(self, token: str) -> AccessToken | None:
-        api_token = await sync_to_async(
-            ApiToken.resolve_active,
+logger = logging.getLogger(__name__)
+_PUBLIC_REQUEST_ID = re.compile(r"^[A-Za-z0-9._:-]{8,128}$")
+
+
+def _validated_request_id(candidate) -> str:
+    value = str(candidate or "")
+    return value if _PUBLIC_REQUEST_ID.fullmatch(value) else uuid4().hex
+
+
+def _request_id(context) -> str:
+    if context is not None:
+        try:
+            headers = context.headers
+            candidate = headers.get("x-request-id") or headers.get("X-Request-ID")
+            if candidate:
+                return _validated_request_id(candidate)
+        except Exception:
+            pass
+    return _validated_request_id("")
+
+
+class FeatureRequestMCPServer(MCPServer[None]):
+    async def list_tools(self):
+        return list(public_registry())
+
+    async def call_tool(self, name, arguments, context=None):
+        names = {tool.name for tool in public_registry()}
+        if name not in names:
+            raise MCPError(code=METHOD_NOT_FOUND, message="Unknown FeatureRequest tool.")
+        access = get_access_token()
+        if access is None or not access.subject:
+            raise MCPError(code=INTERNAL_ERROR, message="Authenticated actor context is missing.")
+        User = get_user_model()
+        user = await sync_to_async(
+            lambda: User.objects.filter(pk=access.subject, is_active=True).first(),
             thread_sensitive=True,
-        )(token)
-        if api_token is None:
-            return None
-
-        await sync_to_async(api_token.mark_used, thread_sensitive=True)()
-        scopes = ["read"]
-        if api_token.can_write:
-            scopes.append("write")
-
-        return AccessToken(
-            token=token,
-            client_id=f"feature-request-api-token-{api_token.id}",
-            scopes=scopes,
-            resource=settings.FEATURE_REQUEST_MCP_SERVER_URL,
-            subject=str(api_token.user_id),
-            claims={
-                "token_id": api_token.id,
-                "user_id": api_token.user_id,
-                "user_handle": api_token.user.handle,
-                "can_write": api_token.can_write,
-            },
+        )()
+        if user is None:
+            raise MCPError(code=INTERNAL_ERROR, message="Authenticated actor is unavailable.")
+        agent_context = AgentContext(
+            user=user,
+            authenticated_client_id=access.client_id,
+            scopes=frozenset(access.scopes),
+            request_id=_request_id(context),
+        )
+        try:
+            result = await sync_to_async(service.call, thread_sensitive=True)(
+                name,
+                dict(arguments or {}),
+                agent_context,
+            )
+        except MissingScopeError as exc:
+            agent_context.audit_extra.update(
+                capability_evaluated=False,
+                ownership_decision="not_evaluated",
+            )
+            resource_type = ""
+            resource_id = ""
+            for key, kind in (
+                ("comment_id", "comment"),
+                ("artifact_id", "delivery_artifact"),
+                ("issue_id", "request"),
+                ("project_id", "project"),
+            ):
+                if key in (arguments or {}):
+                    resource_type = kind
+                    resource_id = str(arguments[key])
+                    break
+            await sync_to_async(record_tool_audit, thread_sensitive=True)(
+                context=agent_context,
+                tool_name=name,
+                arguments=dict(arguments or {}),
+                result_code="insufficient_scope",
+                resource_type=resource_type,
+                resource_id=resource_id,
+                scope_granted=False,
+            )
+            challenge = build_auth_failure_challenge(
+                resource_metadata=settings.MCP_RESOURCE_METADATA_URL,
+                scopes=exc.required_scopes,
+                status=403,
+                credential_present=True,
+            )
+            return CallToolResult(
+                content=[TextContent(text="Additional OAuth scope is required.")],
+                isError=True,
+                _meta={"mcp/www_authenticate": [challenge]},
+            )
+        except ContractApplicationError as exc:
+            envelope = exc.envelope
+            return CallToolResult(
+                content=[
+                    TextContent(
+                        text=json.dumps(envelope, sort_keys=True, separators=(",", ":"))
+                    )
+                ],
+                structuredContent=envelope,
+                isError=True,
+            )
+        except Exception:
+            logger.error(
+                "FeatureRequest MCP tool failed request_id=%s tool=%s result=internal_error",
+                agent_context.request_id,
+                name,
+            )
+            raise MCPError(code=INTERNAL_ERROR, message="Internal server error.") from None
+        return CallToolResult(
+            content=[
+                TextContent(text=json.dumps(result, sort_keys=True, separators=(",", ":")))
+            ],
+            structuredContent=result,
+            isError=False,
         )
 
 
-def _current_raw_token() -> str:
-    access_token = get_access_token()
-    if access_token is None:
-        raise RuntimeError("An authenticated FeatureRequest MCP connection is required.")
-    return access_token.token
+token_verifier = DigestTokenVerifier(
+    resource=settings.MCP_RESOURCE_URL,
+    issuer=settings.OAUTH_ISSUER,
+    allowed_scopes=settings.FEATURE_REQUEST_MCP_OAUTH_SCOPES,
+    record_resolver=resolve_access_token,
+    verified_callback=record_access_token_use,
+)
 
-
-def _clean_params(values: dict[str, Any]) -> dict[str, Any]:
-    return {key: value for key, value in values.items() if value is not None}
-
-
-def _next_step_for_status(status_code: int) -> str:
-    if status_code == 401:
-        return "Reconnect with an active FeatureRequest API token."
-    if status_code == 403:
-        return "Use a write-enabled token or ask a project owner/issue author to perform this action."
-    if status_code == 404:
-        return "Verify the owner handle, project slug, issue id, or comment id."
-    if status_code == 503:
-        return "Retry later; moderation or a provider dependency is temporarily unavailable."
-    return "Review the request inputs and retry only after correcting the reported error."
-
-
-async def _api_request(
-    *,
-    action: str,
-    method: str,
-    path: str,
-    resource: dict[str, Any] | None = None,
-    params: dict[str, Any] | None = None,
-    json_body: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    token = _current_raw_token()
-    normalized_path = path.lstrip("/")
-    base_url = f"{settings.FEATURE_REQUEST_API_BASE_URL.rstrip('/')}/"
-
-    try:
-        async with httpx.AsyncClient(
-            base_url=base_url,
-            headers={"Authorization": f"Bearer {token}"},
-            timeout=settings.FEATURE_REQUEST_MCP_API_TIMEOUT_SECONDS,
-        ) as client:
-            response = await client.request(
-                method,
-                normalized_path,
-                params=_clean_params(params or {}),
-                json=json_body,
-            )
-    except httpx.HTTPError as exc:
-        return {
-            "ok": False,
-            "action": action,
-            "request": {
-                "method": method,
-                "path": f"/api/{normalized_path}",
-                "status": None,
-            },
-            "resource": resource or {},
-            "error": {
-                "status_code": None,
-                "message": f"FeatureRequest API could not be reached: {exc.__class__.__name__}",
-            },
-            "next_step": "Verify FEATURE_REQUEST_API_BASE_URL and retry when the API is reachable.",
-        }
-
-    try:
-        payload: Any = response.json() if response.content else None
-    except ValueError:
-        payload = {"detail": response.text.strip() or "Invalid API response."}
-
-    request_meta = {
-        "method": method,
-        "path": f"/api/{normalized_path}",
-        "status": response.status_code,
-    }
-    if response.is_success:
-        return {
-            "ok": True,
-            "action": action,
-            "request": request_meta,
-            "resource": resource or {},
-            "data": payload,
-            "meta": {
-                "items_returned": len(payload) if isinstance(payload, list) else None,
-                "created_at": datetime.now(timezone.utc).isoformat(),
-            },
-        }
-
-    message = "FeatureRequest API rejected the request."
-    if isinstance(payload, dict):
-        message = str(payload.get("detail") or payload.get("message") or message)
-
-    return {
-        "ok": False,
-        "action": action,
-        "request": request_meta,
-        "resource": resource or {},
-        "error": {
-            "status_code": response.status_code,
-            "message": message,
-        },
-        "next_step": _next_step_for_status(response.status_code),
-    }
-
-
-mcp = MCPServer(
+mcp = FeatureRequestMCPServer(
     name="feature-request",
     title="FeatureRequest",
     description="Operate FeatureRequest projects and evidence-backed request lifecycles.",
-    instructions=(
-        "FeatureRequest returns deterministic evidence; the calling agent owns priority, duplicate, "
-        "and delivery judgments. Never infer a duplicate or verified delivery from scores or links alone. "
-        "Before deleting a project, call get_project and proceed only on explicit user direction. "
-        "Use update_request for content or priority and transition_request for status. "
-        "Do not use done or closed without explicit user direction and inspected delivery evidence."
-    ),
-    version="0.2.0",
-    token_verifier=FeatureRequestTokenVerifier(),
-    auth=AuthSettings(
-        issuer_url=settings.FEATURE_REQUEST_MCP_AUTH_ISSUER_URL,
-        resource_server_url=settings.FEATURE_REQUEST_MCP_SERVER_URL,
-        required_scopes=[],
-    ),
+    instructions=server_instructions(),
+    version=SERVER_VERSION,
+    cache_hints={"tools/list": CacheHint(ttl_ms=300_000, scope="public")},
 )
 
 
-@mcp.tool(
-    title="List projects",
-    description="List projects owned by the authenticated FeatureRequest user.",
-    annotations=READ_ONLY_ANNOTATIONS,
-    structured_output=True,
-)
-async def list_projects() -> dict[str, Any]:
-    return await _api_request(
-        action="list_projects",
-        method="GET",
-        path="projects",
-    )
+def _required_scopes(method: str, name: str):
+    if method == "tools/call" and name in contract()["tools"]:
+        return tuple(contract()["tools"][name]["required_scopes"])
+    return tuple(settings.FEATURE_REQUEST_MCP_BOOTSTRAP_SCOPES)
 
 
-@mcp.tool(
-    title="Get project",
-    description="Get one project owned by the authenticated FeatureRequest user by stable project id.",
-    annotations=READ_ONLY_ANNOTATIONS,
-    structured_output=True,
-)
-async def get_project(project_id: int) -> dict[str, Any]:
-    return await _api_request(
-        action="get_project",
-        method="GET",
-        path=f"projects/{project_id}",
-        resource={"project_id": project_id},
-    )
-
-
-@mcp.tool(
-    title="Create project",
-    description="Create a FeatureRequest project owned by the authenticated user.",
-    annotations=WRITE_ANNOTATIONS,
-    structured_output=True,
-)
-async def create_project(
+async def _audit_scope_denial(
+    *,
+    access_token,
+    method: str,
     name: str,
-    tagline: str = "",
-    url: str = "",
-) -> dict[str, Any]:
-    return await _api_request(
-        action="create_project",
-        method="POST",
-        path="projects",
-        json_body={"name": name, "tagline": tagline, "url": url},
+    required_scopes,
+    missing_scopes,
+    request_id: str,
+):
+    if method != "tools/call" or name not in contract()["tools"]:
+        return
+    context = AgentContext(
+        user=SimpleNamespace(pk=access_token.subject),
+        authenticated_client_id=access_token.client_id,
+        scopes=frozenset(access_token.scopes),
+        request_id=_validated_request_id(request_id),
     )
-
-
-@mcp.tool(
-    title="Update project",
-    description=(
-        "Update an owned project's name, tagline, or URL. "
-        "A name change may also change the project slug returned by the API."
-    ),
-    annotations=WRITE_ANNOTATIONS,
-    structured_output=True,
-)
-async def update_project(
-    project_id: int,
-    name: str | None = None,
-    tagline: str | None = None,
-    url: str | None = None,
-) -> dict[str, Any]:
-    payload = _clean_params({"name": name, "tagline": tagline, "url": url})
-    if not payload:
-        return {
-            "ok": False,
-            "action": "update_project",
-            "request": {
-                "method": "PATCH",
-                "path": f"/api/projects/{project_id}",
-                "status": None,
-            },
-            "resource": {"project_id": project_id},
-            "error": {"status_code": 400, "message": "Provide at least one field to update."},
-            "next_step": "Provide name, tagline, or url.",
-        }
-    return await _api_request(
-        action="update_project",
-        method="PATCH",
-        path=f"projects/{project_id}",
-        resource={"project_id": project_id},
-        json_body=payload,
+    context.audit_extra.update(
+        missing_scopes=list(missing_scopes),
+        capability_evaluated=False,
+        ownership_decision="not_evaluated",
     )
-
-
-@mcp.tool(
-    title="Delete project",
-    description=(
-        "Permanently delete an owned project and its requests. Call get_project first, "
-        "use only after explicit user direction, and pass the same id as confirm_project_id."
-    ),
-    annotations=DESTRUCTIVE_WRITE_ANNOTATIONS,
-    structured_output=True,
-)
-async def delete_project(project_id: int, confirm_project_id: int) -> dict[str, Any]:
-    if confirm_project_id != project_id:
-        return {
-            "ok": False,
-            "action": "delete_project",
-            "request": {
-                "method": "DELETE",
-                "path": f"/api/projects/{project_id}",
-                "status": None,
-            },
-            "resource": {"project_id": project_id},
-            "error": {"status_code": 400, "message": "Project confirmation id does not match."},
-            "next_step": "Call get_project, confirm the explicit user request, then pass the same project id.",
-        }
-    return await _api_request(
-        action="delete_project",
-        method="DELETE",
-        path=f"projects/{project_id}",
-        resource={"project_id": project_id},
-    )
-
-
-@mcp.tool(
-    title="List requests",
-    description=(
-        "List requests for one FeatureRequest owner or one owner/project board. "
-        "Use status=active to exclude done and closed requests."
-    ),
-    annotations=READ_ONLY_ANNOTATIONS,
-    structured_output=True,
-)
-async def list_requests(
-    owner_handle: str,
-    project_slug: str | None = None,
-    issue_type: IssueType | None = None,
-    status: IssueStatusFilter | None = None,
-    priority: IssuePriority | None = None,
-    limit: int = 50,
-) -> dict[str, Any]:
-    owner = quote(owner_handle.strip().lower(), safe="")
-    resource: dict[str, Any] = {"owner_handle": owner_handle.strip().lower()}
-    params = {
-        "issue_type": issue_type,
-        "status": status,
-        "priority": priority,
-        "limit": limit,
-    }
-
-    if project_slug:
-        project = quote(project_slug.strip(), safe="")
-        resource["project_slug"] = project_slug.strip()
-        path = f"projects/{owner}/{project}/issues"
-    else:
-        path = f"owners/{owner}/issues"
-
-    return await _api_request(
-        action="list_requests",
-        method="GET",
-        path=path,
-        resource=resource,
-        params=params,
-    )
-
-
-@mcp.tool(
-    title="Get request",
-    description="Get one FeatureRequest request by its stable issue id.",
-    annotations=READ_ONLY_ANNOTATIONS,
-    structured_output=True,
-)
-async def get_request(issue_id: int) -> dict[str, Any]:
-    return await _api_request(
-        action="get_request",
-        method="GET",
-        path=f"issues/{issue_id}",
-        resource={"issue_id": issue_id},
-    )
-
-
-@mcp.tool(
-    title="List request comments",
-    description="List the comments on one FeatureRequest request.",
-    annotations=READ_ONLY_ANNOTATIONS,
-    structured_output=True,
-)
-async def list_request_comments(issue_id: int) -> dict[str, Any]:
-    return await _api_request(
-        action="list_request_comments",
-        method="GET",
-        path=f"issues/{issue_id}/comments",
-        resource={"issue_id": issue_id},
-    )
-
-
-@mcp.tool(
-    title="Get queue snapshot",
-    description=(
-        "Return active requests, current user-assigned priorities, statuses, counts, and activity times. "
-        "This is deterministic evidence, not a priority recommendation."
-    ),
-    annotations=READ_ONLY_ANNOTATIONS,
-    structured_output=True,
-)
-async def get_queue_snapshot(
-    project_id: int | None = None,
-    limit: int = 100,
-) -> dict[str, Any]:
-    return await _api_request(
-        action="get_queue_snapshot",
-        method="GET",
-        path="me/request-queue",
-        resource=_clean_params({"project_id": project_id}),
-        params={"project_id": project_id, "limit": limit},
-    )
-
-
-@mcp.tool(
-    title="Find duplicate candidates",
-    description=(
-        "Return explainable lexical similarity candidates within one project before or after intake. "
-        "Scores and matched terms are evidence only; the calling agent decides whether requests duplicate."
-    ),
-    annotations=READ_ONLY_ANNOTATIONS,
-    structured_output=True,
-)
-async def find_duplicate_candidates(
-    owner_handle: str,
-    project_slug: str,
-    title: str,
-    description: str = "",
-    exclude_issue_id: int | None = None,
-    limit: int = 5,
-) -> dict[str, Any]:
-    clean_owner = owner_handle.strip().lower()
-    clean_project = project_slug.strip()
-    return await _api_request(
-        action="find_duplicate_candidates",
-        method="GET",
-        path=(
-            f"projects/{quote(clean_owner, safe='')}/"
-            f"{quote(clean_project, safe='')}/duplicate-candidates"
-        ),
-        resource={"owner_handle": clean_owner, "project_slug": clean_project},
-        params={
-            "title": title,
-            "description": description,
-            "exclude_issue_id": exclude_issue_id,
-            "limit": limit,
-        },
-    )
-
-
-@mcp.tool(
-    title="List request activity",
-    description="List the structured activity history for one request the authenticated user can manage.",
-    annotations=READ_ONLY_ANNOTATIONS,
-    structured_output=True,
-)
-async def list_request_activity(issue_id: int, limit: int = 100) -> dict[str, Any]:
-    return await _api_request(
-        action="list_request_activity",
-        method="GET",
-        path=f"issues/{issue_id}/activity",
-        resource={"issue_id": issue_id},
-        params={"limit": limit},
-    )
-
-
-@mcp.tool(
-    title="List request changes",
-    description=(
-        "Read the authenticated owner's cross-project request change feed after a stable event cursor."
-    ),
-    annotations=READ_ONLY_ANNOTATIONS,
-    structured_output=True,
-)
-async def list_request_changes(after_id: int = 0, limit: int = 50) -> dict[str, Any]:
-    return await _api_request(
-        action="list_request_changes",
-        method="GET",
-        path="me/issue-changes",
-        params={"after_id": after_id, "limit": limit},
-    )
-
-
-@mcp.tool(
-    title="List delivery artifacts",
-    description=(
-        "List stored delivery evidence links for one request. Links are not proof that delivery was verified."
-    ),
-    annotations=READ_ONLY_ANNOTATIONS,
-    structured_output=True,
-)
-async def list_delivery_artifacts(issue_id: int) -> dict[str, Any]:
-    return await _api_request(
-        action="list_delivery_artifacts",
-        method="GET",
-        path=f"issues/{issue_id}/delivery-artifacts",
-        resource={"issue_id": issue_id},
-    )
-
-
-@mcp.tool(
-    title="Create request",
-    description="Create a feature request or bug on one FeatureRequest project board.",
-    annotations=WRITE_ANNOTATIONS,
-    structured_output=True,
-)
-async def create_request(
-    owner_handle: str,
-    project_slug: str,
-    title: str,
-    description: str = "",
-    issue_type: IssueType = "feature",
-    priority: IssuePriority = 2,
-) -> dict[str, Any]:
-    clean_owner = owner_handle.strip().lower()
-    clean_project = project_slug.strip()
-    return await _api_request(
-        action="create_request",
-        method="POST",
-        path=(
-            f"projects/{quote(clean_owner, safe='')}/"
-            f"{quote(clean_project, safe='')}/issues"
-        ),
-        resource={
-            "owner_handle": clean_owner,
-            "project_slug": clean_project,
-        },
-        json_body={
-            "issue_type": issue_type,
-            "title": title,
-            "description": description,
-            "priority": priority,
-        },
-    )
-
-
-@mcp.tool(
-    title="Link duplicate request",
-    description=(
-        "Link one request to a root canonical request in the same project. "
-        "This does not change priority or status and is reversible."
-    ),
-    annotations=IDEMPOTENT_WRITE_ANNOTATIONS,
-    structured_output=True,
-)
-async def link_duplicate_request(
-    issue_id: int,
-    canonical_issue_id: int,
-) -> dict[str, Any]:
-    return await _api_request(
-        action="link_duplicate_request",
-        method="PATCH",
-        path=f"issues/{issue_id}/duplicate",
-        resource={"issue_id": issue_id, "canonical_issue_id": canonical_issue_id},
-        json_body={"canonical_issue_id": canonical_issue_id},
-    )
-
-
-@mcp.tool(
-    title="Unlink duplicate request",
-    description="Remove a request's duplicate link without changing its priority or status.",
-    annotations=IDEMPOTENT_WRITE_ANNOTATIONS,
-    structured_output=True,
-)
-async def unlink_duplicate_request(issue_id: int) -> dict[str, Any]:
-    return await _api_request(
-        action="unlink_duplicate_request",
-        method="DELETE",
-        path=f"issues/{issue_id}/duplicate",
-        resource={"issue_id": issue_id},
-    )
-
-
-@mcp.tool(
-    title="Link delivery artifact",
-    description=(
-        "Store a pull request, commit, deployment, release, or other delivery evidence URL. "
-        "The calling agent must inspect the external artifact before claiming delivery is verified."
-    ),
-    annotations=IDEMPOTENT_WRITE_ANNOTATIONS,
-    structured_output=True,
-)
-async def link_delivery_artifact(
-    issue_id: int,
-    kind: DeliveryArtifactKind,
-    url: str,
-    label: str = "",
-) -> dict[str, Any]:
-    return await _api_request(
-        action="link_delivery_artifact",
-        method="POST",
-        path=f"issues/{issue_id}/delivery-artifacts",
-        resource={"issue_id": issue_id},
-        json_body={"kind": kind, "url": url, "label": label},
-    )
-
-
-@mcp.tool(
-    title="Unlink delivery artifact",
-    description="Remove one stored delivery evidence link from a request.",
-    annotations=IDEMPOTENT_WRITE_ANNOTATIONS,
-    structured_output=True,
-)
-async def unlink_delivery_artifact(issue_id: int, artifact_id: int) -> dict[str, Any]:
-    return await _api_request(
-        action="unlink_delivery_artifact",
-        method="DELETE",
-        path=f"issues/{issue_id}/delivery-artifacts/{artifact_id}",
-        resource={"issue_id": issue_id, "artifact_id": artifact_id},
-    )
-
-
-@mcp.tool(
-    title="Update request",
-    description=(
-        "Update a request title, description, or priority. "
-        "Use transition_request separately for status changes."
-    ),
-    annotations=WRITE_ANNOTATIONS,
-    structured_output=True,
-)
-async def update_request(
-    issue_id: int,
-    title: str | None = None,
-    description: str | None = None,
-    priority: IssuePriority | None = None,
-) -> dict[str, Any]:
-    payload = _clean_params(
-        {
-            "title": title,
-            "description": description,
-            "priority": priority,
-        }
-    )
-    if not payload:
-        return {
-            "ok": False,
-            "action": "update_request",
-            "request": {"method": "PATCH", "path": f"/api/issues/{issue_id}", "status": None},
-            "resource": {"issue_id": issue_id},
-            "error": {"status_code": 400, "message": "Provide at least one field to update."},
-            "next_step": "Provide title, description, or priority.",
-        }
-
-    return await _api_request(
-        action="update_request",
-        method="PATCH",
-        path=f"issues/{issue_id}",
-        resource={"issue_id": issue_id},
-        json_body=payload,
-    )
-
-
-@mcp.tool(
-    title="Transition request",
-    description=(
-        "Change a request status. Only use done or closed with explicit user direction "
-        "and merge or release evidence."
-    ),
-    annotations=TRANSITION_ANNOTATIONS,
-    structured_output=True,
-)
-async def transition_request(issue_id: int, status: IssueStatus) -> dict[str, Any]:
-    return await _api_request(
-        action="transition_request",
-        method="PATCH",
-        path=f"issues/{issue_id}",
-        resource={"issue_id": issue_id},
-        json_body={"status": status},
-    )
-
-
-@mcp.tool(
-    title="Add request comment",
-    description="Add a comment to one FeatureRequest request.",
-    annotations=WRITE_ANNOTATIONS,
-    structured_output=True,
-)
-async def add_request_comment(issue_id: int, body: str) -> dict[str, Any]:
-    return await _api_request(
-        action="add_request_comment",
-        method="POST",
-        path=f"issues/{issue_id}/comments",
-        resource={"issue_id": issue_id},
-        json_body={"body": body},
-    )
-
-
-@mcp.tool(
-    title="Update request comment",
-    description="Update an existing request comment when the authenticated user is allowed to edit it.",
-    annotations=WRITE_ANNOTATIONS,
-    structured_output=True,
-)
-async def update_request_comment(
-    issue_id: int,
-    comment_id: int,
-    body: str,
-) -> dict[str, Any]:
-    return await _api_request(
-        action="update_request_comment",
-        method="PATCH",
-        path=f"issues/{issue_id}/comments/{comment_id}",
-        resource={"issue_id": issue_id, "comment_id": comment_id},
-        json_body={"body": body},
+    await sync_to_async(record_tool_audit, thread_sensitive=True)(
+        context=context,
+        tool_name=name,
+        arguments={},
+        result_code="insufficient_scope",
+        scope_granted=False,
     )
 
 
 def create_application():
-    return mcp.streamable_http_app(
+    transport_security = build_transport_security_settings(
+        resource_url=settings.MCP_RESOURCE_URL,
+        allowed_origins=settings.FEATURE_REQUEST_MCP_CORS_ORIGINS,
+        production=not settings.DEBUG,
+        extra_hosts=(
+            f"{settings.FEATURE_REQUEST_MCP_HOST}:{settings.FEATURE_REQUEST_MCP_PORT}",
+        ),
+    )
+    app = mcp.streamable_http_app(
         streamable_http_path="/mcp",
         json_response=True,
         stateless_http=True,
+        transport_security=transport_security,
         host=settings.FEATURE_REQUEST_MCP_HOST,
+        max_request_body_size=1024 * 1024,
+    )
+    return MCPAuthCORSMiddleware(
+        app,
+        path="/mcp",
+        allowed_origins=settings.FEATURE_REQUEST_MCP_CORS_ORIGINS,
+        token_verifier=token_verifier,
+        resource_metadata=settings.MCP_RESOURCE_METADATA_URL,
+        bootstrap_scopes=settings.FEATURE_REQUEST_MCP_BOOTSTRAP_SCOPES,
+        tool_scope_resolver=_required_scopes,
+        protocol_version="2026-07-28",
+        authorization_decision_callback=_audit_scope_denial,
     )

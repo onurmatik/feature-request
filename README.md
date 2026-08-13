@@ -6,34 +6,34 @@ FeatureRequest helps indie builders manage feedback for all their projects in on
 
 - Backend: Django, Django Ninja
 - Frontend: Django templates, Tailwind CSS, vanilla JavaScript
-- Auth/Utilities: django-sesame, python-slugify
-- Package manager: `pip` for Python; Node is only needed when regenerating Tailwind CSS
+- Auth/Utilities: django-sesame, django-oauth-toolkit, repo-internal django-embedded-mcp
+- Package manager: `uv` with the frozen `uv.lock`; Node is only needed when regenerating Tailwind CSS
 
 ## Prerequisites
 
-- Python 3
+- Python 3.11
+- `uv` 0.9.26
 - Node.js (optional, for rebuilding Tailwind CSS)
 - Optional: a virtual environment tool (`venv`, `virtualenv`, etc.)
 
 ## Backend Setup
 
-1. Create and activate a virtual environment.
-2. Install Python dependencies:
+1. Install the frozen Python dependency graph:
 
    ```bash
-   pip install -r requirements.txt
+   uv sync --frozen --reinstall-package django-embedded-mcp
    ```
 
-3. Apply migrations:
+2. Apply migrations:
 
    ```bash
-   python manage.py migrate
+   uv run python manage.py migrate
    ```
 
-4. Run the Django server:
+3. Run the Django server:
 
    ```bash
-   python manage.py runserver 127.0.0.1:8000
+   uv run python manage.py runserver 127.0.0.1:8000
    ```
 
 ## Frontend Setup
@@ -118,9 +118,14 @@ Create a `.env` file at the repository root (or set environment variables) for l
 - `FEATURE_REQUEST_API_BASE_URL` (defaults to `http://127.0.0.1:8000/api`)
 - `FEATURE_REQUEST_MCP_HOST` (defaults to `127.0.0.1`)
 - `FEATURE_REQUEST_MCP_PORT` (defaults to `8001`)
-- `FEATURE_REQUEST_MCP_SERVER_URL` (defaults to `http://127.0.0.1:8001/mcp`)
-- `FEATURE_REQUEST_MCP_AUTH_ISSUER_URL` (defaults to `http://127.0.0.1:8000`)
-- `FEATURE_REQUEST_MCP_API_TIMEOUT_SECONDS` (defaults to `20`)
+- `PUBLIC_BASE_URL` (canonical browser/OAuth origin; local default `http://127.0.0.1:8000`)
+- `OAUTH_ISSUER` (must exactly equal `PUBLIC_BASE_URL`)
+- `MCP_RESOURCE_URL` (local default `http://127.0.0.1:8001/mcp`)
+- `MCP_RESOURCE_METADATA_URL`
+- `FEATURE_REQUEST_MCP_CORS_ORIGINS` (comma-separated exact origins)
+- `FEATURE_REQUEST_TRUSTED_PROXY_IPS` (comma-separated exact proxy addresses)
+- `FEATURE_REQUEST_MCP_PRODUCTION_ENABLED` (fails closed on SQLite)
+- `DATABASE_URL` (optional locally; production MCP requires PostgreSQL)
 - `EMAIL_BACKEND`
 - `ADMIN_EMAIL`
 - `STATIC_URL`, `STATIC_ROOT`
@@ -131,7 +136,7 @@ Create a `.env` file at the repository root (or set environment variables) for l
 - Django admin shell:
 
   ```bash
-  python manage.py shell
+  uv run python manage.py shell
   ```
 
 - Rebuild Tailwind CSS after editing template/static frontend classes:
@@ -146,7 +151,7 @@ Create a `.env` file at the repository root (or set environment variables) for l
 - Collect static files for deployment:
 
   ```bash
-  python3 manage.py collectstatic
+  uv run python manage.py collectstatic
   ```
 
 ## API Access
@@ -213,9 +218,16 @@ Project responses include `open_issues_count`, which counts issues with status `
 
 ## MCP Server
 
-FeatureRequest includes a Python MCPServer exposing the P1 request operating workflow over
-Streamable HTTP. It uses the existing `fr_...` bearer tokens and preserves their
-current `can_write` behavior; it does not define a separate MCP permission model.
+FeatureRequest includes an explicit Python `MCPServer[None]` exposing the Agent Contract 1.0.0
+request operating workflow over stateless Streamable HTTP. It implements modern MCP 2026-07-28
+`server/discover`, per-request protocol headers, and a deterministic 23-tool registry. FastMCP,
+loopback HTTP API forwarding, and legacy initialize transport are not used.
+
+`/mcp` is protected by OAuth 2.1 Authorization Code + PKCE S256. Client ID Metadata Documents
+(CIMD) are preferred; controlled public-client Dynamic Client Registration (DCR) remains as a
+fallback. The initial challenge requests only `read`; mutation tools return an OAuth `write`
+step-up challenge. Existing `fr_...` API tokens continue to work under `/api` and are explicitly
+rejected by `/mcp`.
 
 The MCP server supplies deterministic queue signals, explainable duplicate candidates,
 activity events, and delivery evidence records. It does not make semantic priority or
@@ -223,11 +235,12 @@ duplicate decisions for the calling agent, and a stored delivery URL is not veri
 The activity/change feed starts recording with the P1 migration; it does not reconstruct
 historical events for existing requests.
 
-Run Django and the MCP server as separate local processes:
+Run Django and the MCP server as separate local processes from the same frozen environment:
 
 ```bash
-python manage.py runserver 127.0.0.1:8000
-python -m feature_request_mcp
+uv run python manage.py migrate
+uv run python manage.py runserver 127.0.0.1:8000
+uv run python -m feature_request_mcp
 ```
 
 The MCP endpoint is then available at:
@@ -239,14 +252,19 @@ http://127.0.0.1:8001/mcp
 Alternatively, run the ASGI application directly:
 
 ```bash
-uvicorn feature_request_mcp.asgi:application --host 127.0.0.1 --port 8001
+uv run uvicorn feature_request_mcp.asgi:application --host 127.0.0.1 --port 8001
 ```
 
-Every MCP request must include:
+OAuth discovery is published at:
 
-```text
-Authorization: Bearer <FeatureRequest API token>
-```
+- `/.well-known/oauth-protected-resource/mcp`
+- `/.well-known/oauth-authorization-server`
+- `/.well-known/openid-configuration`
+
+Authorization, token, revocation and public-client registration use `/oauth/authorize`,
+`/oauth/token`, `/oauth/revoke`, and `/oauth/register`. Tokens, authorization codes,
+refresh-family members, idempotency keys, and client identities in audit data are stored only as
+digests or stable redacted identifiers.
 
 The repository is a dual-format agent plugin:
 
@@ -254,22 +272,32 @@ The repository is a dual-format agent plugin:
   `skills/feature-request/SKILL.md`.
 - Codex-native companion package: `.codex-plugin/plugin.json` and `.mcp.json`.
 
-The portable `mcp.json` uses the Agent Plugins 1.0.0 `streamable-http` transport and
-leaves authentication to the MCP client, as required by the portable specification.
-The Codex-native `.mcp.json` connects to the same local server and reads the bearer
-token from `FEATURE_REQUEST_API_TOKEN`:
+Both `mcp.json` and `.mcp.json` contain the local Streamable HTTP URL and no static credential
+reference. A compatible client discovers OAuth from the server challenge and metadata. Before a
+production plugin release, change both URLs to `https://featurerequest.io/mcp` only after the
+immutable MCP release and required real-client acceptance gates pass.
+
+Repository validation commands:
 
 ```bash
-export FEATURE_REQUEST_API_TOKEN=fr_your_existing_token
+uv run python scripts/agent_contract.py validate
+uv run python scripts/agent_contract.py mapping --check
+uv run python scripts/mcp_release.py validate
+uv run python manage.py check
+uv run python manage.py makemigrations --check --dry-run
+uv run python manage.py test
 ```
 
-For plugin development, run the two processes above before connecting. Clients using
-the portable package must be configured to send the same bearer token. Before a
-production plugin release, change both MCP configuration URLs, set
-`FEATURE_REQUEST_MCP_SERVER_URL=https://featurerequest.io/mcp`, and expose that
-Streamable HTTP route over HTTPS.
+The MCP release builder intentionally refuses to create a production descriptor while ChatGPT,
+Codex, Claude remote/Desktop, or Claude Code evidence remains pending. Deployment templates,
+SQLite production guard, rollback contract, cleanup/health timers, and the disabled nginx include
+live under `deploy/mcp/`. This implementation task does not enable the production route.
 
-P1 project tools:
+Bootstrap tool:
+
+- `get_account_capabilities` (bootstrap; capability catalog and project-count limit)
+
+Project tools:
 
 - `list_projects`
 - `get_project`
@@ -277,7 +305,7 @@ P1 project tools:
 - `update_project`
 - `delete_project` (destructive; requires `get_project`, explicit user direction, and a matching confirmation id)
 
-P1 request and evidence tools:
+Request and evidence tools:
 
 - `list_requests`
 - `get_request`

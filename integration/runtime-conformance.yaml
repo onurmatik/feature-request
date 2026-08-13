@@ -1,0 +1,54 @@
+schema_version: 1
+server_version: 1.0.0
+agent_contract_version: 1.0.0
+vector_bundle_sha256: 95b98201ec193ecb8d4bf58cb6048f0a0b22af7739febf5fa3effdbbcf9b78b1
+status: repository_complete_release_pending
+bindings:
+  - {id: get_account_capabilities_success, repository_test: feature_request_mcp.tests.FeatureRequestContractRuntimeConformanceTest.test_success_vectors_execute_through_mcp, evidence_mode: runtime_dispatch, repository_status: covered}
+  - {id: list_projects_success, repository_test: feature_request_mcp.tests.FeatureRequestContractRuntimeConformanceTest.test_success_vectors_execute_through_mcp, evidence_mode: runtime_dispatch, repository_status: covered}
+  - {id: get_project_success, repository_test: feature_request_mcp.tests.FeatureRequestContractRuntimeConformanceTest.test_success_vectors_execute_through_mcp, evidence_mode: runtime_dispatch, repository_status: covered}
+  - {id: create_project_success, repository_test: feature_request_mcp.tests.FeatureRequestContractRuntimeConformanceTest.test_success_vectors_execute_through_mcp, evidence_mode: runtime_dispatch, repository_status: covered}
+  - {id: update_project_success, repository_test: feature_request_mcp.tests.FeatureRequestContractRuntimeConformanceTest.test_success_vectors_execute_through_mcp, evidence_mode: runtime_dispatch, repository_status: covered}
+  - {id: delete_project_success, repository_test: feature_request_mcp.tests.FeatureRequestContractRuntimeConformanceTest.test_success_vectors_execute_through_mcp, evidence_mode: runtime_dispatch, repository_status: covered}
+  - {id: list_requests_success, repository_test: feature_request_mcp.tests.FeatureRequestContractRuntimeConformanceTest.test_success_vectors_execute_through_mcp, evidence_mode: runtime_dispatch, repository_status: covered}
+  - {id: get_request_success, repository_test: feature_request_mcp.tests.FeatureRequestContractRuntimeConformanceTest.test_success_vectors_execute_through_mcp, evidence_mode: runtime_dispatch, repository_status: covered}
+  - {id: list_request_comments_success, repository_test: feature_request_mcp.tests.FeatureRequestContractRuntimeConformanceTest.test_success_vectors_execute_through_mcp, evidence_mode: runtime_dispatch, repository_status: covered}
+  - {id: get_queue_snapshot_success, repository_test: feature_request_mcp.tests.FeatureRequestContractRuntimeConformanceTest.test_success_vectors_execute_through_mcp, evidence_mode: runtime_dispatch, repository_status: covered}
+  - {id: find_duplicate_candidates_success, repository_test: feature_request_mcp.tests.FeatureRequestContractRuntimeConformanceTest.test_success_vectors_execute_through_mcp, evidence_mode: runtime_dispatch, repository_status: covered}
+  - {id: list_request_activity_success, repository_test: feature_request_mcp.tests.FeatureRequestContractRuntimeConformanceTest.test_success_vectors_execute_through_mcp, evidence_mode: runtime_dispatch, repository_status: covered}
+  - {id: list_request_changes_success, repository_test: feature_request_mcp.tests.FeatureRequestContractRuntimeConformanceTest.test_success_vectors_execute_through_mcp, evidence_mode: runtime_dispatch, repository_status: covered}
+  - {id: list_delivery_artifacts_success, repository_test: feature_request_mcp.tests.FeatureRequestContractRuntimeConformanceTest.test_success_vectors_execute_through_mcp, evidence_mode: runtime_dispatch, repository_status: covered}
+  - {id: create_request_success, repository_test: feature_request_mcp.tests.FeatureRequestContractRuntimeConformanceTest.test_success_vectors_execute_through_mcp, evidence_mode: runtime_dispatch, repository_status: covered}
+  - {id: link_duplicate_request_success, repository_test: feature_request_mcp.tests.FeatureRequestContractRuntimeConformanceTest.test_success_vectors_execute_through_mcp, evidence_mode: runtime_dispatch, repository_status: covered}
+  - {id: unlink_duplicate_request_success, repository_test: feature_request_mcp.tests.FeatureRequestContractRuntimeConformanceTest.test_success_vectors_execute_through_mcp, evidence_mode: runtime_dispatch, repository_status: covered}
+  - {id: link_delivery_artifact_success, repository_test: feature_request_mcp.tests.FeatureRequestContractRuntimeConformanceTest.test_success_vectors_execute_through_mcp, evidence_mode: runtime_dispatch, repository_status: covered}
+  - {id: unlink_delivery_artifact_success, repository_test: feature_request_mcp.tests.FeatureRequestContractRuntimeConformanceTest.test_success_vectors_execute_through_mcp, evidence_mode: runtime_dispatch, repository_status: covered}
+  - {id: update_request_success, repository_test: feature_request_mcp.tests.FeatureRequestContractRuntimeConformanceTest.test_success_vectors_execute_through_mcp, evidence_mode: runtime_dispatch, repository_status: covered}
+  - {id: transition_request_success, repository_test: feature_request_mcp.tests.FeatureRequestContractRuntimeConformanceTest.test_success_vectors_execute_through_mcp, evidence_mode: runtime_dispatch, repository_status: covered}
+  - {id: add_request_comment_success, repository_test: feature_request_mcp.tests.FeatureRequestContractRuntimeConformanceTest.test_success_vectors_execute_through_mcp, evidence_mode: runtime_dispatch, repository_status: covered}
+  - {id: update_request_comment_success, repository_test: feature_request_mcp.tests.FeatureRequestContractRuntimeConformanceTest.test_success_vectors_execute_through_mcp, evidence_mode: runtime_dispatch, repository_status: covered}
+  - {id: invalid_input_matrix, repository_test: feature_request_mcp.tests.FeatureRequestContractRuntimeConformanceTest.test_invalid_input_matrix_executes_for_all_23_tools, evidence_mode: runtime_dispatch, repository_status: covered}
+  - {id: pro_plan_matrix, repository_test: feature_request_mcp.tests.FeatureRequestContractRuntimeConformanceTest.test_free_and_pro_capability_plan_matrix, evidence_mode: runtime_policy, repository_status: covered}
+  - {id: missing_capability_matrix, repository_test: feature_request_mcp.tests.FeatureRequestContractRuntimeConformanceTest.test_missing_capability_matrix_executes_for_all_gated_tools, evidence_mode: runtime_policy, repository_status: covered}
+  - {id: ownership_isolation_matrix, repository_test: feature_request_mcp.tests.FeatureRequestContractRuntimeConformanceTest.test_ownership_isolation_and_filtering_matrices, evidence_mode: runtime_policy, repository_status: covered}
+  - {id: ownership_filtering_matrix, repository_test: feature_request_mcp.tests.FeatureRequestContractRuntimeConformanceTest.test_ownership_isolation_and_filtering_matrices, evidence_mode: runtime_policy, repository_status: covered}
+  - {id: create_project_capacity_concurrency, repository_test: feature_request_mcp.tests.FeatureRequestContractRuntimeConformanceTest.test_sequential_free_capacity_guard_is_atomic_on_repository_database, evidence_mode: production_database_pending, repository_status: covered}
+  - {id: revision_conflict_matrix, repository_test: feature_request_mcp.tests.FeatureRequestContractRuntimeConformanceTest.test_revision_conflict_matrix_executes_for_all_existing_resource_mutations, evidence_mode: runtime_policy, repository_status: covered}
+  - {id: mutation_replay_matrix, repository_test: feature_request_mcp.tests.FeatureRequestContractRuntimeConformanceTest.test_mutation_replay_and_conflict_matrices, evidence_mode: runtime_policy, repository_status: covered}
+  - {id: mutation_conflict_matrix, repository_test: feature_request_mcp.tests.FeatureRequestContractRuntimeConformanceTest.test_mutation_replay_and_conflict_matrices, evidence_mode: runtime_policy, repository_status: covered}
+  - {id: delivery_natural_key_reuse, repository_test: feature_request_mcp.tests.FeatureRequestContractRuntimeConformanceTest.test_delivery_natural_key_and_absent_unlink_semantics, evidence_mode: runtime_policy, repository_status: covered}
+  - {id: delivery_natural_key_conflict, repository_test: feature_request_mcp.tests.FeatureRequestContractRuntimeConformanceTest.test_delivery_natural_key_and_absent_unlink_semantics, evidence_mode: runtime_policy, repository_status: covered}
+  - {id: approval_matrix, repository_test: feature_request_mcp.tests.FeatureRequestContractRuntimeConformanceTest.test_approval_metadata_and_server_owned_preconditions, evidence_mode: agent_owned_precondition, repository_status: covered}
+  - {id: approval_granted_matrix, repository_test: feature_request_mcp.tests.FeatureRequestContractRuntimeConformanceTest.test_approval_granted_terminal_transition_uses_delivery_evidence, evidence_mode: agent_owned_precondition, repository_status: covered}
+  - {id: external_effect_uncertain_matrix, repository_test: feature_request_mcp.tests.FeatureRequestContractRuntimeConformanceTest.test_external_dependency_unavailable_matrix_rolls_back_before_reservation, evidence_mode: runtime_policy, repository_status: covered}
+  - {id: notification_unknown_after_commit_matrix, repository_test: feature_request_mcp.tests.FeatureRequestModernTransportTest.test_post_commit_notification_failure_keeps_mutation_successful_and_audited, evidence_mode: runtime_dispatch, repository_status: covered}
+  - {id: redaction_matrix, repository_test: feature_request_mcp.tests.FeatureRequestContractRuntimeConformanceTest.test_success_vectors_execute_through_mcp, evidence_mode: audit_redaction, repository_status: covered}
+production:
+  status: pending
+  required_gates:
+    - postgresql_process_concurrency
+    - immutable_ghcr_image
+    - staging_smoke_and_rollback_rehearsal
+    - required_real_client_acceptance
+    - production_route_and_observation
+    - immutable_mcp_release

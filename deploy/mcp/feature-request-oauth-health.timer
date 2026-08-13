@@ -1,0 +1,11 @@
+[Unit]
+Description=Check FeatureRequest OAuth/MCP health hourly
+
+[Timer]
+OnCalendar=hourly
+RandomizedDelaySec=5m
+Persistent=true
+Unit=feature-request-oauth-health.service
+
+[Install]
+WantedBy=timers.target

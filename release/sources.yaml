@@ -21,6 +21,24 @@ descriptors:
       consuming downstream. Reproduce the vector digest by sorting bundle members by UTF-8 relative
       path and hashing each relative path, NUL, raw content, NUL sequence in order.
       Never resolve a Contract release from a mutable branch path.
+  mcp:
+    authoritative_store: github_release_asset
+    immutable_ref_pattern: mcp-v{server_version}
+    descriptor_schema_path: release/mcp-release.schema.json
+    descriptor_asset_name: mcp-release.json
+    image_store: ghcr.io/onurmatik/feature-request
+    image_reference_format: ghcr.io/onurmatik/feature-request@sha256:{digest}
+    contract_pin_path: integration/agent-contract-pin.json
+    compatibility_manifest_path: integration/client-compatibility.yaml
+    runtime_conformance_manifest_path: integration/runtime-conformance.yaml
+    dependency_lock_path: uv.lock
+    digest_algorithm: sha256
+    consumer_resolution: >-
+      Resolve mcp-release.json and every acceptance-evidence asset from the immutable GitHub
+      Release whose tag matches mcp-v{server_version}. Pull the runtime image only by the exact
+      GHCR sha256 digest in the descriptor. Verify the pinned Agent Contract release descriptor,
+      registry, compatibility manifest, dependency lock, image and evidence digests before
+      enabling the public route. Never resolve an MCP release from a mutable branch or image tag.
 
 promotion_environments:
   - name: development
@@ -29,6 +47,9 @@ promotion_environments:
       - contract_stage_gate
       - deterministic_release_descriptor
       - versioned_conformance_vectors
+      - pinned_agent_contract_release
+      - oauth_mcp_repository_suite
+      - sqlite_production_guard
   - name: production
     promotes_to: null
     requires:
@@ -36,3 +57,8 @@ promotion_environments:
       - github_release
       - digest_verification
       - release_approval
+      - postgresql_process_concurrency
+      - ghcr_digest_image
+      - staging_smoke_and_rollback_rehearsal
+      - required_client_acceptance_evidence
+      - production_observation_window

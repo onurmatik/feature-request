@@ -1,0 +1,11 @@
+.git
+.github
+.venv
+.env
+.deploy/.credentials.env
+__pycache__
+*.pyc
+*.sqlite3
+db.sqlite3
+node_modules
+release/mcp-release.json

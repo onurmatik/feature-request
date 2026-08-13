@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "agent_contract_version": "1.0.0",
+  "tag": "agent-contract-v1.0.0",
+  "release_url": "https://github.com/onurmatik/feature-request/releases/tag/agent-contract-v1.0.0",
+  "git_commit": "d45c147e9a751e2488ea2ef815c38252cde97940",
+  "descriptor": {
+    "url": "https://github.com/onurmatik/feature-request/releases/download/agent-contract-v1.0.0/contract-release.json",
+    "sha256": "05a917232330c70c8cc63dd0933c999bdb9f6454b36425a010c8fd042ce32895"
+  },
+  "contract_sha256": "bea796a11af73725bc8bf1c0fa27110cdd45c41982113c44058fc353c84f5ed0",
+  "contract_schema_sha256": "53a52427dc40a20d27f95e5c33f2330e3f4d07130cdeb594930540dbd3600a04",
+  "conformance_vectors_sha256": "95b98201ec193ecb8d4bf58cb6048f0a0b22af7739febf5fa3effdbbcf9b78b1",
+  "conformance_vectors_digest_framing": "utf8_relative_path_nul_raw_content_nul_v1",
+  "mapping_sha256": "a84f5944a6cefd053a05138d9ad4a8c516d0955b44f2452ef5bd197e39c37c2c"
+}

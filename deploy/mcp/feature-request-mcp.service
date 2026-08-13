@@ -1,0 +1,19 @@
+[Unit]
+Description=FeatureRequest stateless OAuth MCP service (digest-pinned container)
+After=network-online.target docker.service feature-request-web.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+EnvironmentFile=/etc/featurerequest/mcp.env
+ExecStartPre=/usr/bin/python3 /opt/featurerequest/scripts/verify_mcp_deploy_config.py --env-file /etc/featurerequest/mcp.env
+ExecStartPre=-/usr/bin/docker rm -f feature-request-mcp
+ExecStart=/usr/bin/docker run --rm --name feature-request-mcp --network host --env-file /etc/featurerequest/mcp.env ${FEATURE_REQUEST_IMAGE_REF} python -m feature_request_mcp
+ExecStop=/usr/bin/docker stop -t 30 feature-request-mcp
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=45
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

@@ -10,10 +10,10 @@ with a deterministic flow, but normative agent semantics live only in `agent/con
 Tool schemas, scopes, capabilities, ownership, approvals, errors, side effects, and retry rules
 must be referenced or mechanically projected from that Contract rather than redefined here.
 
-Agent Contract 1.0.0 names `get_account_capabilities` as the target bootstrap tool. MCP runtime
-conformance is currently `pending`, so this skill must not invoke the bootstrap or claim that the
-Contract's target mutation schemas are operational until the separate MCP gate passes. The P1
-MCP and API sections below document the observed current runtime during that handoff.
+Agent Contract 1.0.0 names `get_account_capabilities` as the bootstrap tool. The repository now
+implements its exact 23-tool projection, while MCP production conformance is `pending`
+until the immutable MCP release, PostgreSQL concurrency, deployment, observation, and real-client
+acceptance gates pass. The MCP and API sections below document that release-preparation handoff.
 
 ## Skill: `agent-onboard`
 ### Trigger
@@ -77,10 +77,9 @@ Operate on board data via API:
 - Base URL:
   - https://featurerequest.io
 - Auth mode:
-  - `Bearer <token>` flow.
-  - If a raw API token is already provided in the prompt, use it directly in the `Authorization` header.
-  - Do not call agent-token connect/refresh endpoints when a raw token is already available.
-  - For write operations, token must be write-enabled (`can_write=true`).
+  - MCP: OAuth 2.1 Authorization Code + PKCE S256; CIMD preferred, DCR fallback.
+  - API-only workflows: existing `fr_` bearer tokens remain valid on `/api`.
+  - Never send an `fr_` API token to `/mcp`; initial MCP scope is `read`, with `write` step-up.
 - `owner_handle` (required for read/write paths under that board).
 - Optional: `project_slug`.
 - Input payloads:
@@ -89,21 +88,22 @@ Operate on board data via API:
   - optional filters: `issue_type`, `status`, `priority`, `limit`.
   - `status=active` is a list-only filter that excludes `done` and `closed`.
 
-### Current P1 MCP Runtime (Agent Contract Conformance Pending)
+### MCP/OAuth 1.0 Repository Runtime (Production Conformance Pending)
 - Transport: Streamable HTTP at `/mcp`.
-- Authentication: use an existing FeatureRequest bearer token.
-- Permission inheritance:
-  - resolve the token through the existing `ApiToken` model;
-  - act as the token's user;
-  - preserve the existing `can_write` behavior;
-  - do not add a separate MCP permission or scope model.
+- Authentication: MCP OAuth discovery, public clients, PKCE S256, exact resource binding.
+- Permission model:
+  - act as the consenting FeatureRequest user;
+  - use Contract-projected `read` and `write` scopes;
+  - enforce project/request/comment ownership in the domain service;
+  - reject API tokens, query tokens, cookie tokens, foreign-resource tokens, and expired tokens.
 - The server intentionally does not expose `get_connection_context`; call `list_projects`
   when the authenticated user's owner/project context is unknown.
-- Agent Contract 1.0.0 targets `get_account_capabilities` as its capability/limit bootstrap,
-  but the current MCP runtime does not expose it. Do not invoke or advertise it until the MCP
-  implementation passes the versioned Contract conformance suite.
-- This tool list is current-runtime inventory only. The canonical public catalog and all
+- `get_account_capabilities` is implemented as the capability/limit bootstrap. Its public
+  production availability remains pending the immutable release gates.
+- This tool list is a downstream projection only. The canonical public catalog and all
   behavioral metadata are owned by `agent/contract.yaml`.
+- Bootstrap tool:
+  - `get_account_capabilities`
 - P1 project tools:
   - `list_projects`
   - `get_project`
@@ -189,9 +189,11 @@ Operate on board data via API:
   - `POST /api/issues/{issue_id}/upvote/toggle`
 
 ### Command Flow
-1. Validate auth credentials and action.
-2. If a raw API token is present, use it directly as `Authorization: Bearer <token>`.
-3. Use `POST /api/auth/agent-token/connect` or `/refresh` only for browser/session onboarding flows where no raw token has been provided.
+1. Select MCP or API mode explicitly; never reuse credentials across the two resources.
+2. For MCP, complete OAuth discovery and call `get_account_capabilities`; accept `write` step-up
+   only when the user-requested action requires mutation.
+3. For API-only mode, use a supplied raw API token only on `/api`; agent-token connect/refresh
+   remains limited to browser/session onboarding.
 4. If read requested:
    - for portfolio triage, call `GET /api/me/request-queue`; use the returned current fields and signals as evidence for the agent's own prioritization.
    - for project-scoped triage or implementation, call `GET /api/projects/{owner_handle}/{project_slug}/issues` directly with optional filters.

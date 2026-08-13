@@ -6,7 +6,10 @@
 !.github/
 !.github/workflows/
 !.github/workflows/agent-contract.yml
+!.github/workflows/mcp-oauth.yml
+!.github/CODEOWNERS
 !.mcp.json
+!.dockerignore
 .venv/
 __pycache__/
 *.py[cod]

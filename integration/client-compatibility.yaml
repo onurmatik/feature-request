@@ -1,0 +1,66 @@
+schema_version: 1
+server_version: 1.0.0
+status: implementation_complete_release_pending
+registration_policy:
+  preferred: cimd
+  fallback: dcr
+  owner_role: oauth_mcp_codeowner
+  review_interval_days: 90
+  review_triggers:
+    - mcp_authorization_spec_change
+    - required_client_registration_or_callback_change
+    - public_plugin_submission
+    - oauth_security_event
+  removal_gate:
+    required_surfaces_on_cimd_or_preregistration: true
+    supported_client_requires_dcr: false
+    consecutive_production_days_without_successful_dcr_use: 90
+    usage_or_compatibility_regression_resets_window: true
+clients:
+  - client: chatgpt
+    surface: web
+    tier: primary
+    tested_version: null
+    transport: streamable-http
+    registration_method: cimd_preferred_dcr_fallback
+    callback_profile: chatgpt_exact_connector_callback
+    support_status: pending
+    tested_at: null
+    evidence: null
+  - client: codex
+    surface: desktop_and_cli
+    tier: primary
+    tested_version: null
+    transport: streamable-http
+    registration_method: cimd_preferred_dcr_fallback
+    callback_profile: exact_registered_ip_loopback
+    support_status: pending
+    tested_at: null
+    evidence: null
+  - client: claude
+    surface: remote_connector_and_desktop
+    tier: cross_agent
+    tested_version: null
+    transport: streamable-http
+    registration_method: cimd_preferred_dcr_fallback
+    callback_profile: claude_exact_https_callbacks
+    support_status: pending
+    tested_at: null
+    evidence: null
+  - client: claude_code
+    surface: cli
+    tier: cross_agent
+    tested_version: null
+    transport: streamable-http
+    registration_method: cimd_preferred_dcr_fallback
+    callback_profile: claude_code_localhost_callback
+    support_status: pending
+    tested_at: null
+    evidence: null
+legacy_transport:
+  enabled: false
+  protocol_revision: null
+  required_by: []
+  evidence: null
+  sunset_owner: oauth_mcp_codeowner
+  removal_gate: Enable only when immutable real-client evidence proves a required client needs it.

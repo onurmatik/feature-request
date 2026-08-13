@@ -1,14 +1,16 @@
-from django.conf import settings
+import os
 
-from .server import mcp
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
+
+from django.conf import settings
+import uvicorn
 
 
 if __name__ == "__main__":
-    mcp.run(
-        transport="streamable-http",
+    uvicorn.run(
+        "feature_request_mcp.asgi:application",
         host=settings.FEATURE_REQUEST_MCP_HOST,
         port=settings.FEATURE_REQUEST_MCP_PORT,
-        streamable_http_path="/mcp",
-        json_response=True,
-        stateless_http=True,
+        proxy_headers=False,
+        access_log=False,
     )

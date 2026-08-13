@@ -1,7 +1,7 @@
 from django.conf import settings
 from django.contrib import admin
 from django.templatetags.static import static
-from django.urls import path
+from django.urls import include, path
 from django.views.generic import RedirectView
 from sesame.views import LoginView
 
@@ -15,9 +15,34 @@ from accounts.views import (
 )
 from config.api import api
 from projects.views import embed_submission_verify, embed_widget, frontend_app
+from mcp_oauth.views import (
+    authorization_server_metadata,
+    protected_resource_metadata,
+)
 
 
 urlpatterns = [
+    path(
+        ".well-known/oauth-authorization-server",
+        authorization_server_metadata,
+        name="oauth-authorization-server-metadata",
+    ),
+    path(
+        ".well-known/openid-configuration",
+        authorization_server_metadata,
+        name="oauth-openid-configuration",
+    ),
+    path(
+        ".well-known/oauth-protected-resource",
+        protected_resource_metadata,
+        name="oauth-protected-resource-metadata-root",
+    ),
+    path(
+        ".well-known/oauth-protected-resource/mcp",
+        protected_resource_metadata,
+        name="oauth-protected-resource-metadata",
+    ),
+    path("oauth/", include("mcp_oauth.urls")),
     path(settings.ADMIN_URL.lstrip("/"), admin.site.urls),
     path("auth/me", me_view, name="auth-me"),
     path("auth/sign-in", sign_in_view, name="auth-sign-in"),

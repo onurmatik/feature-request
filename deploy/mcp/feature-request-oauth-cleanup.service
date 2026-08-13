@@ -1,0 +1,11 @@
+[Unit]
+Description=FeatureRequest bounded OAuth/MCP cleanup
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/featurerequest/mcp.env
+ExecStartPre=/usr/bin/python3 /opt/featurerequest/scripts/verify_mcp_deploy_config.py --env-file /etc/featurerequest/mcp.env
+ExecStart=/usr/bin/docker run --rm --network host --env-file /etc/featurerequest/mcp.env ${FEATURE_REQUEST_IMAGE_REF} python manage.py cleanup_mcp_oauth --batch-size 500
+NoNewPrivileges=true

@@ -14,6 +14,7 @@ class Project(models.Model):
     tagline = models.CharField(max_length=160, blank=True)
     url = models.URLField(blank=True)
     favicon_url = models.URLField(blank=True)
+    revision = models.PositiveBigIntegerField(default=1)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -110,6 +111,7 @@ class Issue(models.Model):
         blank=True,
         on_delete=models.SET_NULL,
     )
+    revision = models.PositiveBigIntegerField(default=1)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -164,6 +166,7 @@ class IssueComment(models.Model):
         on_delete=models.CASCADE,
     )
     body = models.TextField()
+    revision = models.PositiveBigIntegerField(default=1)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -1,0 +1,25 @@
+# Agent Contract, embedded OAuth/MCP runtime, compatibility and release ownership.
+/agent/ @onurmatik
+/feature_request_mcp/ @onurmatik
+/mcp_oauth/ @onurmatik
+/agent_runtime/ @onurmatik
+/packages/django-embedded-mcp/ @onurmatik
+/integration/ @onurmatik
+/release/ @onurmatik
+/deploy/mcp/ @onurmatik
+/Dockerfile @onurmatik
+/.dockerignore @onurmatik
+/scripts/mcp_release.py @onurmatik
+/scripts/verify_mcp_deploy_config.py @onurmatik
+/tests/test_mcp_release.py @onurmatik
+/tests/test_mcp_deploy.py @onurmatik
+/.github/workflows/agent-contract.yml @onurmatik
+/.github/workflows/mcp-oauth.yml @onurmatik
+/config/settings.py @onurmatik
+/config/urls.py @onurmatik
+/projects/models.py @onurmatik
+/projects/api.py @onurmatik
+/projects/services.py @onurmatik
+/projects/migrations/0007_issue_revision_issuecomment_revision_and_more.py @onurmatik
+/uv.lock @onurmatik
+/pyproject.toml @onurmatik

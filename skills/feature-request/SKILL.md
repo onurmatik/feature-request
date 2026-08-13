@@ -13,11 +13,11 @@ or follow up on requests stored in FeatureRequest.
 - This skill is a downstream operational adapter. `agent/contract.yaml` is the sole semantic
   source for tool schemas, scopes, capabilities, ownership, approvals, errors, side effects,
   idempotency, and retry behavior.
-- Agent Contract 1.0.0 defines `get_account_capabilities` as the target bootstrap tool.
-- MCP runtime conformance is currently `pending`; do not invoke or advertise that bootstrap or
-  the Contract's target mutation schemas until the separate MCP gate passes.
-- The flows below describe the observed current runtime and must not be used to reinterpret the
-  Contract. Once conformance passes, regenerate or verify this adapter against the pinned Contract.
+- Agent Contract 1.0.0 defines `get_account_capabilities` as the implemented bootstrap tool.
+- The repository implements the full 23-tool Contract projection, including the bootstrap.
+  MCP production conformance is `pending` until the immutable MCP release and real-client
+  acceptance gates pass; do not present the public service as released before then.
+- The flows below describe the downstream repository adapter and must not reinterpret the Contract.
 
 ## Decision Boundary
 
@@ -32,14 +32,13 @@ or follow up on requests stored in FeatureRequest.
 
 ## Authentication and Scope
 
-- Connect with an existing FeatureRequest API bearer token.
-- The MCP client acts as that token's user and inherits its existing `can_write` behavior.
-- In an Agent Plugins 1.0.0 portable installation, configure the bearer credential in
-  the consuming client; the portable `mcp.json` intentionally contains no token reference.
-- The current MCP runtime has no separate detailed permission model and exposes neither
-  `get_connection_context` nor the pending `get_account_capabilities` bootstrap target.
-- Call `list_projects` when owner or project context is unknown.
-- Do not expose raw tokens in output.
+- Connect through MCP OAuth discovery. Authorization Code + PKCE S256 is required, CIMD is
+  preferred, and public-client DCR is the controlled fallback.
+- Initial linking requests `read`; mutation tools trigger a `write` step-up challenge.
+- Existing `fr_` FeatureRequest API tokens are for `/api` only and are rejected by `/mcp`.
+- Call `get_account_capabilities` first for capability and project-limit discovery; use
+  `list_projects` when owner or project context is unknown. `get_connection_context` is not exposed.
+- Never expose OAuth access/refresh tokens, authorization codes, PKCE values, or API tokens.
 
 ## Triage Flow
 

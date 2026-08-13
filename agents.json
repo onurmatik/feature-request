@@ -14,7 +14,7 @@
     "runtime_conformance": {
       "status": "pending",
       "stage": "mcp_oauth",
-      "note": "The target bootstrap and Agent Contract 1.0.0 mutation schemas are not claimed as current runtime capabilities until the separate MCP conformance gate passes."
+      "note": "Repository implementation is complete and release preparation is validated, but production runtime conformance remains pending PostgreSQL concurrency, immutable image, staging, real-client acceptance, deployment, and observation gates."
     }
   },
   "plugin": {
@@ -24,13 +24,11 @@
     "codex_manifest": ".codex-plugin/plugin.json",
     "codex_mcp_config": ".mcp.json",
     "development_mcp_url": "http://127.0.0.1:8001/mcp",
-    "bearer_token_env_var": "FEATURE_REQUEST_API_TOKEN",
     "skill": "skills/feature-request/SKILL.md",
     "notes": [
-      "The portable Agent Plugins MCP configuration leaves authorization client-managed, as required by Agent Plugins 1.0.0.",
-      "The Codex-native MCP configuration reads FEATURE_REQUEST_API_TOKEN for local authenticated development.",
+      "The portable Agent Plugins and Codex-native MCP configurations rely on MCP OAuth discovery and contain no static bearer credential reference.",
       "Both checked-in MCP URLs target the local development server.",
-      "A production plugin release must use the deployed public HTTPS MCP URL."
+      "A production plugin release must use the immutable deployed HTTPS MCP release after real-client acceptance."
     ]
   },
   "agent_integration": {
@@ -54,7 +52,7 @@
     ],
     "scope_rules": [
       "If a project_slug is provided, read only that owner_handle/project_slug unless the user explicitly expands scope.",
-      "Use provided raw API tokens directly as Bearer tokens; agent-token connect/refresh endpoints are only for web-session onboarding.",
+      "Use provided raw API tokens only for /api workflows; /mcp accepts only OAuth access tokens issued for the exact MCP resource.",
       "Treat queue signals, similarity scores, and delivery links as evidence; the calling agent owns priority, duplicate, and delivery-verification judgments.",
       "Before project deletion, read the project by id and proceed only with explicit user direction.",
       "Do not mark issues done automatically after code changes; reserve done/closed for merge or release confirmation."
@@ -158,7 +156,30 @@
         "notes": [
           "Token is created as `fr_<secret>`; only token_prefix is returned in list responses.",
           "Read-only tokens (`can_write=false`) are rejected with 403 on write methods.",
+          "This token format is accepted by /api only and is explicitly rejected by /mcp.",
           "Use HTTPS in production."
+        ]
+      },
+      {
+        "type": "oauth_2_1_public_client",
+        "location": "Authorization header on /mcp",
+        "format": "Bearer <OAuth access token>",
+        "issuer": "https://featurerequest.io",
+        "resource": "https://featurerequest.io/mcp",
+        "registration": "CIMD preferred; controlled public-client DCR fallback",
+        "scopes": [
+          {
+            "name": "read",
+            "description": "Bootstrap and read-only MCP tools."
+          },
+          {
+            "name": "write",
+            "description": "MCP mutation tools; requested by step-up when needed."
+          }
+        ],
+        "notes": [
+          "Authorization Code with PKCE S256 is required.",
+          "API tokens, query-string tokens, cookie tokens, client secrets, and machine-to-machine grants are not accepted by /mcp."
         ]
       },
       {
@@ -174,7 +195,7 @@
   },
   "mcp": {
     "name": "feature-request",
-    "version": "0.2.0",
+    "version": "1.0.0",
     "transport": "streamable_http",
     "path": "/mcp",
     "implementation": "Python MCPServer",
@@ -185,24 +206,33 @@
       "bootstrap_target": "get_account_capabilities",
       "bootstrap_runtime_status": "pending",
       "notes": [
-        "The tools array below is an observed current-runtime inventory, not the normative Agent Contract catalog.",
-        "Do not expose or invoke get_account_capabilities until the MCP runtime implements Contract 1.0.0 and passes its downstream conformance gate.",
+        "The repository runtime registry below is a deterministic projection, not the normative Agent Contract catalog.",
+        "get_account_capabilities and all 23 Contract tools are implemented in the repository; public production use remains pending the release gates.",
         "Tool schemas, scopes, capabilities, ownership, approvals, errors, side effects, and retry semantics are projected from agent/contract.yaml."
       ]
     },
     "authentication": {
-      "type": "existing_bearer_token",
-      "token_format": "fr_<secret>",
-      "permission_model": "inherit_api_token_user_and_can_write",
+      "type": "oauth_2_1_authorization_code_pkce",
+      "token_format": "digest_only_opaque_access_token",
+      "issuer": "https://featurerequest.io",
+      "resource": "https://featurerequest.io/mcp",
+      "registration": "cimd_first_dcr_fallback",
+      "permission_model": "Agent Contract read/write scope projection plus resource ownership",
       "notes": [
-        "The observed P1 runtime does not define a separate detailed scope model; this is runtime documentation, not a redefinition of the Contract's per-tool read/write requirements.",
-        "The authenticated MCP client acts as the API token user.",
-        "Read-only tokens remain unable to call write API operations.",
-        "The current runtime exposes neither get_connection_context nor the pending get_account_capabilities bootstrap target; use list_projects when owner/project context is unknown.",
+        "Initial authentication challenges request only read; write tools issue an insufficient_scope step-up challenge.",
+        "The authenticated MCP client acts as the consenting FeatureRequest user.",
+        "The runtime exposes get_account_capabilities and intentionally does not expose get_connection_context.",
+        "Existing fr_ API tokens continue to work on /api and are rejected on /mcp.",
         "MCP returns evidence and controlled mutations; the calling agent makes semantic priority, duplicate, and delivery decisions."
       ]
     },
     "tools": [
+      {
+        "name": "get_account_capabilities",
+        "api_operation": null,
+        "read_only": true,
+        "semantics": "Returns the six Contract capabilities plus current project_count usage and plan limit."
+      },
       {
         "name": "list_projects",
         "api_operation": "list_my_projects",

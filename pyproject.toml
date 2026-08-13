@@ -1,0 +1,37 @@
+[project]
+name = "feature-request"
+version = "0.3.0"
+description = "FeatureRequest web application and embedded OAuth-protected MCP server"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+  "Django==5.2.17",
+  "boto3==1.42.56",
+  "certifi==2026.2.25",
+  "dj-database-url==3.0.1",
+  "django-embedded-mcp==0.3.0",
+  "django-ninja==1.5.3",
+  "django-oauth-toolkit==3.4.0",
+  "django-ses[events]==4.7.2",
+  "django-sesame==3.2.3",
+  "django-storages[s3]==1.14.6",
+  "fabric==3.2.2",
+  "gunicorn==26.0.0",
+  "httpx==0.28.1",
+  "jsonschema==4.26.0",
+  "mcp==2.0.0",
+  "openai==2.24.0",
+  "psycopg[binary]==3.2.12",
+  "PyJWT[crypto]==2.11.0",
+  "python-dotenv==1.2.1",
+  "python-slugify==8.0.4",
+  "PyYAML==6.0.3",
+  "rfc8785==0.1.4",
+  "stripe==14.3.0",
+  "uvicorn==0.52.1",
+]
+
+[tool.uv.sources]
+django-embedded-mcp = { path = "packages/django-embedded-mcp" }
+
+[tool.uv]
+package = false

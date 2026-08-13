@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://featurerequest.io/schemas/mcp-release-1.json",
+  "title": "FeatureRequest MCP/OAuth immutable release descriptor",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "server",
+    "protocol_version",
+    "source_commit",
+    "image",
+    "agent_contract",
+    "tool_registry_sha256",
+    "runtime_conformance_sha256",
+    "client_compatibility_sha256",
+    "dependency_lock_sha256",
+    "acceptance",
+    "release_status"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "server": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": {"const": "feature-request"},
+        "version": {"const": "1.0.0"}
+      }
+    },
+    "protocol_version": {"const": "2026-07-28"},
+    "source_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "image": {
+      "type": "string",
+      "pattern": "^ghcr\\.io/onurmatik/feature-request@sha256:[0-9a-f]{64}$"
+    },
+    "agent_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "tag",
+        "git_commit",
+        "release_url",
+        "descriptor_url",
+        "descriptor_sha256",
+        "contract_sha256",
+        "contract_schema_sha256",
+        "conformance_vectors_sha256",
+        "mapping_sha256"
+      ],
+      "properties": {
+        "version": {"const": "1.0.0"},
+        "tag": {"const": "agent-contract-v1.0.0"},
+        "git_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "release_url": {"type": "string", "format": "uri"},
+        "descriptor_url": {"type": "string", "format": "uri"},
+        "descriptor_sha256": {"$ref": "#/$defs/sha256"},
+        "contract_sha256": {"$ref": "#/$defs/sha256"},
+        "contract_schema_sha256": {"$ref": "#/$defs/sha256"},
+        "conformance_vectors_sha256": {"$ref": "#/$defs/sha256"},
+        "mapping_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "tool_registry_sha256": {"$ref": "#/$defs/sha256"},
+    "runtime_conformance_sha256": {"$ref": "#/$defs/sha256"},
+    "client_compatibility_sha256": {"$ref": "#/$defs/sha256"},
+    "dependency_lock_sha256": {"$ref": "#/$defs/sha256"},
+    "acceptance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["chatgpt", "codex", "claude", "claude_code"],
+      "properties": {
+        "chatgpt": {"$ref": "#/$defs/acceptance"},
+        "codex": {"$ref": "#/$defs/acceptance"},
+        "claude": {"$ref": "#/$defs/acceptance"},
+        "claude_code": {"$ref": "#/$defs/acceptance"}
+      }
+    },
+    "release_status": {"const": "ready"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "acceptance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "surface",
+        "tier",
+        "tested_version",
+        "tested_at",
+        "transport",
+        "registration_method",
+        "callback_profile",
+        "evidence"
+      ],
+      "properties": {
+        "surface": {"type": "string", "minLength": 1},
+        "tier": {"enum": ["primary", "cross_agent"]},
+        "tested_version": {"type": "string", "minLength": 1},
+        "tested_at": {"type": "string", "format": "date-time"},
+        "transport": {"const": "streamable-http"},
+        "registration_method": {"const": "cimd_preferred_dcr_fallback"},
+        "callback_profile": {"type": "string", "minLength": 1},
+        "evidence": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["url", "sha256"],
+          "properties": {
+            "url": {
+              "type": "string",
+              "pattern": "^https://github\\.com/onurmatik/feature-request/releases/download/mcp-v1\\.0\\.0/[A-Za-z0-9][A-Za-z0-9._~-]*$"
+            },
+            "sha256": {"$ref": "#/$defs/sha256"}
+          }
+        }
+      }
+    }
+  }
+}

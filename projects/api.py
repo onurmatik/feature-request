@@ -13,6 +13,7 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.core.mail import send_mail
 from django.core.validators import URLValidator, validate_email
+from django.db import transaction
 from django.db.models import Count, F, Max, Q
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
@@ -36,6 +37,27 @@ from .models import (
     IssueEvent,
     IssueUpvote,
     Project,
+)
+from .services import (
+    DomainRuleError,
+    annotated_issue_queryset as _shared_annotated_issue_queryset,
+    apply_issue_changes,
+    apply_project_changes,
+    comment_to_dict as _shared_comment_to_dict,
+    create_comment_resource,
+    create_issue_resource,
+    create_project_resource,
+    delivery_artifact_to_dict as _shared_delivery_artifact_to_dict,
+    duplicate_candidate_dict as _shared_duplicate_candidate_dict,
+    issue_event_to_dict as _shared_issue_event_to_dict,
+    issue_to_dict as _shared_issue_to_dict,
+    link_delivery_resource,
+    link_duplicate_resource,
+    moderate_board_content,
+    project_to_dict as _shared_project_to_dict,
+    unlink_delivery_resource,
+    unlink_duplicate_resource,
+    update_comment_resource,
 )
 
 router = Router(tags=["issues"])
@@ -72,6 +94,7 @@ class ProjectOut(Schema):
     url: str
     favicon_url: str
     open_issues_count: int
+    revision: int
     created_at: str
     updated_at: str
 
@@ -122,6 +145,7 @@ class IssueOut(Schema):
     comments_count: int
     delivery_artifacts_count: int
     last_activity_at: str
+    revision: int
     created_at: str
     updated_at: str
 
@@ -143,6 +167,7 @@ class CommentOut(Schema):
     author_handle: str
     author_avatar_url: str
     body: str
+    revision: int
     created_at: str
     updated_at: str
 
@@ -623,65 +648,20 @@ def _moderate_comment_submission(body: str, issue: Issue):
 
 
 def _moderate_board_content(label: str, content: str, issue_type: str | None = None):
-    api_key = settings.OPENAI_API_KEY.strip()
-    if not api_key:
-        return
-
-    client = OpenAI(api_key=api_key)
-    policy = (
-        "Allow only meaningful feature requests or bug reports. "
-        "Reject empty, nonsensical, spam, abusive, or unrelated posts."
-        if issue_type == "issue"
-        else (
-            "Allow comments that are constructive and related to the issue context, "
-            "including concise agreement/disagreement, clarifying questions, suggestions, "
-            "and relevant source references. "
-            "Reject empty, nonsensical, spam, abusive, promotional, or clearly unrelated posts. "
-            "When uncertain, choose ALLOW."
-        )
-    )
-
-    instructions = (
-        "You moderate content for a public product board. "
-        f"{policy} "
-        "Respond with exactly one line. "
-        "If valid: ALLOW. "
-        "If invalid: REJECT: <short reason>."
-    )
-
     try:
-        response = client.responses.create(
-            model="gpt-5-nano",
-            reasoning={"effort": "minimal"},
-            max_output_tokens=80,
-            input=[
-                {
-                    "role": "system",
-                    "content": [{"type": "input_text", "text": instructions}],
-                },
-                {
-                    "role": "user",
-                    "content": [{"type": "input_text", "text": content}],
-                },
-            ],
+        moderate_board_content(
+            label,
+            content,
+            issue_type=issue_type,
+            client_factory=OpenAI,
         )
-    except Exception:
-        logger.exception("Content moderation call failed.")
+    except DomainRuleError as exc:
+        if exc.code == "dependency_unavailable":
+            raise HttpError(503, exc.message) from exc
+        raise HttpError(400, exc.message) from exc
+    except Exception as exc:
+        logger.exception("Unexpected moderation service failure.")
         raise HttpError(503, "Content moderation is temporarily unavailable.")
-
-    verdict = (getattr(response, "output_text", "") or "").strip()
-    if not verdict:
-        raise HttpError(503, "Content moderation is temporarily unavailable.")
-
-    if verdict.lower().startswith("allow"):
-        return
-
-    reason = "Content is invalid."
-    if ":" in verdict:
-        parsed_reason = verdict.split(":", 1)[1].strip()
-        if parsed_reason:
-            reason = parsed_reason
-    raise HttpError(400, f"{label} rejected by moderation: {reason}")
 
 
 def _issue_to_dict(issue: Issue):
@@ -716,6 +696,7 @@ def _issue_to_dict(issue: Issue):
             else issue.delivery_artifacts.count()
         ),
         "last_activity_at": last_activity_at.isoformat(),
+        "revision": issue.revision,
         "created_at": issue.created_at.isoformat(),
         "updated_at": issue.updated_at.isoformat(),
     }
@@ -737,6 +718,7 @@ def _project_to_dict(project: Project):
             if open_issues_count is not None
             else project.issues.filter(status=Issue.Status.OPEN).count()
         ),
+        "revision": project.revision,
         "created_at": project.created_at.isoformat(),
         "updated_at": project.updated_at.isoformat(),
     }
@@ -778,6 +760,7 @@ def _comment_to_dict(comment: IssueComment):
         "author_handle": comment.author.handle,
         "author_avatar_url": gravatar_url_for_email(comment.author.email),
         "body": comment.body,
+        "revision": comment.revision,
         "created_at": comment.created_at.isoformat(),
         "updated_at": comment.updated_at.isoformat(),
     }
@@ -939,6 +922,17 @@ def _get_annotated_issue_queryset():
     )
 
 
+# Adapter-compatible private names now resolve to the shared domain projections.
+# Existing API imports remain stable while MCP no longer depends on this module.
+_duplicate_candidate_dict = _shared_duplicate_candidate_dict
+_issue_to_dict = _shared_issue_to_dict
+_project_to_dict = _shared_project_to_dict
+_comment_to_dict = _shared_comment_to_dict
+_delivery_artifact_to_dict = _shared_delivery_artifact_to_dict
+_issue_event_to_dict = _shared_issue_event_to_dict
+_get_annotated_issue_queryset = _shared_annotated_issue_queryset
+
+
 @router.get("/projects", response=list[ProjectOut])
 def list_my_projects(request):
     user = _require_auth_user(request)
@@ -951,13 +945,6 @@ def list_my_projects(request):
 @router.post("/projects", response={201: ProjectOut})
 def create_project(request, payload: ProjectCreateIn):
     user = _require_auth_user(request)
-
-    if user.has_project_limit(Project.objects.filter(owner=user).count()):
-        raise HttpError(
-            403,
-            "You have reached your project limit. Upgrade to 30 projects to continue.",
-        )
-
     name = _clean_non_empty(payload.name, "Project name")
     url = _normalize_project_url(payload.url)
     favicon_url = ""
@@ -972,13 +959,22 @@ def create_project(request, payload: ProjectCreateIn):
     else:
         favicon_debug = []
 
-    project = Project.objects.create(
-        owner=user,
-        name=name,
-        tagline=payload.tagline.strip(),
-        url=url,
-        favicon_url=favicon_url,
-    )
+    with transaction.atomic():
+        locked_user = get_user_model().objects.select_for_update().get(pk=user.pk)
+        if locked_user.has_project_limit(
+            Project.objects.filter(owner=locked_user).count()
+        ):
+            raise HttpError(
+                403,
+                "You have reached your project limit. Upgrade to 30 projects to continue.",
+            )
+        project = create_project_resource(
+            owner=locked_user,
+            name=name,
+            tagline=payload.tagline.strip(),
+            url=url,
+            favicon_url=favicon_url,
+        )
     project = Project.objects.select_related("owner").get(id=project.id)
     return 201, _project_to_dict(project)
 
@@ -997,44 +993,39 @@ def get_my_project(request, project_id: int):
 @router.patch("/projects/{project_id}", response=ProjectOut)
 def update_project(request, project_id: int, payload: ProjectUpdateIn):
     user = _require_auth_user(request)
-    project = get_object_or_404(
-        Project.objects.select_related("owner"),
-        id=project_id,
-    )
-    if not _can_manage_project(user, project):
-        raise HttpError(403, "Not allowed to update this project.")
+    with transaction.atomic():
+        project = get_object_or_404(
+            Project.objects.select_for_update().select_related("owner"),
+            id=project_id,
+        )
+        if not _can_manage_project(user, project):
+            raise HttpError(403, "Not allowed to update this project.")
 
-    updated_fields = []
+        values = {}
+        if payload.name is not None:
+            values["name"] = _clean_non_empty(payload.name, "Project name")
+        if payload.tagline is not None:
+            values["tagline"] = payload.tagline.strip()
+        if payload.url is not None:
+            values["url"] = _normalize_project_url(payload.url)
 
-    if payload.name is not None:
-        project.name = _clean_non_empty(payload.name, "Project name")
-        updated_fields.append("name")
-
-    if payload.tagline is not None:
-        project.tagline = payload.tagline.strip()
-        updated_fields.append("tagline")
-
-    if payload.url is not None:
-        url = _normalize_project_url(payload.url)
-        project.url = url
-        updated_fields.append("url")
-
-    if updated_fields:
-        if project.url:
-            project.favicon_url, favicon_debug = _resolve_favicon_url_with_debug(project.url)
-            if not project.favicon_url:
-                logger.warning(
-                    "Could not resolve favicon for project_id=%s url=%s. debug=%s",
-                    project.id,
-                    project.url,
-                    " | ".join(favicon_debug),
+        if any(getattr(project, field) != value for field, value in values.items()):
+            resulting_url = values.get("url", project.url)
+            if resulting_url:
+                favicon_url, favicon_debug = _resolve_favicon_url_with_debug(
+                    resulting_url
                 )
-        else:
-            project.favicon_url = ""
-            favicon_debug = []
-        updated_fields.append("favicon_url")
-
-        project.save()
+                if not favicon_url:
+                    logger.warning(
+                        "Could not resolve favicon for project_id=%s url=%s. debug=%s",
+                        project.id,
+                        resulting_url,
+                        " | ".join(favicon_debug),
+                    )
+            else:
+                favicon_url = ""
+            values["favicon_url"] = favicon_url
+            apply_project_changes(project, **values)
 
     return _project_to_dict(project)
 
@@ -1231,20 +1222,16 @@ def create_issue(request, owner_handle: str, project_slug: str, payload: IssueCr
     title = _clean_non_empty(payload.title, "Issue title")
     description = payload.description.strip()
     _moderate_issue_submission(payload.issue_type, title, description)
-    issue = Issue.objects.create(
-        project=project,
-        author=user,
-        issue_type=payload.issue_type,
-        title=title,
-        description=description,
-        priority=payload.priority,
-    )
-    record_issue_event(
-        issue=issue,
-        event_type=IssueEvent.Type.CREATED,
-        actor=user,
-        data={"source": "api"},
-    )
+    with transaction.atomic():
+        issue = create_issue_resource(
+            project=project,
+            author=user,
+            issue_type=payload.issue_type,
+            title=title,
+            description=description,
+            priority=payload.priority,
+            source="api",
+        )
     _notify_owner_on_new_issue(request, issue, user)
     issue = _get_annotated_issue_queryset().get(id=issue.id)
     return 201, _issue_to_dict(issue)
@@ -1311,48 +1298,24 @@ def get_issue(request, issue_id: int):
 @router.patch("/issues/{issue_id}", response=IssueOut)
 def update_issue(request, issue_id: int, payload: IssueUpdateIn):
     user = _require_auth_user(request)
-    issue = get_object_or_404(Issue.objects.select_related("project"), id=issue_id)
-
-    if not _can_manage_issue(user, issue):
-        raise HttpError(403, "Not allowed to update this issue.")
-
-    updated_fields = []
-    changes = {}
-
-    if payload.title is not None:
-        title = _clean_non_empty(payload.title, "Issue title")
-        if title != issue.title:
-            changes["title"] = {"from": issue.title, "to": title}
-            issue.title = title
-            updated_fields.append("title")
-    if payload.description is not None:
-        description = payload.description.strip()
-        if description != issue.description:
-            changes["description"] = {"from": issue.description, "to": description}
-            issue.description = description
-            updated_fields.append("description")
-    if payload.status is not None:
-        _validate_status(payload.status)
-        if payload.status != issue.status:
-            changes["status"] = {"from": issue.status, "to": payload.status}
-            issue.status = payload.status
-            updated_fields.append("status")
-    if payload.priority is not None:
-        _validate_priority(payload.priority)
-        if payload.priority != issue.priority:
-            changes["priority"] = {"from": issue.priority, "to": payload.priority}
-            issue.priority = payload.priority
-            updated_fields.append("priority")
-
-    if updated_fields:
-        updated_fields.append("updated_at")
-        issue.save(update_fields=updated_fields)
-        record_issue_event(
-            issue=issue,
-            event_type=IssueEvent.Type.UPDATED,
-            actor=user,
-            data={"changes": changes},
+    with transaction.atomic():
+        issue = get_object_or_404(
+            Issue.objects.select_for_update().select_related("project"), id=issue_id
         )
+        if not _can_manage_issue(user, issue):
+            raise HttpError(403, "Not allowed to update this issue.")
+        values = {}
+        if payload.title is not None:
+            values["title"] = _clean_non_empty(payload.title, "Issue title")
+        if payload.description is not None:
+            values["description"] = payload.description.strip()
+        if payload.status is not None:
+            _validate_status(payload.status)
+            values["status"] = payload.status
+        if payload.priority is not None:
+            _validate_priority(payload.priority)
+            values["priority"] = payload.priority
+        apply_issue_changes(issue, actor=user, source=None, **values)
 
     issue = _get_annotated_issue_queryset().get(id=issue.id)
 
@@ -1442,35 +1405,20 @@ def list_issue_activity(request, issue_id: int, limit: int = 100):
 @router.patch("/issues/{issue_id}/duplicate", response=IssueOut)
 def link_issue_duplicate(request, issue_id: int, payload: DuplicateLinkIn):
     user = _require_auth_user(request)
-    issue = get_object_or_404(Issue.objects.select_related("project"), id=issue_id)
-    if not _can_manage_issue(user, issue):
-        raise HttpError(403, "Not allowed to classify this issue as a duplicate.")
-    canonical = get_object_or_404(
-        Issue.objects.select_related("project"),
-        id=payload.canonical_issue_id,
-    )
-    if canonical.id == issue.id:
-        raise HttpError(400, "An issue cannot be a duplicate of itself.")
-    if canonical.project_id != issue.project_id:
-        raise HttpError(400, "Duplicate issues must belong to the same project.")
-    if canonical.duplicate_of_id is not None:
-        raise HttpError(400, "Choose the root canonical issue, not another duplicate.")
-    if issue.duplicates.exists():
-        raise HttpError(400, "This issue is canonical for other duplicates and cannot be linked.")
-
-    if issue.duplicate_of_id != canonical.id:
-        previous_canonical_id = issue.duplicate_of_id
-        issue.duplicate_of = canonical
-        issue.save(update_fields=["duplicate_of", "updated_at"])
-        record_issue_event(
-            issue=issue,
-            event_type=IssueEvent.Type.DUPLICATE_LINKED,
-            actor=user,
-            data={
-                "canonical_issue_id": canonical.id,
-                "previous_canonical_issue_id": previous_canonical_id,
-            },
+    with transaction.atomic():
+        issue = get_object_or_404(
+            Issue.objects.select_for_update().select_related("project"), id=issue_id
         )
+        if not _can_manage_issue(user, issue):
+            raise HttpError(403, "Not allowed to classify this issue as a duplicate.")
+        canonical = get_object_or_404(
+            Issue.objects.select_related("project"),
+            id=payload.canonical_issue_id,
+        )
+        try:
+            link_duplicate_resource(issue=issue, canonical=canonical, actor=user)
+        except DomainRuleError as exc:
+            raise HttpError(400, exc.message) from exc
 
     issue = _get_annotated_issue_queryset().get(id=issue.id)
     return _issue_to_dict(issue)
@@ -1479,20 +1427,13 @@ def link_issue_duplicate(request, issue_id: int, payload: DuplicateLinkIn):
 @router.delete("/issues/{issue_id}/duplicate", response=IssueOut)
 def unlink_issue_duplicate(request, issue_id: int):
     user = _require_auth_user(request)
-    issue = get_object_or_404(Issue.objects.select_related("project"), id=issue_id)
-    if not _can_manage_issue(user, issue):
-        raise HttpError(403, "Not allowed to remove this duplicate link.")
-
-    if issue.duplicate_of_id is not None:
-        canonical_issue_id = issue.duplicate_of_id
-        issue.duplicate_of = None
-        issue.save(update_fields=["duplicate_of", "updated_at"])
-        record_issue_event(
-            issue=issue,
-            event_type=IssueEvent.Type.DUPLICATE_UNLINKED,
-            actor=user,
-            data={"canonical_issue_id": canonical_issue_id},
+    with transaction.atomic():
+        issue = get_object_or_404(
+            Issue.objects.select_for_update().select_related("project"), id=issue_id
         )
+        if not _can_manage_issue(user, issue):
+            raise HttpError(403, "Not allowed to remove this duplicate link.")
+        unlink_duplicate_resource(issue=issue, actor=user)
 
     issue = _get_annotated_issue_queryset().get(id=issue.id)
     return _issue_to_dict(issue)
@@ -1521,9 +1462,6 @@ def link_issue_delivery_artifact(
     payload: DeliveryArtifactIn,
 ):
     user = _require_auth_user(request)
-    issue = get_object_or_404(Issue.objects.select_related("project"), id=issue_id)
-    if not _can_manage_issue(user, issue):
-        raise HttpError(403, "Not allowed to link delivery evidence to this issue.")
     _validate_delivery_kind(payload.kind)
     url = _clean_non_empty(payload.url, "Artifact URL")
     try:
@@ -1534,26 +1472,19 @@ def link_issue_delivery_artifact(
     if len(label) > 200:
         raise HttpError(400, "Artifact label must be 200 characters or fewer.")
 
-    artifact, created = IssueDeliveryArtifact.objects.get_or_create(
-        issue=issue,
-        url=url,
-        defaults={
-            "added_by": user,
-            "kind": payload.kind,
-            "label": label,
-        },
-    )
-    if created:
-        record_issue_event(
+    with transaction.atomic():
+        issue = get_object_or_404(
+            Issue.objects.select_for_update().select_related("project"), id=issue_id
+        )
+        if not _can_manage_issue(user, issue):
+            raise HttpError(403, "Not allowed to link delivery evidence to this issue.")
+        artifact, created = link_delivery_resource(
             issue=issue,
-            event_type=IssueEvent.Type.DELIVERY_LINKED,
             actor=user,
-            data={
-                "artifact_id": artifact.id,
-                "kind": artifact.kind,
-                "url": artifact.url,
-                "label": artifact.label,
-            },
+            kind=payload.kind,
+            url=url,
+            label=label,
+            conflict_on_metadata_change=False,
         )
     artifact = IssueDeliveryArtifact.objects.select_related("added_by").get(id=artifact.id)
     return {
@@ -1568,27 +1499,18 @@ def link_issue_delivery_artifact(
 )
 def unlink_issue_delivery_artifact(request, issue_id: int, artifact_id: int):
     user = _require_auth_user(request)
-    issue = get_object_or_404(Issue.objects.select_related("project"), id=issue_id)
-    if not _can_manage_issue(user, issue):
-        raise HttpError(403, "Not allowed to unlink delivery evidence from this issue.")
-    artifact = get_object_or_404(
-        IssueDeliveryArtifact,
-        id=artifact_id,
-        issue=issue,
-    )
-    event_data = {
-        "artifact_id": artifact.id,
-        "kind": artifact.kind,
-        "url": artifact.url,
-        "label": artifact.label,
-    }
-    artifact.delete()
-    record_issue_event(
-        issue=issue,
-        event_type=IssueEvent.Type.DELIVERY_UNLINKED,
-        actor=user,
-        data=event_data,
-    )
+    with transaction.atomic():
+        issue = get_object_or_404(
+            Issue.objects.select_for_update().select_related("project"), id=issue_id
+        )
+        if not _can_manage_issue(user, issue):
+            raise HttpError(403, "Not allowed to unlink delivery evidence from this issue.")
+        artifact = get_object_or_404(
+            IssueDeliveryArtifact,
+            id=artifact_id,
+            issue=issue,
+        )
+        unlink_delivery_resource(issue=issue, artifact=artifact, actor=user)
     return 204, None
 
 
@@ -1636,17 +1558,13 @@ def create_issue_comment(request, issue_id: int, payload: CommentCreateIn):
     body = _clean_non_empty(payload.body, "Comment body")
     _moderate_comment_submission(body, issue)
 
-    comment = IssueComment.objects.create(
-        issue=issue,
-        author=user,
-        body=body,
-    )
-    record_issue_event(
-        issue=issue,
-        event_type=IssueEvent.Type.COMMENT_ADDED,
-        actor=user,
-        data={"comment_id": comment.id},
-    )
+    with transaction.atomic():
+        comment = create_comment_resource(
+            issue=issue,
+            author=user,
+            body=body,
+            source=None,
+        )
     comment = IssueComment.objects.select_related("author", "issue__project__owner").get(id=comment.id)
     _notify_owner_on_new_comment(request, comment)
     return 201, _comment_to_dict(comment)
@@ -1667,14 +1585,21 @@ def update_issue_comment(request, issue_id: int, comment_id: int, payload: Comme
     body = _clean_non_empty(payload.body, "Comment body")
     _moderate_comment_submission(body, comment.issue)
 
-    if body != comment.body:
-        comment.body = body
-        comment.save(update_fields=["body", "updated_at"])
-        record_issue_event(
-            issue=comment.issue,
-            event_type=IssueEvent.Type.COMMENT_UPDATED,
+    with transaction.atomic():
+        comment = get_object_or_404(
+            IssueComment.objects.select_for_update().select_related(
+                "author", "issue__project__owner"
+            ),
+            id=comment_id,
+            issue_id=issue_id,
+        )
+        if user.id not in {comment.author_id, comment.issue.project.owner_id}:
+            raise HttpError(403, "Not allowed to update this comment.")
+        update_comment_resource(
+            comment=comment,
             actor=user,
-            data={"comment_id": comment.id},
+            body=body,
+            source=None,
         )
     comment = IssueComment.objects.select_related("author", "issue__project__owner").get(id=comment.id)
     return _comment_to_dict(comment)

@@ -1,0 +1,117 @@
+name: MCP OAuth
+
+on:
+  pull_request:
+    paths:
+      - "agent_runtime/**"
+      - "feature_request_mcp/**"
+      - "mcp_oauth/**"
+      - "packages/django-embedded-mcp/**"
+      - "integration/**"
+      - "release/**"
+      - "config/**"
+      - "projects/**"
+      - "scripts/mcp_release.py"
+      - "scripts/verify_mcp_deploy_config.py"
+      - "tests/test_mcp_release.py"
+      - "tests/test_mcp_deploy.py"
+      - "deploy/mcp/**"
+      - "Dockerfile"
+      - ".dockerignore"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".mcp.json"
+      - ".github/CODEOWNERS"
+      - ".github/workflows/mcp-oauth.yml"
+  push:
+    branches: [main]
+    paths:
+      - "agent_runtime/**"
+      - "feature_request_mcp/**"
+      - "mcp_oauth/**"
+      - "packages/django-embedded-mcp/**"
+      - "integration/**"
+      - "release/**"
+      - "config/**"
+      - "projects/**"
+      - "scripts/mcp_release.py"
+      - "scripts/verify_mcp_deploy_config.py"
+      - "tests/test_mcp_release.py"
+      - "tests/test_mcp_deploy.py"
+      - "deploy/mcp/**"
+      - "Dockerfile"
+      - ".dockerignore"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".mcp.json"
+      - ".github/CODEOWNERS"
+      - ".github/workflows/mcp-oauth.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  sqlite-repository-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.9.26"
+          enable-cache: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install frozen dependency graph
+        run: uv sync --frozen --reinstall-package django-embedded-mcp
+      - name: Verify Agent Contract and mapping
+        run: |
+          uv run python scripts/agent_contract.py validate
+          uv run python scripts/agent_contract.py mapping --check
+      - name: Validate MCP/OAuth repository release gates
+        run: uv run python scripts/mcp_release.py validate
+      - name: Verify migrations and Django configuration
+        run: |
+          uv run python manage.py check
+          uv run python manage.py makemigrations --check --dry-run
+      - name: Run SQLite implementation suite
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          OPENAI_API_KEY: ""
+        run: uv run python manage.py test
+
+  postgres-concurrency-preparation:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: feature_request_test
+          POSTGRES_USER: feature_request
+          POSTGRES_PASSWORD: feature_request
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U feature_request"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.9.26"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: uv sync --frozen --reinstall-package django-embedded-mcp
+      - name: Prepared PostgreSQL suite (release-blocking evidence remains pending)
+        env:
+          DATABASE_URL: postgresql://feature_request:feature_request@127.0.0.1:5432/feature_request_test
+          OPENAI_API_KEY: ""
+        run: uv run python manage.py test mcp_oauth feature_request_mcp
