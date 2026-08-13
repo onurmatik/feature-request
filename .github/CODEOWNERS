@@ -16,7 +16,6 @@
 /.github/workflows/agent-contract.yml @onurmatik
 /.github/workflows/mcp-oauth.yml @onurmatik
 /.github/workflows/mcp-image.yml @onurmatik
-/.github/workflows/mcp-staging.yml @onurmatik
 /config/settings.py @onurmatik
 /config/urls.py @onurmatik
 /projects/models.py @onurmatik

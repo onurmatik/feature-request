@@ -14,7 +14,7 @@
     "runtime_conformance": {
       "status": "pending",
       "stage": "mcp_oauth",
-      "note": "Repository implementation is complete and release preparation is validated, but production runtime conformance remains pending PostgreSQL concurrency, immutable image, staging, real-client acceptance, deployment, and observation gates."
+      "note": "Repository and immutable-candidate gates are complete, but production runtime conformance remains pending direct immutable deployment, health and operations checks, real-client acceptance, recovery, observation, and immutable release gates."
     }
   },
   "plugin": {

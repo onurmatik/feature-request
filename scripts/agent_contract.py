@@ -1299,47 +1299,39 @@ def validate_release_sources(contract: Mapping[str, Any], path: Path = DEFAULT_R
     by_name = {
         item.get("name"): item for item in environments if isinstance(item, Mapping)
     }
-    if len(environments) != 3 or set(by_name) != {
-        "development",
-        "staging",
-        "production",
-    }:
+    if len(environments) != 2 or set(by_name) != {"local", "production"}:
         raise ContractError(
-            "promotion environments must be development, staging, and production"
+            "promotion environments must use the fixed local and production model"
         )
-    development = by_name.get("development", {})
-    staging = by_name.get("staging", {})
+    local = by_name.get("local", {})
     production = by_name.get("production", {})
-    if development.get("promotes_to") != "staging":
-        raise ContractError("development must promote to staging")
-    if staging.get("promotes_to") != "production":
-        raise ContractError("staging must promote to production")
+    if local.get("promotes_to") != "production":
+        raise ContractError("local must promote directly to production")
     if production.get("promotes_to") is not None:
         raise ContractError("production must be the terminal promotion environment")
-    required_development = {
+    required_local = {
         "contract_stage_gate",
         "deterministic_release_descriptor",
         "versioned_conformance_vectors",
+        "postgresql_process_concurrency",
+        "immutable_ghcr_candidate",
+        "image_provenance_verification",
     }
     required_production = {
+        "database_backup",
+        "previous_immutable_artifact_and_config",
+        "route_disable_or_rollback_command",
+        "immutable_candidate_direct_deploy",
+        "production_health_discovery_and_operations",
+        "required_client_acceptance_evidence",
+        "production_recovery_smoke",
         "immutable_git_tag",
         "github_release",
         "digest_verification",
         "release_approval",
     }
-    required_staging = {
-        "postgresql_process_concurrency",
-        "ghcr_digest_image",
-        "image_provenance_verification",
-        "isolated_oauth_mcp_smoke",
-        "cleanup_and_health_smoke",
-        "rollback_to_disabled_route_rehearsal",
-        "attested_staging_evidence",
-    }
-    if not required_development <= set(development.get("requires", [])):
-        raise ContractError("development promotion requirements are incomplete")
-    if not required_staging <= set(staging.get("requires", [])):
-        raise ContractError("staging promotion requirements are incomplete")
+    if not required_local <= set(local.get("requires", [])):
+        raise ContractError("local promotion requirements are incomplete")
     if not required_production <= set(production.get("requires", [])):
         raise ContractError("production promotion requirements are incomplete")
 

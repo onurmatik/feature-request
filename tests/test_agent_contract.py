@@ -103,10 +103,13 @@ class AgentContractRepositoryTests(unittest.TestCase):
         contract = agent_contract._load_yaml(agent_contract.DEFAULT_CONTRACT)
         agent_contract.validate_release_sources(contract)
 
-    def test_release_sources_cannot_bypass_staging(self) -> None:
+    def test_release_sources_rejects_a_separate_staging_environment(self) -> None:
         contract = agent_contract._load_yaml(agent_contract.DEFAULT_CONTRACT)
         sources = agent_contract._load_yaml(agent_contract.DEFAULT_RELEASE_SOURCES)
-        sources["promotion_environments"][0]["promotes_to"] = "production"
+        sources["promotion_environments"].insert(
+            1,
+            {"name": "staging", "promotes_to": "production", "requires": []},
+        )
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "sources.yaml"
             path.write_text(

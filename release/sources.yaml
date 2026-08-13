@@ -29,13 +29,14 @@ descriptors:
     image_store: ghcr.io/onurmatik/feature-request
     image_reference_format: ghcr.io/onurmatik/feature-request@sha256:{digest}
     image_candidate_workflow_path: .github/workflows/mcp-image.yml
-    image_candidate_tag_pattern: mcp-staging-{source_commit}
+    image_candidate_tag_pattern: mcp-candidate-{source_commit}
     image_candidate_platform: linux/amd64
     image_provenance: github_artifact_attestation
-    staging_rehearsal_workflow_path: .github/workflows/mcp-staging.yml
-    staging_isolation: github_hosted_ephemeral_postgresql_17
-    staging_rollback_target: existing_web_runtime_mcp_route_disabled
-    staging_evidence: github_artifact_attestation
+    production_deployment_model: direct_immutable_candidate
+    production_deploy_contract_path: deploy/mcp/README.md
+    production_config_validator_path: scripts/verify_mcp_deploy_config.py
+    production_rollback_target: previous_immutable_image_or_route_disabled
+    client_acceptance_store: github_release_asset
     contract_pin_path: integration/agent-contract-pin.json
     compatibility_manifest_path: integration/client-compatibility.yaml
     runtime_conformance_manifest_path: integration/runtime-conformance.yaml
@@ -49,8 +50,8 @@ descriptors:
       enabling the public route. Never resolve an MCP release from a mutable branch or image tag.
 
 promotion_environments:
-  - name: development
-    promotes_to: staging
+  - name: local
+    promotes_to: production
     requires:
       - contract_stage_gate
       - deterministic_release_descriptor
@@ -58,25 +59,21 @@ promotion_environments:
       - pinned_agent_contract_release
       - oauth_mcp_repository_suite
       - sqlite_production_guard
-  - name: staging
-    promotes_to: production
-    requires:
       - postgresql_process_concurrency
-      - ghcr_digest_image
+      - immutable_ghcr_candidate
       - image_provenance_verification
-      - isolated_oauth_mcp_smoke
-      - cleanup_and_health_smoke
-      - rollback_to_disabled_route_rehearsal
-      - attested_staging_evidence
   - name: production
     promotes_to: null
     requires:
+      - database_backup
+      - previous_immutable_artifact_and_config
+      - route_disable_or_rollback_command
+      - immutable_candidate_direct_deploy
+      - production_health_discovery_and_operations
+      - required_client_acceptance_evidence
+      - production_recovery_smoke
+      - production_observation_window
       - immutable_git_tag
       - github_release
       - digest_verification
       - release_approval
-      - postgresql_process_concurrency
-      - ghcr_digest_image
-      - staging_smoke_and_rollback_rehearsal
-      - required_client_acceptance_evidence
-      - production_observation_window

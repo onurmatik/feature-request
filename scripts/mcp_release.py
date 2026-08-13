@@ -38,7 +38,6 @@ SERVER_SOURCE_PATH = ROOT / "feature_request_mcp" / "server.py"
 AGENT_SERVICE_SOURCE_PATH = ROOT / "agent_runtime" / "service.py"
 CODEOWNERS_PATH = ROOT / ".github" / "CODEOWNERS"
 IMAGE_WORKFLOW_PATH = ROOT / ".github" / "workflows" / "mcp-image.yml"
-STAGING_WORKFLOW_PATH = ROOT / ".github" / "workflows" / "mcp-staging.yml"
 DOCKERIGNORE_PATH = ROOT / ".dockerignore"
 CONFORMANCE_FRAMING = "utf8_relative_path_nul_raw_content_nul_v1"
 SERVER_VERSION = "1.0.0"
@@ -75,16 +74,19 @@ EXPECTED_CLIENTS = {
 EXPECTED_PRODUCTION_GATES = [
     "postgresql_process_concurrency",
     "immutable_ghcr_image",
-    "staging_smoke_and_rollback_rehearsal",
+    "production_backup_and_rollback_ready",
+    "immutable_candidate_direct_deployment",
+    "production_health_discovery_and_operations",
     "required_real_client_acceptance",
-    "production_route_and_observation",
+    "production_recovery_smoke",
+    "production_observation_window",
     "immutable_mcp_release",
 ]
 
 EXPECTED_PROMOTION_ENVIRONMENTS = [
     {
-        "name": "development",
-        "promotes_to": "staging",
+        "name": "local",
+        "promotes_to": "production",
         "requires": [
             "contract_stage_gate",
             "deterministic_release_descriptor",
@@ -92,34 +94,27 @@ EXPECTED_PROMOTION_ENVIRONMENTS = [
             "pinned_agent_contract_release",
             "oauth_mcp_repository_suite",
             "sqlite_production_guard",
-        ],
-    },
-    {
-        "name": "staging",
-        "promotes_to": "production",
-        "requires": [
             "postgresql_process_concurrency",
-            "ghcr_digest_image",
+            "immutable_ghcr_candidate",
             "image_provenance_verification",
-            "isolated_oauth_mcp_smoke",
-            "cleanup_and_health_smoke",
-            "rollback_to_disabled_route_rehearsal",
-            "attested_staging_evidence",
         ],
     },
     {
         "name": "production",
         "promotes_to": None,
         "requires": [
+            "database_backup",
+            "previous_immutable_artifact_and_config",
+            "route_disable_or_rollback_command",
+            "immutable_candidate_direct_deploy",
+            "production_health_discovery_and_operations",
+            "required_client_acceptance_evidence",
+            "production_recovery_smoke",
+            "production_observation_window",
             "immutable_git_tag",
             "github_release",
             "digest_verification",
             "release_approval",
-            "postgresql_process_concurrency",
-            "ghcr_digest_image",
-            "staging_smoke_and_rollback_rehearsal",
-            "required_client_acceptance_evidence",
-            "production_observation_window",
         ],
     },
 ]
@@ -528,7 +523,6 @@ def validate_static_security() -> None:
         "/Dockerfile",
         "/.dockerignore",
         "/.github/workflows/mcp-image.yml",
-        "/.github/workflows/mcp-staging.yml",
         "/scripts/mcp_release.py",
         "/scripts/verify_mcp_deploy_config.py",
         "/projects/services.py",
@@ -602,9 +596,9 @@ def validate_image_candidate_contract(
         or build.get("push") != "true"
         or build.get("provenance") != "false"
         or build.get("tags")
-        != "${{ env.IMAGE_NAME }}:mcp-staging-${{ inputs.source_commit }}"
+        != "${{ env.IMAGE_NAME }}:mcp-candidate-${{ inputs.source_commit }}"
     ):
-        raise ReleaseGateError("MCP image build must stay deterministic and staging-tagged")
+        raise ReleaseGateError("MCP image build must stay deterministic and candidate-tagged")
     attest = by_id.get("attest", {}).get("with", {})
     if (
         attest.get("subject-name") != "${{ env.IMAGE_NAME }}"
@@ -621,144 +615,6 @@ def validate_image_candidate_contract(
         )
 
 
-def validate_staging_rehearsal_contract(
-    *, workflow_path: Path = STAGING_WORKFLOW_PATH
-) -> None:
-    try:
-        workflow_text = workflow_path.read_text(encoding="utf-8")
-        workflow = yaml.load(workflow_text, Loader=yaml.BaseLoader)
-    except (FileNotFoundError, UnicodeDecodeError, yaml.YAMLError) as exc:
-        raise ReleaseGateError("invalid or missing MCP staging rehearsal contract") from exc
-    if not isinstance(workflow, Mapping):
-        raise ReleaseGateError("MCP staging rehearsal workflow must be an object")
-    triggers = workflow.get("on")
-    if not isinstance(triggers, Mapping) or set(triggers) != {"workflow_dispatch"}:
-        raise ReleaseGateError("MCP staging rehearsal must be manual workflow_dispatch only")
-    inputs = triggers["workflow_dispatch"].get("inputs", {})
-    if set(inputs) != {"source_commit", "image_digest"}:
-        raise ReleaseGateError("MCP staging rehearsal inputs must stay source and digest only")
-    for input_name in ("source_commit", "image_digest"):
-        spec = inputs.get(input_name, {})
-        if spec.get("required") != "true" or spec.get("type") != "string":
-            raise ReleaseGateError(
-                f"MCP staging rehearsal requires explicit {input_name} input"
-            )
-    if workflow.get("permissions") != {
-        "contents": "read",
-        "packages": "read",
-        "id-token": "write",
-        "attestations": "write",
-    }:
-        raise ReleaseGateError(
-            "MCP staging rehearsal permissions must stay least-privilege and exact"
-        )
-    rehearse = workflow.get("jobs", {}).get("rehearse", {})
-    postgres = rehearse.get("services", {}).get("postgres", {})
-    if postgres.get("image") != "postgres:17":
-        raise ReleaseGateError("MCP staging rehearsal must use PostgreSQL 17")
-    environment = workflow.get("env", {})
-    expected_image = "ghcr.io/onurmatik/feature-request@sha256:${{ inputs.image_digest }}"
-    if environment.get("IMAGE_REF") != expected_image or ":latest" in workflow_text:
-        raise ReleaseGateError("MCP staging rehearsal must run an immutable GHCR digest")
-    steps = rehearse.get("steps", [])
-    if not isinstance(steps, list):
-        raise ReleaseGateError("MCP staging rehearsal steps are invalid")
-    for step in steps:
-        uses = step.get("uses") if isinstance(step, Mapping) else None
-        if uses and not re.fullmatch(
-            r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+@[0-9a-f]{40}", uses
-        ):
-            raise ReleaseGateError(
-                f"MCP staging rehearsal action is not SHA-pinned: {uses}"
-            )
-    by_id = {
-        step["id"]: step
-        for step in steps
-        if isinstance(step, Mapping) and isinstance(step.get("id"), str)
-    }
-    all_runs = "\n".join(
-        str(step.get("run", "")) for step in steps if isinstance(step, Mapping)
-    )
-    if not all(
-        marker in all_runs
-        for marker in (
-            'gh attestation verify "oci://$IMAGE_REF"',
-            'certificate.get("sourceRepositoryDigest") == expected_source',
-            'subject.get("digest", {}).get("sha256") == expected_digest',
-        )
-    ):
-        raise ReleaseGateError(
-            "MCP staging rehearsal must verify image provenance, source, and digest"
-        )
-    if not all(
-        marker in all_runs
-        for marker in (
-            "/.well-known/oauth-authorization-server",
-            "/.well-known/oauth-protected-resource/mcp",
-            "/oauth/authorize/",
-            "/oauth/token/",
-            "/oauth/revoke/",
-            "/oauth/register/",
-            "/.well-known/openid-configuration",
-            "FEATURE_REQUEST_MCP_PRODUCTION_ENABLED=true",
-            "MCP-Protocol-Version: 2026-07-28",
-            'test "$web_status" = 200 && test "$mcp_status" = 401',
-            'test "$mcp_status" = 401',
-            'test "$cors_status" = 204',
-            '"rollback_target": "existing_web_runtime_mcp_route_disabled"',
-            '"production_route_enabled": False',
-        )
-    ):
-        raise ReleaseGateError(
-            "MCP staging rehearsal must exercise canonical OAuth and MCP bootstrap semantics"
-        )
-    if not all(
-        marker in all_runs
-        for marker in ("cleanup_mcp_oauth", "check_mcp_oauth_health")
-    ):
-        raise ReleaseGateError("MCP staging rehearsal must exercise cleanup and health")
-    rollback = by_id.get("rollback", {}).get("run", "")
-    if not all(
-        marker in rollback
-        for marker in (
-            'docker stop --time 30 "$STAGING_MCP" "$STAGING_WEB"',
-            "https://featurerequest.io/",
-            "https://featurerequest.io/mcp",
-            "https://featurerequest.io/.well-known/oauth-authorization-server",
-        )
-    ):
-        raise ReleaseGateError(
-            "MCP staging rehearsal must remove the candidate and verify fail-closed production"
-        )
-    attest = by_id.get("attest", {})
-    if (
-        not str(attest.get("uses", "")).startswith("actions/attest-build-provenance@")
-        or attest.get("with", {}).get("subject-path")
-        != "mcp-staging-rehearsal-evidence.json"
-    ):
-        raise ReleaseGateError("MCP staging rehearsal evidence must be attested")
-    upload_steps = [
-        step
-        for step in steps
-        if isinstance(step, Mapping)
-        and str(step.get("uses", "")).startswith("actions/upload-artifact@")
-    ]
-    if (
-        len(upload_steps) != 1
-        or upload_steps[0].get("with", {}).get("path")
-        != "mcp-staging-rehearsal-evidence.json"
-    ):
-        raise ReleaseGateError("MCP staging rehearsal evidence must be uploaded")
-    cleanup_steps = [
-        step
-        for step in steps
-        if isinstance(step, Mapping) and step.get("if") == "always()"
-    ]
-    cleanup_run = cleanup_steps[0].get("run", "") if len(cleanup_steps) == 1 else ""
-    if "docker rm --force" not in cleanup_run or 'rm -f "$STAGING_ENV"' not in cleanup_run:
-        raise ReleaseGateError("MCP staging rehearsal must always remove candidate processes")
-
-
 def validate_release_sources() -> None:
     sources = _load_yaml(RELEASE_SOURCES_PATH)
     mcp = sources.get("descriptors", {}).get("mcp", {})
@@ -770,13 +626,14 @@ def validate_release_sources() -> None:
         "image_store": "ghcr.io/onurmatik/feature-request",
         "image_reference_format": "ghcr.io/onurmatik/feature-request@sha256:{digest}",
         "image_candidate_workflow_path": ".github/workflows/mcp-image.yml",
-        "image_candidate_tag_pattern": "mcp-staging-{source_commit}",
+        "image_candidate_tag_pattern": "mcp-candidate-{source_commit}",
         "image_candidate_platform": "linux/amd64",
         "image_provenance": "github_artifact_attestation",
-        "staging_rehearsal_workflow_path": ".github/workflows/mcp-staging.yml",
-        "staging_isolation": "github_hosted_ephemeral_postgresql_17",
-        "staging_rollback_target": "existing_web_runtime_mcp_route_disabled",
-        "staging_evidence": "github_artifact_attestation",
+        "production_deployment_model": "direct_immutable_candidate",
+        "production_deploy_contract_path": "deploy/mcp/README.md",
+        "production_config_validator_path": "scripts/verify_mcp_deploy_config.py",
+        "production_rollback_target": "previous_immutable_image_or_route_disabled",
+        "client_acceptance_store": "github_release_asset",
         "contract_pin_path": "integration/agent-contract-pin.json",
         "compatibility_manifest_path": "integration/client-compatibility.yaml",
         "runtime_conformance_manifest_path": "integration/runtime-conformance.yaml",
@@ -790,7 +647,7 @@ def validate_release_sources() -> None:
         raise ReleaseGateError("MCP release source must document immutable resolution")
     if sources.get("promotion_environments") != EXPECTED_PROMOTION_ENVIRONMENTS:
         raise ReleaseGateError(
-            "release promotion environments must preserve the gated development/staging/production chain"
+            "release promotion environments must preserve the gated local/production chain"
         )
 
 
@@ -804,7 +661,6 @@ def validate_repository(
     runtime_conformance_sha256 = validate_runtime_conformance()
     validate_static_security()
     validate_image_candidate_contract()
-    validate_staging_rehearsal_contract()
     validate_release_sources()
     return {
         "pin": pin,

@@ -121,11 +121,11 @@ jobs:
           pull: true
           push: true
           provenance: false
-          tags: ${{ env.IMAGE_NAME }}:mcp-staging-${{ inputs.source_commit }}
+          tags: ${{ env.IMAGE_NAME }}:mcp-candidate-${{ inputs.source_commit }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ inputs.source_commit }}
-            org.opencontainers.image.version=1.0.0-staging-${{ inputs.source_commit }}
+            org.opencontainers.image.version=1.0.0-candidate-${{ inputs.source_commit }}
           cache-from: type=gha,scope=mcp-image
           cache-to: type=gha,mode=max,scope=mcp-image
 
@@ -184,7 +184,7 @@ jobs:
           payload = {
               "schema_version": 1,
               "server_version": "1.0.0",
-              "status": "candidate_published_staging_pending",
+              "status": "candidate_published_production_deploy_pending",
               "source_commit": os.environ["SOURCE_COMMIT"],
               "image": f'{os.environ["IMAGE_NAME"]}@{digest}',
               "platform": "linux/amd64",

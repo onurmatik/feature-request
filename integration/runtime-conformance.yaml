@@ -48,7 +48,10 @@ production:
   required_gates:
     - postgresql_process_concurrency
     - immutable_ghcr_image
-    - staging_smoke_and_rollback_rehearsal
+    - production_backup_and_rollback_ready
+    - immutable_candidate_direct_deployment
+    - production_health_discovery_and_operations
     - required_real_client_acceptance
-    - production_route_and_observation
+    - production_recovery_smoke
+    - production_observation_window
     - immutable_mcp_release

@@ -1,10 +1,11 @@
-# MCP/OAuth deployment handoff
+# MCP/OAuth direct production handoff
 
-These files prepare, but do not enable, FeatureRequest MCP/OAuth 1.0. Production remains
-blocked until the PostgreSQL process-concurrency, immutable GHCR image, staging rollback,
-four-client acceptance, observation-window, and immutable `mcp-v1.0.0` release gates pass.
+The environment model is `local + production`; there is no separate staging gate. These files
+prepare, but do not enable, FeatureRequest MCP/OAuth 1.0. Run every reproducible repository,
+PostgreSQL 17, OAuth state-machine, MCP transport and Contract-conformance check before promotion.
+Production acceptance and public release sealing remain separate steps.
 
-The same digest-pinned image runs the web, MCP, cleanup, and health commands. Copy
+The same digest-pinned image runs the web, MCP, cleanup and health commands. Copy
 `mcp.env.example` to a root-owned `0600` environment file, replace placeholders, and run:
 
 ```bash
@@ -12,17 +13,27 @@ python3 scripts/verify_mcp_deploy_config.py --env-file /etc/featurerequest/mcp.e
 ```
 
 Do not use a mutable image tag. The environment must name
-`ghcr.io/onurmatik/feature-request@sha256:<digest>`, PostgreSQL, the canonical public URLs,
-and `ADMIN_EMAIL`. Nginx routing is intentionally a separate include so `/mcp`, OAuth and
-well-known routes remain disabled until release approval.
+`ghcr.io/onurmatik/feature-request@sha256:<digest>`, PostgreSQL, the canonical public URLs and
+`ADMIN_EMAIL`. Verify the GitHub provenance binds that digest to the intended full source commit.
 
-Rollback is image-oriented: disable the nginx include first, stop the MCP unit, and return the
-web unit to the previously approved digest. Migrations in this implementation are additive;
-do not reverse them as an incident response. Never reactivate revoked grants, tokens, refresh
-families, consents, or applications. If a later schema is incompatible, roll forward.
+Before the first direct production deployment, record without secrets:
 
-Before any production route enablement, run the manual `MCP Staging Rehearsal` workflow with the
-candidate's full source commit and bare sha256 digest. It verifies GitHub provenance, starts the
-digest only in an ephemeral PostgreSQL 17 environment, exercises discovery/challenge and
-cleanup/health, removes the candidate processes, and attests the rehearsal evidence. It must also
-prove that the existing production web runtime stayed available while MCP/OAuth remained 404.
+- exact source commit, image digest and config-file digest;
+- a completed database backup and its restore owner/location;
+- the previous working immutable image and config digest;
+- the route-disable and image rollback commands;
+- health checks, alert delivery and the observation owner/window.
+
+Keep the Nginx include absent while installing and validating the digest. Apply additive
+migrations, start the digest-pinned web and MCP units, run cleanup and health, then enable the
+include and reload Nginx only for the controlled production acceptance window. Do not enable the
+public route if any prerequisite or pre-route health check fails.
+
+After routing, verify discovery, the anonymous MCP challenge, read-only bootstrap, OAuth
+code/refresh/revoke, required real clients, audit mapping, cleanup metrics and alert delivery.
+Do not create `mcp-v1.0.0` or mark the server supported until the acceptance evidence is immutable.
+
+Rollback is image-oriented: disable the Nginx include first, stop the MCP unit, and return the web
+unit to the previous approved digest/config. Migrations in this implementation are additive; do
+not reverse them as incident response. Never reactivate revoked grants, tokens, refresh families,
+consents or applications. Re-run discovery, primary-client bootstrap and audit smoke after rollback.
