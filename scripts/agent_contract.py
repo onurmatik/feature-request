@@ -1299,10 +1299,21 @@ def validate_release_sources(contract: Mapping[str, Any], path: Path = DEFAULT_R
     by_name = {
         item.get("name"): item for item in environments if isinstance(item, Mapping)
     }
+    if len(environments) != 3 or set(by_name) != {
+        "development",
+        "staging",
+        "production",
+    }:
+        raise ContractError(
+            "promotion environments must be development, staging, and production"
+        )
     development = by_name.get("development", {})
+    staging = by_name.get("staging", {})
     production = by_name.get("production", {})
-    if development.get("promotes_to") != "production":
-        raise ContractError("development must promote to production")
+    if development.get("promotes_to") != "staging":
+        raise ContractError("development must promote to staging")
+    if staging.get("promotes_to") != "production":
+        raise ContractError("staging must promote to production")
     if production.get("promotes_to") is not None:
         raise ContractError("production must be the terminal promotion environment")
     required_development = {
@@ -1316,8 +1327,19 @@ def validate_release_sources(contract: Mapping[str, Any], path: Path = DEFAULT_R
         "digest_verification",
         "release_approval",
     }
+    required_staging = {
+        "postgresql_process_concurrency",
+        "ghcr_digest_image",
+        "image_provenance_verification",
+        "isolated_oauth_mcp_smoke",
+        "cleanup_and_health_smoke",
+        "rollback_to_disabled_route_rehearsal",
+        "attested_staging_evidence",
+    }
     if not required_development <= set(development.get("requires", [])):
         raise ContractError("development promotion requirements are incomplete")
+    if not required_staging <= set(staging.get("requires", [])):
+        raise ContractError("staging promotion requirements are incomplete")
     if not required_production <= set(production.get("requires", [])):
         raise ContractError("production promotion requirements are incomplete")
 

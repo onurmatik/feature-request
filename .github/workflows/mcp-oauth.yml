@@ -24,6 +24,7 @@ on:
       - ".github/CODEOWNERS"
       - ".github/workflows/mcp-oauth.yml"
       - ".github/workflows/mcp-image.yml"
+      - ".github/workflows/mcp-staging.yml"
   push:
     branches: [main]
     paths:
@@ -48,6 +49,7 @@ on:
       - ".github/CODEOWNERS"
       - ".github/workflows/mcp-oauth.yml"
       - ".github/workflows/mcp-image.yml"
+      - ".github/workflows/mcp-staging.yml"
 
 permissions:
   contents: read

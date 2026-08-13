@@ -20,3 +20,9 @@ Rollback is image-oriented: disable the nginx include first, stop the MCP unit, 
 web unit to the previously approved digest. Migrations in this implementation are additive;
 do not reverse them as an incident response. Never reactivate revoked grants, tokens, refresh
 families, consents, or applications. If a later schema is incompatible, roll forward.
+
+Before any production route enablement, run the manual `MCP Staging Rehearsal` workflow with the
+candidate's full source commit and bare sha256 digest. It verifies GitHub provenance, starts the
+digest only in an ephemeral PostgreSQL 17 environment, exercises discovery/challenge and
+cleanup/health, removes the candidate processes, and attests the rehearsal evidence. It must also
+prove that the existing production web runtime stayed available while MCP/OAuth remained 404.

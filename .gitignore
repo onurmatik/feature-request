@@ -8,6 +8,7 @@
 !.github/workflows/agent-contract.yml
 !.github/workflows/mcp-oauth.yml
 !.github/workflows/mcp-image.yml
+!.github/workflows/mcp-staging.yml
 !.github/CODEOWNERS
 !.mcp.json
 !.dockerignore

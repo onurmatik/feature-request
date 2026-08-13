@@ -143,6 +143,22 @@ class MCPReleaseRepositoryGateTests(unittest.TestCase):
             with self.assertRaises(mcp_release.ReleaseGateError):
                 mcp_release.validate_image_candidate_contract(workflow_path=path)
 
+    def test_staging_rehearsal_contract_is_manual_digest_only_and_attested(self):
+        mcp_release.validate_staging_rehearsal_contract()
+
+    def test_staging_rehearsal_contract_rejects_mutable_image_reference(self):
+        workflow = mcp_release.STAGING_WORKFLOW_PATH.read_text(encoding="utf-8")
+        workflow = workflow.replace(
+            "ghcr.io/onurmatik/feature-request@sha256:${{ inputs.image_digest }}",
+            "ghcr.io/onurmatik/feature-request:latest",
+            1,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "mcp-staging.yml"
+            path.write_text(workflow, encoding="utf-8")
+            with self.assertRaises(mcp_release.ReleaseGateError):
+                mcp_release.validate_staging_rehearsal_contract(workflow_path=path)
+
 
 if __name__ == "__main__":
     unittest.main()

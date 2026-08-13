@@ -6,6 +6,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import yaml
+
 from scripts import agent_contract
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -100,6 +102,19 @@ class AgentContractRepositoryTests(unittest.TestCase):
     def test_release_sources_pin_immutable_github_artifacts(self) -> None:
         contract = agent_contract._load_yaml(agent_contract.DEFAULT_CONTRACT)
         agent_contract.validate_release_sources(contract)
+
+    def test_release_sources_cannot_bypass_staging(self) -> None:
+        contract = agent_contract._load_yaml(agent_contract.DEFAULT_CONTRACT)
+        sources = agent_contract._load_yaml(agent_contract.DEFAULT_RELEASE_SOURCES)
+        sources["promotion_environments"][0]["promotes_to"] = "production"
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "sources.yaml"
+            path.write_text(
+                yaml.safe_dump(sources, sort_keys=False),
+                encoding="utf-8",
+            )
+            with self.assertRaises(agent_contract.ContractError):
+                agent_contract.validate_release_sources(contract, path)
 
     def test_policy_and_skills_declare_canonical_source_ownership(self) -> None:
         agent_contract.validate_source_ownership()
