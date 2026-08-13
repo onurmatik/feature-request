@@ -114,6 +114,7 @@ class MCPReleaseRepositoryGateTests(unittest.TestCase):
 
     def test_agentic_lifecycle_preserves_the_native_deployment_contract(self):
         deploy_source = (mcp_release.ROOT / ".deploy" / "fabfile.py").read_text()
+        settings_source = (mcp_release.ROOT / "config" / "settings.py").read_text()
         expected_steps = (
             "git reset --hard origin/main",
             "sync --frozen --no-dev",
@@ -135,6 +136,7 @@ class MCPReleaseRepositoryGateTests(unittest.TestCase):
             self.assertNotIn(forbidden, deploy_source)
         self.assertFalse((mcp_release.ROOT / "deploy" / "mcp" / "README.md").exists())
         self.assertTrue((mcp_release.ROOT / "docs" / "mcp-deployment-handoff.md").is_file())
+        self.assertIn('"REFRESH_TOKEN_REUSE_PROTECTION": True', settings_source)
 
     def test_release_descriptor_binds_source_and_dependency_lock(self):
         manifest = copy.deepcopy(mcp_release._load_yaml(mcp_release.COMPATIBILITY_PATH))
