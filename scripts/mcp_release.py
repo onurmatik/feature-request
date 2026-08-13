@@ -22,6 +22,7 @@ from jsonschema import Draft202012Validator, FormatChecker
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+from scripts.verify_mcp_deploy_config import repository_identity
 PIN_PATH = ROOT / "integration" / "agent-contract-pin.json"
 PINNED_DESCRIPTOR_PATH = ROOT / "integration" / "agent-contract-release.json"
 COMPATIBILITY_PATH = ROOT / "integration" / "client-compatibility.yaml"
@@ -37,16 +38,14 @@ LOCK_PATH = ROOT / "uv.lock"
 SERVER_SOURCE_PATH = ROOT / "feature_request_mcp" / "server.py"
 AGENT_SERVICE_SOURCE_PATH = ROOT / "agent_runtime" / "service.py"
 CODEOWNERS_PATH = ROOT / ".github" / "CODEOWNERS"
-IMAGE_WORKFLOW_PATH = ROOT / ".github" / "workflows" / "mcp-image.yml"
-DOCKERIGNORE_PATH = ROOT / ".dockerignore"
+FABFILE_PATH = ROOT / ".deploy" / "fabfile.py"
+DEPLOY_README_PATH = ROOT / "deploy" / "mcp" / "README.md"
+DEPLOY_CONFIG_VALIDATOR_PATH = ROOT / "scripts" / "verify_mcp_deploy_config.py"
 CONFORMANCE_FRAMING = "utf8_relative_path_nul_raw_content_nul_v1"
 SERVER_VERSION = "1.0.0"
 PROTOCOL_VERSION = "2026-07-28"
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
-IMAGE_RE = re.compile(
-    r"^ghcr\.io/onurmatik/feature-request@sha256:[0-9a-f]{64}$"
-)
 EVIDENCE_RE = re.compile(
     r"^https://github\.com/onurmatik/feature-request/releases/download/"
     r"mcp-v1\.0\.0/[A-Za-z0-9][A-Za-z0-9._~-]*$"
@@ -73,7 +72,7 @@ EXPECTED_CLIENTS = {
 
 EXPECTED_PRODUCTION_GATES = [
     "postgresql_process_concurrency",
-    "immutable_ghcr_image",
+    "exact_native_source_candidate",
     "production_backup_and_rollback_ready",
     "immutable_candidate_direct_deployment",
     "production_health_discovery_and_operations",
@@ -95,8 +94,9 @@ EXPECTED_PROMOTION_ENVIRONMENTS = [
             "oauth_mcp_repository_suite",
             "sqlite_production_guard",
             "postgresql_process_concurrency",
-            "immutable_ghcr_candidate",
-            "image_provenance_verification",
+            "exact_source_tree_digest",
+            "dependency_lock_digest",
+            "native_deploy_contract",
         ],
     },
     {
@@ -106,7 +106,7 @@ EXPECTED_PROMOTION_ENVIRONMENTS = [
             "database_backup",
             "previous_immutable_artifact_and_config",
             "route_disable_or_rollback_command",
-            "immutable_candidate_direct_deploy",
+            "exact_native_candidate_direct_deploy",
             "production_health_discovery_and_operations",
             "required_client_acceptance_evidence",
             "production_recovery_smoke",
@@ -520,10 +520,9 @@ def validate_static_security() -> None:
         "/integration/",
         "/release/",
         "/deploy/mcp/",
-        "/Dockerfile",
-        "/.dockerignore",
-        "/.github/workflows/mcp-image.yml",
+        "/.deploy/",
         "/scripts/mcp_release.py",
+        "/scripts/install_mcp_nginx.py",
         "/scripts/verify_mcp_deploy_config.py",
         "/projects/services.py",
     ):
@@ -531,88 +530,83 @@ def validate_static_security() -> None:
             raise ReleaseGateError(f"CODEOWNERS is missing {path}")
 
 
-def validate_image_candidate_contract(
-    *,
-    workflow_path: Path = IMAGE_WORKFLOW_PATH,
-    dockerignore_path: Path = DOCKERIGNORE_PATH,
-) -> None:
+def validate_native_deploy_contract() -> None:
     try:
-        workflow_text = workflow_path.read_text(encoding="utf-8")
-        workflow = yaml.load(workflow_text, Loader=yaml.BaseLoader)
-        ignored = {
-            line.strip()
-            for line in dockerignore_path.read_text(encoding="utf-8").splitlines()
-            if line.strip() and not line.lstrip().startswith("#")
-        }
-    except (FileNotFoundError, UnicodeDecodeError, yaml.YAMLError) as exc:
-        raise ReleaseGateError("invalid or missing MCP image candidate contract") from exc
-    if not isinstance(workflow, Mapping):
-        raise ReleaseGateError("MCP image candidate workflow must be an object")
-    triggers = workflow.get("on")
-    if not isinstance(triggers, Mapping) or set(triggers) != {"workflow_dispatch"}:
-        raise ReleaseGateError("MCP image publication must be manual workflow_dispatch only")
-    dispatch = triggers["workflow_dispatch"]
-    source_input = dispatch.get("inputs", {}).get("source_commit", {})
-    if source_input.get("required") != "true" or source_input.get("type") != "string":
-        raise ReleaseGateError("MCP image publication requires an explicit source_commit input")
-    permissions = workflow.get("permissions")
-    if permissions != {
-        "contents": "read",
-        "packages": "write",
-        "id-token": "write",
-        "attestations": "write",
-    }:
-        raise ReleaseGateError("MCP image workflow permissions must stay least-privilege and exact")
-    publish = workflow.get("jobs", {}).get("publish", {})
-    postgres = publish.get("services", {}).get("postgres", {})
-    if postgres.get("image") != "postgres:17":
-        raise ReleaseGateError("MCP image publication must rerun the PostgreSQL 17 gate")
-    steps = publish.get("steps", [])
-    if not isinstance(steps, list):
-        raise ReleaseGateError("MCP image workflow publish steps are invalid")
-    for step in steps:
-        uses = step.get("uses") if isinstance(step, Mapping) else None
-        if uses and not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+@[0-9a-f]{40}", uses):
-            raise ReleaseGateError(f"MCP image workflow action is not SHA-pinned: {uses}")
-    by_id = {
-        step["id"]: step
-        for step in steps
-        if isinstance(step, Mapping) and isinstance(step.get("id"), str)
-    }
-    build = by_id.get("build", {}).get("with", {})
-    repository_step = by_id.get("repository", {})
-    repository_run = repository_step.get("run", "")
-    repository_env = repository_step.get("env", {})
-    if (
-        "uv run python manage.py test" not in repository_run
-        or "show server_version" not in repository_run
-        or not repository_env.get("DATABASE_URL", "").startswith("postgresql://")
-    ):
-        raise ReleaseGateError("MCP image publication must gate the exact commit on PostgreSQL")
-    if (
-        build.get("context") != "."
-        or build.get("file") != "./Dockerfile"
-        or build.get("platforms") != "linux/amd64"
-        or build.get("push") != "true"
-        or build.get("provenance") != "false"
-        or build.get("tags")
-        != "${{ env.IMAGE_NAME }}:mcp-candidate-${{ inputs.source_commit }}"
-    ):
-        raise ReleaseGateError("MCP image build must stay deterministic and candidate-tagged")
-    attest = by_id.get("attest", {}).get("with", {})
-    if (
-        attest.get("subject-name") != "${{ env.IMAGE_NAME }}"
-        or attest.get("subject-digest") != "${{ steps.build.outputs.digest }}"
-        or attest.get("push-to-registry") != "true"
-    ):
-        raise ReleaseGateError("MCP image provenance must bind the pushed GHCR digest")
-    required_ignores = {".env*", ".deploy", "**/.credentials.env", "*.key", "*.pem"}
-    missing_ignores = sorted(required_ignores - ignored)
-    if missing_ignores:
-        raise ReleaseGateError(
-            "Docker context may expose deployment credentials; missing ignores: "
-            + ", ".join(missing_ignores)
+        fabfile = FABFILE_PATH.read_text(encoding="utf-8")
+        readme = DEPLOY_README_PATH.read_text(encoding="utf-8")
+        validator = DEPLOY_CONFIG_VALIDATOR_PATH.read_text(encoding="utf-8")
+        deployment = ROOT / "deploy" / "mcp"
+        services = "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in sorted(deployment.glob("*.service"))
         )
+        timers = "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in sorted(deployment.glob("*.timer"))
+        )
+        nginx = (deployment / "nginx-mcp-oauth.conf").read_text(encoding="utf-8")
+        disabled = (deployment / "nginx-mcp-disabled.conf").read_text(encoding="utf-8")
+        gunicorn = (deployment / "gunicorn-mcp-log-safety.conf").read_text(
+            encoding="utf-8"
+        )
+    except (FileNotFoundError, UnicodeDecodeError) as exc:
+        raise ReleaseGateError("invalid or missing native MCP deploy contract") from exc
+    combined = "\n".join(
+        (fabfile, readme, validator, services, timers, nginx, disabled, gunicorn)
+    )
+    for forbidden in ("FEATURE_REQUEST_IMAGE_REF", "/usr/bin/docker", "ghcr.io/"):
+        if forbidden in combined:
+            raise ReleaseGateError(
+                f"native MCP deploy contract contains container dependency: {forbidden}"
+            )
+    for marker in (
+        "take_database_backup",
+        "disable_mcp_route",
+        "rollback_mcp",
+        "install_systemd_contract",
+        "check_loopback_mcp",
+        "check_public_surfaces",
+        "source_commit",
+        "pgbackrest",
+    ):
+        if marker not in fabfile:
+            raise ReleaseGateError(f"native Fabric deploy is missing {marker}")
+    for marker in (
+        "/srv/apps/__PROJECT_NAME__/venv/bin/python",
+        "verify_mcp_deploy_config.py",
+        "python -m feature_request_mcp",
+        "cleanup_mcp_oauth",
+        "check_mcp_oauth_health",
+    ):
+        if marker not in services:
+            raise ReleaseGateError(f"native systemd contract is missing {marker}")
+    if "OnCalendar=daily" not in timers or "OnCalendar=hourly" not in timers:
+        raise ReleaseGateError("native cleanup/health timers are incomplete")
+    for marker in (
+        "location = /mcp",
+        "location ^~ /oauth/",
+        "proxy_set_header X-Forwarded-For $remote_addr;",
+        "access_log off;",
+    ):
+        if marker not in nginx:
+            raise ReleaseGateError(f"native Nginx contract is missing {marker}")
+    if "openid-configuration" in nginx or "$proxy_add_x_forwarded_for" in nginx:
+        raise ReleaseGateError("native Nginx contract exposes an unsupported or untrusted path")
+    if disabled.count("return 404;") < 5:
+        raise ReleaseGateError("route-disable contract must fail-close every MCP/OAuth surface")
+    if "%%(U)s" not in gunicorn or "%%(q)s" in gunicorn or "%%(r)s" in gunicorn:
+        raise ReleaseGateError("native Gunicorn access logs must be path-only")
+    for marker in (
+        "FEATURE_REQUEST_SOURCE_COMMIT",
+        "FEATURE_REQUEST_SOURCE_TREE_SHA256",
+        "FEATURE_REQUEST_DEPENDENCY_LOCK_SHA256",
+        "FEATURE_REQUEST_DEPLOY_CONTRACT_SHA256",
+        "validate_repository_identity",
+    ):
+        if marker not in validator:
+            raise ReleaseGateError(f"native deployment identity validator is missing {marker}")
+    if "fab deploy --source-commit=" not in readme or "fab rollback-mcp" not in readme:
+        raise ReleaseGateError("native deploy documentation lacks exact deploy/rollback commands")
 
 
 def validate_release_sources() -> None:
@@ -623,16 +617,16 @@ def validate_release_sources() -> None:
         "immutable_ref_pattern": "mcp-v{server_version}",
         "descriptor_schema_path": "release/mcp-release.schema.json",
         "descriptor_asset_name": "mcp-release.json",
-        "image_store": "ghcr.io/onurmatik/feature-request",
-        "image_reference_format": "ghcr.io/onurmatik/feature-request@sha256:{digest}",
-        "image_candidate_workflow_path": ".github/workflows/mcp-image.yml",
-        "image_candidate_tag_pattern": "mcp-candidate-{source_commit}",
-        "image_candidate_platform": "linux/amd64",
-        "image_provenance": "github_artifact_attestation",
-        "production_deployment_model": "direct_immutable_candidate",
+        "runtime_artifact": "exact_native_git_checkout",
+        "source_reference_format": "full_git_commit_sha1",
+        "source_tree_digest_format": "git_tree_path_mode_content_nul_sha256",
+        "production_deployment_model": "direct_native_exact_source",
         "production_deploy_contract_path": "deploy/mcp/README.md",
+        "production_deploy_entrypoint": ".deploy/fabfile.py",
         "production_config_validator_path": "scripts/verify_mcp_deploy_config.py",
-        "production_rollback_target": "previous_immutable_image_or_route_disabled",
+        "production_rollback_target": (
+            "previous_exact_commit_dependency_lock_deploy_config_or_route_disabled"
+        ),
         "client_acceptance_store": "github_release_asset",
         "contract_pin_path": "integration/agent-contract-pin.json",
         "compatibility_manifest_path": "integration/client-compatibility.yaml",
@@ -660,7 +654,7 @@ def validate_repository(
     registry_sha256 = validate_registry()
     runtime_conformance_sha256 = validate_runtime_conformance()
     validate_static_security()
-    validate_image_candidate_contract()
+    validate_native_deploy_contract()
     validate_release_sources()
     return {
         "pin": pin,
@@ -685,14 +679,15 @@ def _git_head() -> str:
 def build_release_descriptor(
     *,
     source_commit: str,
-    image: str,
     compatibility_path: Path = COMPATIBILITY_PATH,
     check_git_tag: bool = True,
 ) -> dict[str, Any]:
     if not COMMIT_RE.fullmatch(source_commit):
         raise ReleaseGateError("source commit must be a full lowercase 40-character SHA-1")
-    if not IMAGE_RE.fullmatch(image):
-        raise ReleaseGateError("runtime image must use the authoritative immutable GHCR digest")
+    try:
+        identity = repository_identity(ROOT, source_commit)
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
+        raise ReleaseGateError("cannot resolve exact native source identity") from exc
     state = validate_repository(
         compatibility_path=compatibility_path,
         check_git_tag=check_git_tag,
@@ -720,7 +715,10 @@ def build_release_descriptor(
         "server": {"name": "feature-request", "version": SERVER_VERSION},
         "protocol_version": PROTOCOL_VERSION,
         "source_commit": source_commit,
-        "image": image,
+        "source_tree_sha256": identity["FEATURE_REQUEST_SOURCE_TREE_SHA256"],
+        "deploy_contract_sha256": identity[
+            "FEATURE_REQUEST_DEPLOY_CONTRACT_SHA256"
+        ],
         "agent_contract": {
             "version": pin["agent_contract_version"],
             "tag": pin["tag"],
@@ -736,7 +734,9 @@ def build_release_descriptor(
         "tool_registry_sha256": state["tool_registry_sha256"],
         "runtime_conformance_sha256": state["runtime_conformance_sha256"],
         "client_compatibility_sha256": _sha256(compatibility_path.read_bytes()),
-        "dependency_lock_sha256": _sha256(LOCK_PATH.read_bytes()),
+        "dependency_lock_sha256": identity[
+            "FEATURE_REQUEST_DEPENDENCY_LOCK_SHA256"
+        ],
         "acceptance": dict(sorted(clients.items())),
         "release_status": "ready",
     }
@@ -752,7 +752,6 @@ def _parser() -> argparse.ArgumentParser:
     validate.add_argument("--compatibility", type=Path, default=COMPATIBILITY_PATH)
     build = subparsers.add_parser("build-release", help="build a sealed production descriptor")
     build.add_argument("--source-commit", default=None)
-    build.add_argument("--image", required=True)
     build.add_argument("--compatibility", type=Path, default=COMPATIBILITY_PATH)
     build.add_argument("--output", type=Path, required=True)
     build.add_argument("--check", action="store_true")
@@ -773,7 +772,6 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         descriptor = build_release_descriptor(
             source_commit=args.source_commit or _git_head(),
-            image=args.image,
             compatibility_path=args.compatibility,
         )
         payload = _json_bytes(descriptor)

@@ -7,8 +7,15 @@
 !.github/workflows/
 !.github/workflows/agent-contract.yml
 !.github/workflows/mcp-oauth.yml
-!.github/workflows/mcp-image.yml
 !.github/CODEOWNERS
+!.deploy/
+!.deploy/README.md
+!.deploy/__init__.py
+!.deploy/fabfile.py
+!.deploy/scripts/
+!.deploy/scripts/get_github_app_token.py
+.deploy/.credentials.env
+.deploy/deploy.env
 !.mcp.json
 !.dockerignore
 .venv/

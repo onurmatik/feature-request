@@ -45,8 +45,7 @@ class MCPReleaseRepositoryGateTests(unittest.TestCase):
     def test_production_descriptor_rejects_pending_acceptance(self):
         with self.assertRaises(mcp_release.ReleaseGateError):
             mcp_release.build_release_descriptor(
-                source_commit="a" * 40,
-                image="ghcr.io/onurmatik/feature-request@sha256:" + "b" * 64,
+                source_commit=mcp_release._git_head(),
             )
 
     def test_pending_client_cannot_carry_fabricated_evidence(self):
@@ -99,13 +98,11 @@ class MCPReleaseRepositoryGateTests(unittest.TestCase):
             path = Path(directory) / "compatibility.yaml"
             path.write_text(yaml.safe_dump(manifest, sort_keys=False), encoding="utf-8")
             first = mcp_release.build_release_descriptor(
-                source_commit="a" * 40,
-                image="ghcr.io/onurmatik/feature-request@sha256:" + "b" * 64,
+                source_commit=mcp_release._git_head(),
                 compatibility_path=path,
             )
             second = mcp_release.build_release_descriptor(
-                source_commit="a" * 40,
-                image="ghcr.io/onurmatik/feature-request@sha256:" + "b" * 64,
+                source_commit=mcp_release._git_head(),
                 compatibility_path=path,
             )
         self.assertEqual(mcp_release._json_bytes(first), mcp_release._json_bytes(second))
@@ -115,33 +112,35 @@ class MCPReleaseRepositoryGateTests(unittest.TestCase):
     def test_dependency_lock_keeps_required_exact_versions(self):
         mcp_release.validate_dependencies()
 
-    def test_image_candidate_contract_is_manual_digest_pinned_and_secret_safe(self):
-        mcp_release.validate_image_candidate_contract()
+    def test_native_deploy_contract_is_container_free_and_complete(self):
+        mcp_release.validate_native_deploy_contract()
 
-    def test_image_candidate_contract_rejects_an_env_prod_build_context(self):
+    def test_native_release_descriptor_binds_source_lock_and_deploy_contract(self):
+        manifest = copy.deepcopy(mcp_release._load_yaml(mcp_release.COMPATIBILITY_PATH))
+        manifest["status"] = "accepted"
+        for entry in manifest["clients"]:
+            entry["support_status"] = "accepted"
+            entry["tested_version"] = "test-client-1.0"
+            entry["tested_at"] = "2026-08-12T12:00:00Z"
+            entry["evidence"] = {
+                "url": (
+                    "https://github.com/onurmatik/feature-request/releases/download/"
+                    f"mcp-v1.0.0/{entry['client']}-acceptance.json"
+                ),
+                "sha256": mcp_release._sha256(entry["client"].encode()),
+            }
         with tempfile.TemporaryDirectory() as directory:
-            dockerignore = Path(directory) / ".dockerignore"
-            dockerignore.write_text(
-                ".env\n.deploy\n**/.credentials.env\n*.key\n*.pem\n",
-                encoding="utf-8",
+            path = Path(directory) / "compatibility.yaml"
+            path.write_text(yaml.safe_dump(manifest, sort_keys=False), encoding="utf-8")
+            descriptor = mcp_release.build_release_descriptor(
+                source_commit=mcp_release._git_head(), compatibility_path=path
             )
-            with self.assertRaises(mcp_release.ReleaseGateError):
-                mcp_release.validate_image_candidate_contract(
-                    dockerignore_path=dockerignore
-                )
-
-    def test_image_candidate_contract_rejects_mutable_action_references(self):
-        workflow = mcp_release.IMAGE_WORKFLOW_PATH.read_text(encoding="utf-8")
-        workflow = workflow.replace(
-            "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
-            "actions/checkout@v7",
-            1,
-        )
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "mcp-image.yml"
-            path.write_text(workflow, encoding="utf-8")
-            with self.assertRaises(mcp_release.ReleaseGateError):
-                mcp_release.validate_image_candidate_contract(workflow_path=path)
+        for field in (
+            "source_tree_sha256",
+            "dependency_lock_sha256",
+            "deploy_contract_sha256",
+        ):
+            self.assertRegex(descriptor[field], r"^[0-9a-f]{64}$")
 
 if __name__ == "__main__":
     unittest.main()

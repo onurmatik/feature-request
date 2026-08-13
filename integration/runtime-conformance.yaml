@@ -47,7 +47,7 @@ production:
   status: pending
   required_gates:
     - postgresql_process_concurrency
-    - immutable_ghcr_image
+    - exact_native_source_candidate
     - production_backup_and_rollback_ready
     - immutable_candidate_direct_deployment
     - production_health_discovery_and_operations

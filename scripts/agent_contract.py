@@ -1314,14 +1314,15 @@ def validate_release_sources(contract: Mapping[str, Any], path: Path = DEFAULT_R
         "deterministic_release_descriptor",
         "versioned_conformance_vectors",
         "postgresql_process_concurrency",
-        "immutable_ghcr_candidate",
-        "image_provenance_verification",
+        "exact_source_tree_digest",
+        "dependency_lock_digest",
+        "native_deploy_contract",
     }
     required_production = {
         "database_backup",
         "previous_immutable_artifact_and_config",
         "route_disable_or_rollback_command",
-        "immutable_candidate_direct_deploy",
+        "exact_native_candidate_direct_deploy",
         "production_health_discovery_and_operations",
         "required_client_acceptance_evidence",
         "production_recovery_smoke",

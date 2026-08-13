@@ -7,7 +7,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.verify_mcp_deploy_config import parse_env, validate
+from scripts.install_mcp_nginx import render_site
+from scripts.verify_mcp_deploy_config import (
+    config_fingerprint_sha256,
+    parse_env,
+    repository_identity,
+    validate,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -15,10 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class MCPDeploymentContractTests(unittest.TestCase):
     def _values(self):
-        return {
-            "FEATURE_REQUEST_IMAGE_REF": (
-                "ghcr.io/onurmatik/feature-request@sha256:" + "a" * 64
-            ),
+        values = {
             "DATABASE_URL": "postgresql://user:password@db/feature_request",
             "FEATURE_REQUEST_MCP_PRODUCTION_ENABLED": "true",
             "DEBUG": "false",
@@ -29,18 +32,34 @@ class MCPDeploymentContractTests(unittest.TestCase):
             "MCP_RESOURCE_METADATA_URL": (
                 "https://featurerequest.io/.well-known/oauth-protected-resource/mcp"
             ),
+            "FEATURE_REQUEST_MCP_HOST": "127.0.0.1",
+            "FEATURE_REQUEST_MCP_PORT": "8001",
+            "FEATURE_REQUEST_MCP_CORS_ORIGINS": (
+                "https://chatgpt.com,https://claude.ai,https://claude.com"
+            ),
+            "FEATURE_REQUEST_TRUSTED_PROXY_IPS": "127.0.0.1,::1",
             "ADMIN_EMAIL": "ops@example.com",
+            "FEATURE_REQUEST_SOURCE_COMMIT": "a" * 40,
+            "FEATURE_REQUEST_SOURCE_TREE_SHA256": "b" * 64,
+            "FEATURE_REQUEST_DEPENDENCY_LOCK_SHA256": "c" * 64,
+            "FEATURE_REQUEST_DEPLOY_CONTRACT_SHA256": "d" * 64,
         }
+        values["FEATURE_REQUEST_CONFIG_FINGERPRINT_SHA256"] = (
+            config_fingerprint_sha256(values)
+        )
+        return values
 
-    def test_valid_deployment_requires_digest_postgres_and_canonical_identity(self):
+    def test_valid_deployment_requires_native_identity_postgres_and_canonical_urls(self):
         validate(self._values())
         for field, bad in (
-            ("FEATURE_REQUEST_IMAGE_REF", "ghcr.io/onurmatik/feature-request:latest"),
             ("DATABASE_URL", "sqlite:///db.sqlite3"),
             ("FEATURE_REQUEST_MCP_PRODUCTION_ENABLED", "false"),
             ("DEBUG", "true"),
             ("DJANGO_SECRET_KEY", "short"),
             ("MCP_RESOURCE_URL", "https://featurerequest.io/mcp/"),
+            ("FEATURE_REQUEST_MCP_PORT", "9000"),
+            ("FEATURE_REQUEST_SOURCE_COMMIT", "short"),
+            ("FEATURE_REQUEST_SOURCE_TREE_SHA256", "short"),
             ("ADMIN_EMAIL", ""),
         ):
             with self.subTest(field=field), self.assertRaises(ValueError):
@@ -50,15 +69,26 @@ class MCPDeploymentContractTests(unittest.TestCase):
 
     def test_environment_file_rejects_duplicate_keys(self):
         with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "mcp.env"
+            path = Path(directory) / ".env"
             path.write_text("A=1\nA=2\n", encoding="utf-8")
             with self.assertRaises(ValueError):
                 parse_env(path)
 
+    def test_native_repository_identity_is_deterministic(self):
+        commit = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
+        ).strip()
+        first = repository_identity(ROOT, commit)
+        second = repository_identity(ROOT, commit)
+        self.assertEqual(first, second)
+        self.assertEqual(commit, first["FEATURE_REQUEST_SOURCE_COMMIT"])
+        for key, value in first.items():
+            if key != "FEATURE_REQUEST_SOURCE_COMMIT":
+                self.assertRegex(value, r"^[0-9a-f]{64}$")
+
     def test_sqlite_production_startup_guard_is_active(self):
-        script = "import config.settings"
         result = subprocess.run(
-            [sys.executable, "-c", script],
+            [sys.executable, "-c", "import config.settings"],
             cwd=ROOT,
             env={
                 "PATH": str(Path(sys.executable).parent),
@@ -72,32 +102,54 @@ class MCPDeploymentContractTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("PostgreSQL concurrency gate", result.stderr)
 
-    def test_ops_templates_keep_public_route_disabled_and_image_digest_driven(self):
+    def test_native_ops_contract_is_idempotent_fail_closed_and_container_free(self):
         deployment = ROOT / "deploy" / "mcp"
         units = "\n".join(
             path.read_text(encoding="utf-8")
             for path in sorted(deployment.glob("*.service"))
         )
-        self.assertIn("${FEATURE_REQUEST_IMAGE_REF}", units)
+        fabfile = (ROOT / ".deploy" / "fabfile.py").read_text(encoding="utf-8")
+        combined = units + fabfile + (deployment / "README.md").read_text()
+        self.assertNotIn("FEATURE_REQUEST_IMAGE_REF", combined)
+        self.assertNotIn("/usr/bin/docker", combined)
+        self.assertNotIn("ghcr.io/", combined)
+        self.assertIn("/srv/apps/__PROJECT_NAME__/venv/bin/python", units)
         self.assertIn("verify_mcp_deploy_config.py", units)
-        self.assertIn("%(U)s", units)
-        self.assertNotIn("%(q)s", units)
+        for marker in (
+            "take_database_backup",
+            "disable_mcp_route",
+            "rollback_mcp",
+            "check_public_surfaces",
+        ):
+            self.assertIn(marker, fabfile)
+
         nginx = (deployment / "nginx-mcp-oauth.conf").read_text(encoding="utf-8")
         self.assertIn("location = /mcp", nginx)
         self.assertIn("location ^~ /oauth/", nginx)
-        self.assertNotIn("location /mcp/", nginx)
-        self.assertGreaterEqual(nginx.count("access_log off;"), 2)
-        self.assertGreaterEqual(
-            nginx.count("proxy_set_header X-Forwarded-For $remote_addr;"), 2
-        )
+        self.assertNotIn("openid-configuration", nginx)
         self.assertNotIn("$proxy_add_x_forwarded_for", nginx)
-        readme = (deployment / "README.md").read_text(encoding="utf-8")
-        self.assertIn("do not enable", readme.lower())
+        disabled = (deployment / "nginx-mcp-disabled.conf").read_text()
+        self.assertGreaterEqual(disabled.count("return 404;"), 5)
 
-        dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
-        self.assertIn("%(U)s", dockerfile)
-        self.assertNotIn("%(q)s", dockerfile)
-        self.assertIn("--reinstall-package django-embedded-mcp", dockerfile)
+    def test_nginx_site_attachment_is_idempotent_and_https_scoped(self):
+        site = """
+server {
+    listen 80;
+    server_name featurerequest.io;
+}
+server {
+    listen 443 ssl http2;
+    server_name featurerequest.io;
+    client_max_body_size 20M;
+    location / { return 200; }
+}
+"""
+        include = "/etc/nginx/snippets/featurerequest-mcp-routing.conf"
+        first = render_site(site, include)
+        second = render_site(first, include)
+        self.assertEqual(first, second)
+        self.assertEqual(1, first.count(include))
+        self.assertGreater(first.index(include), first.index("listen 443 ssl"))
 
 
 if __name__ == "__main__":

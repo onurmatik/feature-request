@@ -259,10 +259,9 @@ OAuth discovery is published at:
 
 - `/.well-known/oauth-protected-resource/mcp`
 - `/.well-known/oauth-authorization-server`
-- `/.well-known/openid-configuration`
 
-Authorization, token, revocation and public-client registration use `/oauth/authorize`,
-`/oauth/token`, `/oauth/revoke`, and `/oauth/register`. Tokens, authorization codes,
+Authorization, token, revocation and public-client registration use `/oauth/authorize/`,
+`/oauth/token/`, `/oauth/revoke/`, and `/oauth/register/`. Tokens, authorization codes,
 refresh-family members, idempotency keys, and client identities in audit data are stored only as
 digests or stable redacted identifiers.
 

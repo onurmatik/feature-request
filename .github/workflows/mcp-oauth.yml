@@ -16,14 +16,12 @@ on:
       - "tests/test_mcp_release.py"
       - "tests/test_mcp_deploy.py"
       - "deploy/mcp/**"
-      - "Dockerfile"
-      - ".dockerignore"
+      - ".deploy/**"
       - "pyproject.toml"
       - "uv.lock"
       - ".mcp.json"
       - ".github/CODEOWNERS"
       - ".github/workflows/mcp-oauth.yml"
-      - ".github/workflows/mcp-image.yml"
   push:
     branches: [main]
     paths:
@@ -40,14 +38,12 @@ on:
       - "tests/test_mcp_release.py"
       - "tests/test_mcp_deploy.py"
       - "deploy/mcp/**"
-      - "Dockerfile"
-      - ".dockerignore"
+      - ".deploy/**"
       - "pyproject.toml"
       - "uv.lock"
       - ".mcp.json"
       - ".github/CODEOWNERS"
       - ".github/workflows/mcp-oauth.yml"
-      - ".github/workflows/mcp-image.yml"
 
 permissions:
   contents: read

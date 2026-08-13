@@ -26,16 +26,14 @@ descriptors:
     immutable_ref_pattern: mcp-v{server_version}
     descriptor_schema_path: release/mcp-release.schema.json
     descriptor_asset_name: mcp-release.json
-    image_store: ghcr.io/onurmatik/feature-request
-    image_reference_format: ghcr.io/onurmatik/feature-request@sha256:{digest}
-    image_candidate_workflow_path: .github/workflows/mcp-image.yml
-    image_candidate_tag_pattern: mcp-candidate-{source_commit}
-    image_candidate_platform: linux/amd64
-    image_provenance: github_artifact_attestation
-    production_deployment_model: direct_immutable_candidate
+    runtime_artifact: exact_native_git_checkout
+    source_reference_format: full_git_commit_sha1
+    source_tree_digest_format: git_tree_path_mode_content_nul_sha256
+    production_deployment_model: direct_native_exact_source
     production_deploy_contract_path: deploy/mcp/README.md
+    production_deploy_entrypoint: .deploy/fabfile.py
     production_config_validator_path: scripts/verify_mcp_deploy_config.py
-    production_rollback_target: previous_immutable_image_or_route_disabled
+    production_rollback_target: previous_exact_commit_dependency_lock_deploy_config_or_route_disabled
     client_acceptance_store: github_release_asset
     contract_pin_path: integration/agent-contract-pin.json
     compatibility_manifest_path: integration/client-compatibility.yaml
@@ -44,10 +42,10 @@ descriptors:
     digest_algorithm: sha256
     consumer_resolution: >-
       Resolve mcp-release.json and every acceptance-evidence asset from the immutable GitHub
-      Release whose tag matches mcp-v{server_version}. Pull the runtime image only by the exact
-      GHCR sha256 digest in the descriptor. Verify the pinned Agent Contract release descriptor,
-      registry, compatibility manifest, dependency lock, image and evidence digests before
-      enabling the public route. Never resolve an MCP release from a mutable branch or image tag.
+      Release whose tag matches mcp-v{server_version}. Resolve the native runtime by the exact Git
+      commit and verify its path/mode/content-framed source-tree digest, dependency lock, checked-in deploy
+      contract, pinned Agent Contract release descriptor, registry, compatibility manifest and
+      evidence digests before enabling the public route. Never deploy from a mutable branch path.
 
 promotion_environments:
   - name: local
@@ -60,15 +58,16 @@ promotion_environments:
       - oauth_mcp_repository_suite
       - sqlite_production_guard
       - postgresql_process_concurrency
-      - immutable_ghcr_candidate
-      - image_provenance_verification
+      - exact_source_tree_digest
+      - dependency_lock_digest
+      - native_deploy_contract
   - name: production
     promotes_to: null
     requires:
       - database_backup
       - previous_immutable_artifact_and_config
       - route_disable_or_rollback_command
-      - immutable_candidate_direct_deploy
+      - exact_native_candidate_direct_deploy
       - production_health_discovery_and_operations
       - required_client_acceptance_evidence
       - production_recovery_smoke
