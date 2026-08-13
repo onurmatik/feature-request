@@ -29,7 +29,7 @@ env:
   STAGING_HOST: staging.featurerequest.invalid
   STAGING_WEB: feature-request-staging-web-${{ github.run_id }}
   STAGING_MCP: feature-request-staging-mcp-${{ github.run_id }}
-  STAGING_ENV: ${{ runner.temp }}/feature-request-staging.env
+  STAGING_ENV: /tmp/feature-request-staging-${{ github.run_id }}.env
 
 jobs:
   rehearse:
