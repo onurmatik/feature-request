@@ -142,7 +142,11 @@ def repository_identity(project_dir: Path, commit: str) -> dict[str, str]:
 
 def config_fingerprint_sha256(values: dict[str, str]) -> str:
     payload = {key: values.get(key, "") for key in CONFIG_FINGERPRINT_FIELDS}
-    payload["DATABASE_ENGINE"] = values.get("DATABASE_URL", "").split(":", 1)[0]
+    for key in ("DEBUG", "FEATURE_REQUEST_MCP_PRODUCTION_ENABLED"):
+        payload[key] = payload[key].strip().lower()
+    payload["DATABASE_ENGINE"] = (
+        values.get("DATABASE_URL", "").split(":", 1)[0].lower()
+    )
     payload["ADMIN_EMAIL"] = "configured" if values.get("ADMIN_EMAIL") else "missing"
     serialized = "{" + ",".join(
         f'{key!r}:{payload[key]!r}' for key in sorted(payload)

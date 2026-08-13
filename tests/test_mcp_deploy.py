@@ -68,6 +68,15 @@ class MCPDeploymentContractTests(unittest.TestCase):
                 values[field] = bad
                 validate(values)
 
+    def test_config_fingerprint_normalizes_boolean_spelling(self):
+        values = self._values()
+        values["DEBUG"] = "False"
+        values["FEATURE_REQUEST_MCP_PRODUCTION_ENABLED"] = "TRUE"
+        values["FEATURE_REQUEST_CONFIG_FINGERPRINT_SHA256"] = (
+            config_fingerprint_sha256(values)
+        )
+        validate(values)
+
     def test_environment_file_rejects_duplicate_keys(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / ".env"
