@@ -114,6 +114,8 @@ class MCPReleaseRepositoryGateTests(unittest.TestCase):
 
     def test_native_deploy_contract_is_container_free_and_complete(self):
         mcp_release.validate_native_deploy_contract()
+        self.assertFalse((mcp_release.ROOT / "Dockerfile").exists())
+        self.assertFalse((mcp_release.ROOT / ".dockerignore").exists())
 
     def test_native_release_descriptor_binds_source_lock_and_deploy_contract(self):
         manifest = copy.deepcopy(mcp_release._load_yaml(mcp_release.COMPATIBILITY_PATH))
