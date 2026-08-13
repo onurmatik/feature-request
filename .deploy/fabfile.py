@@ -469,9 +469,26 @@ def run_release_steps(c) -> None:
 
 
 def restart_web(c) -> None:
+    # Stop the activation socket before the service. Otherwise live traffic can
+    # reactivate Gunicorn between the service stop and socket restart, and that
+    # restart then terminates the fresh process while health checks are queued.
+    c.sudo(f"systemctl stop app@{PROJECT_NAME}.socket")
     c.sudo(f"systemctl stop app@{PROJECT_NAME}.service", warn=True)
-    c.sudo(f"systemctl restart app@{PROJECT_NAME}.socket")
+    c.sudo(f"systemctl start app@{PROJECT_NAME}.socket")
     c.sudo(f"systemctl reset-failed app@{PROJECT_NAME}.service app@{PROJECT_NAME}.socket")
+
+
+def check_loopback_oauth(c) -> None:
+    domain = require_env(*ENV_DOMAIN)
+    socket_path = f"/run/{PROJECT_NAME}/gunicorn.sock"
+    c.run(
+        "curl --silent --show-error --fail --max-time 30 "
+        f"--unix-socket {quote(socket_path)} "
+        f"--header {quote('Host: ' + domain)} "
+        f"--header {quote('X-Forwarded-Proto: https')} "
+        "http://localhost/.well-known/oauth-authorization-server >/dev/null"
+    )
+    debug("loopback_oauth_metadata=passed")
 
 
 def check_loopback_mcp(c) -> None:
@@ -655,6 +672,7 @@ def deploy(c, source_commit=None):
         check_loopback_mcp(c)
 
         restart_web(c)
+        check_loopback_oauth(c)
         set_mcp_route(c, enabled=True)
         check_public_surfaces(c)
 
@@ -689,6 +707,7 @@ def deploy(c, source_commit=None):
                 "cleanup": "passed",
                 "cleanup_health": "passed",
                 "loopback_mcp_challenge": "passed",
+                "loopback_oauth_metadata": "passed",
                 "public_discovery_and_challenge": "passed",
             },
             "public_route_enabled": True,

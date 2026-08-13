@@ -141,9 +141,16 @@ class MCPDeploymentContractTests(unittest.TestCase):
             "take_database_backup",
             "disable_mcp_route",
             "rollback_mcp",
+            "check_loopback_oauth",
             "check_public_surfaces",
         ):
             self.assertIn(marker, fabfile)
+
+        socket_stop = f'systemctl stop app@{{PROJECT_NAME}}.socket'
+        service_stop = f'systemctl stop app@{{PROJECT_NAME}}.service'
+        socket_start = f'systemctl start app@{{PROJECT_NAME}}.socket'
+        self.assertLess(fabfile.index(socket_stop), fabfile.index(service_stop))
+        self.assertLess(fabfile.index(service_stop), fabfile.index(socket_start))
 
         nginx = (deployment / "nginx-mcp-oauth.conf").read_text(encoding="utf-8")
         self.assertIn("location = /mcp", nginx)
