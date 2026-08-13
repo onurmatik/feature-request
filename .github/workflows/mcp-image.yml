@@ -64,7 +64,7 @@ jobs:
           if head != source:
               raise SystemExit(f"checkout mismatch: requested={source} resolved={head}")
           PY
-          git fetch origin main:refs/remotes/origin/main --prune
+          git fetch --no-tags --depth=1 origin +refs/heads/main:refs/remotes/origin/main
           git merge-base --is-ancestor "$SOURCE_COMMIT" origin/main
           printf 'source_commit=%s\n' "$SOURCE_COMMIT"
 
