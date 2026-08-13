@@ -683,7 +683,7 @@ def validate_staging_rehearsal_contract(
         marker in all_runs
         for marker in (
             'gh attestation verify "oci://$IMAGE_REF"',
-            'signature.get("sourceRepositoryDigest") == expected_source',
+            'certificate.get("sourceRepositoryDigest") == expected_source',
             'subject.get("digest", {}).get("sha256") == expected_digest',
         )
     ):

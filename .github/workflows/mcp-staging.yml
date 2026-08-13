@@ -97,10 +97,11 @@ jobs:
           for record in records:
               result = record.get("verificationResult", {})
               signature = result.get("signature", {})
+              certificate = signature.get("certificate", {})
               statement = result.get("statement", {})
               subjects = statement.get("subject", [])
               if (
-                  signature.get("sourceRepositoryDigest") == expected_source
+                  certificate.get("sourceRepositoryDigest") == expected_source
                   and any(
                       subject.get("name") == "ghcr.io/onurmatik/feature-request"
                       and subject.get("digest", {}).get("sha256") == expected_digest
