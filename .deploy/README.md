@@ -1,18 +1,28 @@
+Run the existing native Django deployment from this directory:
 
+```bash
 cd .deploy/
-fab deploy --source-commit=<full-origin-main-sha>
+fab deploy
+```
 
-# Deploy will upload ../.env-prod (preferred) or ../.env to /srv/apps/{PROJECT_NAME}/.env
+The task:
 
-# Files
-- `.credentials.env`: GitHub App credentials used by `scripts/get_github_app_token.py`
-- `deploy.env`: per-project deploy config (PROJECT_NAME, GITHUB_APP_REPO, DEPLOY_HOST, DOMAIN, etc.)
+1. refreshes the GitHub App token when the local helper is configured;
+2. clones or hard-resets the server checkout to `origin/main`;
+3. uploads `../.env-prod` (preferred) or `../.env` to
+   `/srv/apps/{PROJECT_NAME}/.env`;
+4. creates the existing native virtualenv and runs frozen production dependency
+   sync;
+5. runs `collectstatic`, Django migrations and `check --deploy`;
+6. restarts the existing `app@{PROJECT_NAME}.socket`; and
+7. performs a read-only public homepage smoke check.
 
-# Tip
-Copy `.deploy` between projects and only edit `deploy.env` to point at the new repo/host/domain.
+Local configuration:
 
-# MCP/OAuth production controls
-- `fab disable-mcp-route` fail-closes the public MCP/OAuth surface and stops MCP.
-- `fab rollback-mcp --source-commit=<sha> --env-backup=<path>` restores exact native source/config
-  while leaving the public surface disabled.
-- The canonical deploy takes a verified pgBackRest backup before changing source or configuration.
+- `.credentials.env`: GitHub App ID, installation ID and private-key path.
+- `deploy.env`: `PROJECT_NAME`, `DOMAIN`, `GITHUB_APP_REPO`, `DEPLOY_HOST`,
+  `KEY_FILENAME`, `DEPLOY_USER` and `APP_USER`.
+
+These local environment files are ignored by Git. This deployment contract
+does not provision Docker, systemd units, nginx routes, MCP processes, database
+backups, schedulers or rollback infrastructure.

@@ -43,15 +43,10 @@ bindings:
   - {id: external_effect_uncertain_matrix, repository_test: feature_request_mcp.tests.FeatureRequestContractRuntimeConformanceTest.test_external_dependency_unavailable_matrix_rolls_back_before_reservation, evidence_mode: runtime_policy, repository_status: covered}
   - {id: notification_unknown_after_commit_matrix, repository_test: feature_request_mcp.tests.FeatureRequestModernTransportTest.test_post_commit_notification_failure_keeps_mutation_successful_and_audited, evidence_mode: runtime_dispatch, repository_status: covered}
   - {id: redaction_matrix, repository_test: feature_request_mcp.tests.FeatureRequestContractRuntimeConformanceTest.test_success_vectors_execute_through_mcp, evidence_mode: audit_redaction, repository_status: covered}
-production:
+live_acceptance:
   status: pending
   required_gates:
     - postgresql_process_concurrency
-    - exact_native_source_candidate
-    - production_backup_and_rollback_ready
-    - immutable_candidate_direct_deployment
-    - production_health_discovery_and_operations
+    - separate_deployment_complete
     - required_real_client_acceptance
-    - production_recovery_smoke
-    - production_observation_window
     - immutable_mcp_release

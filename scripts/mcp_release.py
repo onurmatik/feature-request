@@ -22,7 +22,6 @@ from jsonschema import Draft202012Validator, FormatChecker
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-from scripts.verify_mcp_deploy_config import repository_identity
 PIN_PATH = ROOT / "integration" / "agent-contract-pin.json"
 PINNED_DESCRIPTOR_PATH = ROOT / "integration" / "agent-contract-release.json"
 COMPATIBILITY_PATH = ROOT / "integration" / "client-compatibility.yaml"
@@ -38,9 +37,6 @@ LOCK_PATH = ROOT / "uv.lock"
 SERVER_SOURCE_PATH = ROOT / "feature_request_mcp" / "server.py"
 AGENT_SERVICE_SOURCE_PATH = ROOT / "agent_runtime" / "service.py"
 CODEOWNERS_PATH = ROOT / ".github" / "CODEOWNERS"
-FABFILE_PATH = ROOT / ".deploy" / "fabfile.py"
-DEPLOY_README_PATH = ROOT / "deploy" / "mcp" / "README.md"
-DEPLOY_CONFIG_VALIDATOR_PATH = ROOT / "scripts" / "verify_mcp_deploy_config.py"
 CONFORMANCE_FRAMING = "utf8_relative_path_nul_raw_content_nul_v1"
 SERVER_VERSION = "1.0.0"
 PROTOCOL_VERSION = "2026-07-28"
@@ -70,15 +66,10 @@ EXPECTED_CLIENTS = {
     },
 }
 
-EXPECTED_PRODUCTION_GATES = [
+EXPECTED_LIVE_GATES = [
     "postgresql_process_concurrency",
-    "exact_native_source_candidate",
-    "production_backup_and_rollback_ready",
-    "immutable_candidate_direct_deployment",
-    "production_health_discovery_and_operations",
+    "separate_deployment_complete",
     "required_real_client_acceptance",
-    "production_recovery_smoke",
-    "production_observation_window",
     "immutable_mcp_release",
 ]
 
@@ -92,25 +83,18 @@ EXPECTED_PROMOTION_ENVIRONMENTS = [
             "versioned_conformance_vectors",
             "pinned_agent_contract_release",
             "oauth_mcp_repository_suite",
-            "sqlite_production_guard",
             "postgresql_process_concurrency",
             "exact_source_tree_digest",
             "dependency_lock_digest",
-            "native_deploy_contract",
+            "deployment_handoff",
         ],
     },
     {
         "name": "production",
         "promotes_to": None,
         "requires": [
-            "database_backup",
-            "previous_immutable_artifact_and_config",
-            "route_disable_or_rollback_command",
-            "exact_native_candidate_direct_deploy",
-            "production_health_discovery_and_operations",
+            "separate_deployment_complete",
             "required_client_acceptance_evidence",
-            "production_recovery_smoke",
-            "production_observation_window",
             "immutable_git_tag",
             "github_release",
             "digest_verification",
@@ -153,6 +137,39 @@ def _load_yaml(path: Path) -> Any:
         return yaml.safe_load(path.read_text(encoding="utf-8"))
     except (FileNotFoundError, UnicodeDecodeError, yaml.YAMLError) as exc:
         raise ReleaseGateError(f"invalid or missing YAML artifact: {path}") from exc
+
+
+def _git_bytes(*args: str) -> bytes:
+    return subprocess.run(
+        ["git", *args],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+    ).stdout
+
+
+def source_tree_sha256(commit: str) -> str:
+    listing = _git_bytes("ls-tree", "-r", "-z", "--full-tree", commit)
+    digest = hashlib.sha256()
+    for entry in listing.split(b"\0"):
+        if not entry:
+            continue
+        metadata, raw_path = entry.split(b"\t", 1)
+        mode, object_type, object_id = metadata.split(b" ", 2)
+        if object_type != b"blob":
+            raise ReleaseGateError("source tree contains an unsupported non-blob entry")
+        content = _git_bytes("cat-file", "blob", object_id.decode("ascii"))
+        digest.update(raw_path)
+        digest.update(b"\0")
+        digest.update(mode)
+        digest.update(b"\0")
+        digest.update(content)
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def dependency_lock_sha256(commit: str) -> str:
+    return _sha256(_git_bytes("show", f"{commit}:uv.lock"))
 
 
 def _exact_keys(value: Mapping[str, Any], expected: set[str], label: str) -> None:
@@ -425,7 +442,7 @@ def validate_runtime_conformance() -> str:
             "vector_bundle_sha256",
             "status",
             "bindings",
-            "production",
+            "live_acceptance",
         },
         "runtime conformance manifest",
     )
@@ -484,15 +501,19 @@ def validate_runtime_conformance() -> str:
             raise ReleaseGateError(f"runtime test reference is not executable: {test_ref}")
     if found_ids != expected_ids or len(set(found_ids)) != len(found_ids):
         raise ReleaseGateError("runtime conformance vector order/set differs from the pin")
-    production = manifest["production"]
-    if not isinstance(production, Mapping):
-        raise ReleaseGateError("runtime conformance production gate must be an object")
-    _exact_keys(production, {"status", "required_gates"}, "runtime production gate")
+    live_acceptance = manifest["live_acceptance"]
+    if not isinstance(live_acceptance, Mapping):
+        raise ReleaseGateError("runtime conformance live acceptance gate must be an object")
+    _exact_keys(
+        live_acceptance,
+        {"status", "required_gates"},
+        "runtime live acceptance gate",
+    )
     if (
-        production["status"] != "pending"
-        or production["required_gates"] != EXPECTED_PRODUCTION_GATES
+        live_acceptance["status"] != "pending"
+        or live_acceptance["required_gates"] != EXPECTED_LIVE_GATES
     ):
-        raise ReleaseGateError("runtime production gates must remain truthfully pending")
+        raise ReleaseGateError("runtime live acceptance gates must remain truthfully pending")
     return _sha256(RUNTIME_CONFORMANCE_PATH.read_bytes())
 
 
@@ -519,96 +540,11 @@ def validate_static_security() -> None:
         "/packages/django-embedded-mcp/",
         "/integration/",
         "/release/",
-        "/deploy/mcp/",
-        "/.deploy/",
         "/scripts/mcp_release.py",
-        "/scripts/install_mcp_nginx.py",
-        "/scripts/update_mcp_env.py",
-        "/scripts/verify_mcp_deploy_config.py",
         "/projects/services.py",
     ):
         if f"{path} @onurmatik" not in owners:
             raise ReleaseGateError(f"CODEOWNERS is missing {path}")
-
-
-def validate_native_deploy_contract() -> None:
-    try:
-        fabfile = FABFILE_PATH.read_text(encoding="utf-8")
-        readme = DEPLOY_README_PATH.read_text(encoding="utf-8")
-        validator = DEPLOY_CONFIG_VALIDATOR_PATH.read_text(encoding="utf-8")
-        deployment = ROOT / "deploy" / "mcp"
-        services = "\n".join(
-            path.read_text(encoding="utf-8")
-            for path in sorted(deployment.glob("*.service"))
-        )
-        timers = "\n".join(
-            path.read_text(encoding="utf-8")
-            for path in sorted(deployment.glob("*.timer"))
-        )
-        nginx = (deployment / "nginx-mcp-oauth.conf").read_text(encoding="utf-8")
-        disabled = (deployment / "nginx-mcp-disabled.conf").read_text(encoding="utf-8")
-        gunicorn = (deployment / "gunicorn-mcp-log-safety.conf").read_text(
-            encoding="utf-8"
-        )
-    except (FileNotFoundError, UnicodeDecodeError) as exc:
-        raise ReleaseGateError("invalid or missing native MCP deploy contract") from exc
-    combined = "\n".join(
-        (fabfile, readme, validator, services, timers, nginx, disabled, gunicorn)
-    )
-    for forbidden in ("FEATURE_REQUEST_IMAGE_REF", "/usr/bin/docker", "ghcr.io/"):
-        if forbidden in combined:
-            raise ReleaseGateError(
-                f"native MCP deploy contract contains container dependency: {forbidden}"
-            )
-    for marker in (
-        "take_database_backup",
-        "disable_mcp_route",
-        "rollback_mcp",
-        "install_systemd_contract",
-        "check_loopback_mcp",
-        "check_public_surfaces",
-        "source_commit",
-        "pgbackrest",
-        "--reinstall-package django-embedded-mcp",
-    ):
-        if marker not in fabfile:
-            raise ReleaseGateError(f"native Fabric deploy is missing {marker}")
-    for marker in (
-        "/srv/apps/__PROJECT_NAME__/venv/bin/python",
-        "verify_mcp_deploy_config.py",
-        "python -m feature_request_mcp",
-        "cleanup_mcp_oauth",
-        "check_mcp_oauth_health",
-    ):
-        if marker not in services:
-            raise ReleaseGateError(f"native systemd contract is missing {marker}")
-    if "OnCalendar=daily" not in timers or "OnCalendar=hourly" not in timers:
-        raise ReleaseGateError("native cleanup/health timers are incomplete")
-    for marker in (
-        "location = /mcp",
-        "location ^~ /oauth/",
-        "proxy_set_header X-Forwarded-For $remote_addr;",
-        "access_log off;",
-    ):
-        if marker not in nginx:
-            raise ReleaseGateError(f"native Nginx contract is missing {marker}")
-    if "openid-configuration" in nginx or "$proxy_add_x_forwarded_for" in nginx:
-        raise ReleaseGateError("native Nginx contract exposes an unsupported or untrusted path")
-    if disabled.count("return 404;") < 9:
-        raise ReleaseGateError("route-disable contract must fail-close every MCP/OAuth surface")
-    if "%%(U)s" not in gunicorn or "%%(q)s" in gunicorn or "%%(r)s" in gunicorn:
-        raise ReleaseGateError("native Gunicorn access logs must be path-only")
-    for marker in (
-        "FEATURE_REQUEST_SOURCE_COMMIT",
-        "FEATURE_REQUEST_SOURCE_TREE_SHA256",
-        "FEATURE_REQUEST_DEPENDENCY_LOCK_SHA256",
-        "FEATURE_REQUEST_DEPLOY_CONTRACT_SHA256",
-        "validate_repository_identity",
-    ):
-        if marker not in validator:
-            raise ReleaseGateError(f"native deployment identity validator is missing {marker}")
-    if "fab deploy --source-commit=" not in readme or "fab rollback-mcp" not in readme:
-        raise ReleaseGateError("native deploy documentation lacks exact deploy/rollback commands")
 
 
 def validate_release_sources() -> None:
@@ -622,13 +558,7 @@ def validate_release_sources() -> None:
         "runtime_artifact": "exact_native_git_checkout",
         "source_reference_format": "full_git_commit_sha1",
         "source_tree_digest_format": "git_tree_path_mode_content_nul_sha256",
-        "production_deployment_model": "direct_native_exact_source",
-        "production_deploy_contract_path": "deploy/mcp/README.md",
-        "production_deploy_entrypoint": ".deploy/fabfile.py",
-        "production_config_validator_path": "scripts/verify_mcp_deploy_config.py",
-        "production_rollback_target": (
-            "previous_exact_commit_dependency_lock_deploy_config_or_route_disabled"
-        ),
+        "deployment_handoff_path": "docs/mcp-deployment-handoff.md",
         "client_acceptance_store": "github_release_asset",
         "contract_pin_path": "integration/agent-contract-pin.json",
         "compatibility_manifest_path": "integration/client-compatibility.yaml",
@@ -656,7 +586,6 @@ def validate_repository(
     registry_sha256 = validate_registry()
     runtime_conformance_sha256 = validate_runtime_conformance()
     validate_static_security()
-    validate_native_deploy_contract()
     validate_release_sources()
     return {
         "pin": pin,
@@ -687,16 +616,17 @@ def build_release_descriptor(
     if not COMMIT_RE.fullmatch(source_commit):
         raise ReleaseGateError("source commit must be a full lowercase 40-character SHA-1")
     try:
-        identity = repository_identity(ROOT, source_commit)
+        source_digest = source_tree_sha256(source_commit)
+        dependency_digest = dependency_lock_sha256(source_commit)
     except (OSError, ValueError, subprocess.SubprocessError) as exc:
-        raise ReleaseGateError("cannot resolve exact native source identity") from exc
+        raise ReleaseGateError("cannot resolve exact source identity") from exc
     state = validate_repository(
         compatibility_path=compatibility_path,
         check_git_tag=check_git_tag,
     )
     if state["pending_clients"]:
         raise ReleaseGateError(
-            "production release requires immutable acceptance evidence for: "
+            "public release requires immutable acceptance evidence for: "
             + ", ".join(state["pending_clients"])
         )
     clients = {}
@@ -717,10 +647,7 @@ def build_release_descriptor(
         "server": {"name": "feature-request", "version": SERVER_VERSION},
         "protocol_version": PROTOCOL_VERSION,
         "source_commit": source_commit,
-        "source_tree_sha256": identity["FEATURE_REQUEST_SOURCE_TREE_SHA256"],
-        "deploy_contract_sha256": identity[
-            "FEATURE_REQUEST_DEPLOY_CONTRACT_SHA256"
-        ],
+        "source_tree_sha256": source_digest,
         "agent_contract": {
             "version": pin["agent_contract_version"],
             "tag": pin["tag"],
@@ -736,9 +663,7 @@ def build_release_descriptor(
         "tool_registry_sha256": state["tool_registry_sha256"],
         "runtime_conformance_sha256": state["runtime_conformance_sha256"],
         "client_compatibility_sha256": _sha256(compatibility_path.read_bytes()),
-        "dependency_lock_sha256": identity[
-            "FEATURE_REQUEST_DEPENDENCY_LOCK_SHA256"
-        ],
+        "dependency_lock_sha256": dependency_digest,
         "acceptance": dict(sorted(clients.items())),
         "release_status": "ready",
     }
@@ -752,7 +677,7 @@ def _parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
     validate = subparsers.add_parser("validate", help="run repository MCP/OAuth stage gates")
     validate.add_argument("--compatibility", type=Path, default=COMPATIBILITY_PATH)
-    build = subparsers.add_parser("build-release", help="build a sealed production descriptor")
+    build = subparsers.add_parser("build-release", help="build a sealed public descriptor")
     build.add_argument("--source-commit", default=None)
     build.add_argument("--compatibility", type=Path, default=COMPATIBILITY_PATH)
     build.add_argument("--output", type=Path, required=True)

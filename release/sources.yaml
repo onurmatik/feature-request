@@ -29,11 +29,7 @@ descriptors:
     runtime_artifact: exact_native_git_checkout
     source_reference_format: full_git_commit_sha1
     source_tree_digest_format: git_tree_path_mode_content_nul_sha256
-    production_deployment_model: direct_native_exact_source
-    production_deploy_contract_path: deploy/mcp/README.md
-    production_deploy_entrypoint: .deploy/fabfile.py
-    production_config_validator_path: scripts/verify_mcp_deploy_config.py
-    production_rollback_target: previous_exact_commit_dependency_lock_deploy_config_or_route_disabled
+    deployment_handoff_path: docs/mcp-deployment-handoff.md
     client_acceptance_store: github_release_asset
     contract_pin_path: integration/agent-contract-pin.json
     compatibility_manifest_path: integration/client-compatibility.yaml
@@ -43,9 +39,9 @@ descriptors:
     consumer_resolution: >-
       Resolve mcp-release.json and every acceptance-evidence asset from the immutable GitHub
       Release whose tag matches mcp-v{server_version}. Resolve the native runtime by the exact Git
-      commit and verify its path/mode/content-framed source-tree digest, dependency lock, checked-in deploy
-      contract, pinned Agent Contract release descriptor, registry, compatibility manifest and
-      evidence digests before enabling the public route. Never deploy from a mutable branch path.
+      commit and verify its path/mode/content-framed source-tree digest, dependency lock, pinned
+      Agent Contract release descriptor, registry, compatibility manifest and evidence digests.
+      Deployment remains a separate explicit task owned by the product's existing process.
 
 promotion_environments:
   - name: local
@@ -56,22 +52,15 @@ promotion_environments:
       - versioned_conformance_vectors
       - pinned_agent_contract_release
       - oauth_mcp_repository_suite
-      - sqlite_production_guard
       - postgresql_process_concurrency
       - exact_source_tree_digest
       - dependency_lock_digest
-      - native_deploy_contract
+      - deployment_handoff
   - name: production
     promotes_to: null
     requires:
-      - database_backup
-      - previous_immutable_artifact_and_config
-      - route_disable_or_rollback_command
-      - exact_native_candidate_direct_deploy
-      - production_health_discovery_and_operations
+      - separate_deployment_complete
       - required_client_acceptance_evidence
-      - production_recovery_smoke
-      - production_observation_window
       - immutable_git_tag
       - github_release
       - digest_verification

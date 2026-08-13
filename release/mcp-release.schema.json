@@ -10,7 +10,6 @@
     "protocol_version",
     "source_commit",
     "source_tree_sha256",
-    "deploy_contract_sha256",
     "agent_contract",
     "tool_registry_sha256",
     "runtime_conformance_sha256",
@@ -33,7 +32,6 @@
     "protocol_version": {"const": "2026-07-28"},
     "source_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
     "source_tree_sha256": {"$ref": "#/$defs/sha256"},
-    "deploy_contract_sha256": {"$ref": "#/$defs/sha256"},
     "agent_contract": {
       "type": "object",
       "additionalProperties": false,

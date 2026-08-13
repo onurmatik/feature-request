@@ -287,10 +287,10 @@ uv run python manage.py makemigrations --check --dry-run
 uv run python manage.py test
 ```
 
-The MCP release builder intentionally refuses to create a production descriptor while ChatGPT,
-Codex, Claude remote/Desktop, or Claude Code evidence remains pending. Deployment templates,
-SQLite production guard, rollback contract, cleanup/health timers, and the disabled nginx include
-live under `deploy/mcp/`. This implementation task does not enable the production route.
+The MCP release builder intentionally refuses to create a public descriptor while ChatGPT,
+Codex, Claude remote/Desktop, or Claude Code evidence remains pending. Runtime requirements are
+documented in `docs/mcp-deployment-handoff.md`; MCP implementation does not alter the project's
+existing deployment process.
 
 Bootstrap tool:
 

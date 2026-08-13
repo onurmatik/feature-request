@@ -6,14 +6,9 @@
 /packages/django-embedded-mcp/ @onurmatik
 /integration/ @onurmatik
 /release/ @onurmatik
-/deploy/mcp/ @onurmatik
-/.deploy/ @onurmatik
 /scripts/mcp_release.py @onurmatik
-/scripts/install_mcp_nginx.py @onurmatik
-/scripts/update_mcp_env.py @onurmatik
-/scripts/verify_mcp_deploy_config.py @onurmatik
 /tests/test_mcp_release.py @onurmatik
-/tests/test_mcp_deploy.py @onurmatik
+/.deploy/ @onurmatik
 /.github/workflows/agent-contract.yml @onurmatik
 /.github/workflows/mcp-oauth.yml @onurmatik
 /config/settings.py @onurmatik

@@ -112,12 +112,31 @@ class MCPReleaseRepositoryGateTests(unittest.TestCase):
     def test_dependency_lock_keeps_required_exact_versions(self):
         mcp_release.validate_dependencies()
 
-    def test_native_deploy_contract_is_container_free_and_complete(self):
-        mcp_release.validate_native_deploy_contract()
-        self.assertFalse((mcp_release.ROOT / "Dockerfile").exists())
-        self.assertFalse((mcp_release.ROOT / ".dockerignore").exists())
+    def test_agentic_lifecycle_preserves_the_native_deployment_contract(self):
+        deploy_source = (mcp_release.ROOT / ".deploy" / "fabfile.py").read_text()
+        expected_steps = (
+            "git reset --hard origin/main",
+            "sync --frozen --no-dev",
+            "manage.py collectstatic --noinput",
+            "manage.py migrate --noinput",
+            "manage.py check --deploy",
+            "systemctl start {quote(socket)}",
+        )
+        for expected in expected_steps:
+            self.assertIn(expected, deploy_source)
+        for forbidden in (
+            "pgbackrest",
+            "take_database_backup",
+            "install_systemd_contract",
+            "install_nginx_contract",
+            "MCP_SERVICE",
+            "Dockerfile",
+        ):
+            self.assertNotIn(forbidden, deploy_source)
+        self.assertFalse((mcp_release.ROOT / "deploy" / "mcp" / "README.md").exists())
+        self.assertTrue((mcp_release.ROOT / "docs" / "mcp-deployment-handoff.md").is_file())
 
-    def test_native_release_descriptor_binds_source_lock_and_deploy_contract(self):
+    def test_release_descriptor_binds_source_and_dependency_lock(self):
         manifest = copy.deepcopy(mcp_release._load_yaml(mcp_release.COMPATIBILITY_PATH))
         manifest["status"] = "accepted"
         for entry in manifest["clients"]:
@@ -140,7 +159,6 @@ class MCPReleaseRepositoryGateTests(unittest.TestCase):
         for field in (
             "source_tree_sha256",
             "dependency_lock_sha256",
-            "deploy_contract_sha256",
         ):
             self.assertRegex(descriptor[field], r"^[0-9a-f]{64}$")
 
