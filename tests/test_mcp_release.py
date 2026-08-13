@@ -115,6 +115,34 @@ class MCPReleaseRepositoryGateTests(unittest.TestCase):
     def test_dependency_lock_keeps_required_exact_versions(self):
         mcp_release.validate_dependencies()
 
+    def test_image_candidate_contract_is_manual_digest_pinned_and_secret_safe(self):
+        mcp_release.validate_image_candidate_contract()
+
+    def test_image_candidate_contract_rejects_an_env_prod_build_context(self):
+        with tempfile.TemporaryDirectory() as directory:
+            dockerignore = Path(directory) / ".dockerignore"
+            dockerignore.write_text(
+                ".env\n.deploy\n**/.credentials.env\n*.key\n*.pem\n",
+                encoding="utf-8",
+            )
+            with self.assertRaises(mcp_release.ReleaseGateError):
+                mcp_release.validate_image_candidate_contract(
+                    dockerignore_path=dockerignore
+                )
+
+    def test_image_candidate_contract_rejects_mutable_action_references(self):
+        workflow = mcp_release.IMAGE_WORKFLOW_PATH.read_text(encoding="utf-8")
+        workflow = workflow.replace(
+            "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+            "actions/checkout@v7",
+            1,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "mcp-image.yml"
+            path.write_text(workflow, encoding="utf-8")
+            with self.assertRaises(mcp_release.ReleaseGateError):
+                mcp_release.validate_image_candidate_contract(workflow_path=path)
+
 
 if __name__ == "__main__":
     unittest.main()

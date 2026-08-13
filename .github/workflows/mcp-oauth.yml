@@ -23,6 +23,7 @@ on:
       - ".mcp.json"
       - ".github/CODEOWNERS"
       - ".github/workflows/mcp-oauth.yml"
+      - ".github/workflows/mcp-image.yml"
   push:
     branches: [main]
     paths:
@@ -46,6 +47,7 @@ on:
       - ".mcp.json"
       - ".github/CODEOWNERS"
       - ".github/workflows/mcp-oauth.yml"
+      - ".github/workflows/mcp-image.yml"
 
 permissions:
   contents: read

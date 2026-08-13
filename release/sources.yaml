@@ -28,6 +28,10 @@ descriptors:
     descriptor_asset_name: mcp-release.json
     image_store: ghcr.io/onurmatik/feature-request
     image_reference_format: ghcr.io/onurmatik/feature-request@sha256:{digest}
+    image_candidate_workflow_path: .github/workflows/mcp-image.yml
+    image_candidate_tag_pattern: mcp-staging-{source_commit}
+    image_candidate_platform: linux/amd64
+    image_provenance: github_artifact_attestation
     contract_pin_path: integration/agent-contract-pin.json
     compatibility_manifest_path: integration/client-compatibility.yaml
     runtime_conformance_manifest_path: integration/runtime-conformance.yaml

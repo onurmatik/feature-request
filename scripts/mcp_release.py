@@ -37,6 +37,8 @@ LOCK_PATH = ROOT / "uv.lock"
 SERVER_SOURCE_PATH = ROOT / "feature_request_mcp" / "server.py"
 AGENT_SERVICE_SOURCE_PATH = ROOT / "agent_runtime" / "service.py"
 CODEOWNERS_PATH = ROOT / ".github" / "CODEOWNERS"
+IMAGE_WORKFLOW_PATH = ROOT / ".github" / "workflows" / "mcp-image.yml"
+DOCKERIGNORE_PATH = ROOT / ".dockerignore"
 CONFORMANCE_FRAMING = "utf8_relative_path_nul_raw_content_nul_v1"
 SERVER_VERSION = "1.0.0"
 PROTOCOL_VERSION = "2026-07-28"
@@ -481,12 +483,97 @@ def validate_static_security() -> None:
         "/deploy/mcp/",
         "/Dockerfile",
         "/.dockerignore",
+        "/.github/workflows/mcp-image.yml",
         "/scripts/mcp_release.py",
         "/scripts/verify_mcp_deploy_config.py",
         "/projects/services.py",
     ):
         if f"{path} @onurmatik" not in owners:
             raise ReleaseGateError(f"CODEOWNERS is missing {path}")
+
+
+def validate_image_candidate_contract(
+    *,
+    workflow_path: Path = IMAGE_WORKFLOW_PATH,
+    dockerignore_path: Path = DOCKERIGNORE_PATH,
+) -> None:
+    try:
+        workflow_text = workflow_path.read_text(encoding="utf-8")
+        workflow = yaml.load(workflow_text, Loader=yaml.BaseLoader)
+        ignored = {
+            line.strip()
+            for line in dockerignore_path.read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        }
+    except (FileNotFoundError, UnicodeDecodeError, yaml.YAMLError) as exc:
+        raise ReleaseGateError("invalid or missing MCP image candidate contract") from exc
+    if not isinstance(workflow, Mapping):
+        raise ReleaseGateError("MCP image candidate workflow must be an object")
+    triggers = workflow.get("on")
+    if not isinstance(triggers, Mapping) or set(triggers) != {"workflow_dispatch"}:
+        raise ReleaseGateError("MCP image publication must be manual workflow_dispatch only")
+    dispatch = triggers["workflow_dispatch"]
+    source_input = dispatch.get("inputs", {}).get("source_commit", {})
+    if source_input.get("required") != "true" or source_input.get("type") != "string":
+        raise ReleaseGateError("MCP image publication requires an explicit source_commit input")
+    permissions = workflow.get("permissions")
+    if permissions != {
+        "contents": "read",
+        "packages": "write",
+        "id-token": "write",
+        "attestations": "write",
+    }:
+        raise ReleaseGateError("MCP image workflow permissions must stay least-privilege and exact")
+    publish = workflow.get("jobs", {}).get("publish", {})
+    postgres = publish.get("services", {}).get("postgres", {})
+    if postgres.get("image") != "postgres:17":
+        raise ReleaseGateError("MCP image publication must rerun the PostgreSQL 17 gate")
+    steps = publish.get("steps", [])
+    if not isinstance(steps, list):
+        raise ReleaseGateError("MCP image workflow publish steps are invalid")
+    for step in steps:
+        uses = step.get("uses") if isinstance(step, Mapping) else None
+        if uses and not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+@[0-9a-f]{40}", uses):
+            raise ReleaseGateError(f"MCP image workflow action is not SHA-pinned: {uses}")
+    by_id = {
+        step["id"]: step
+        for step in steps
+        if isinstance(step, Mapping) and isinstance(step.get("id"), str)
+    }
+    build = by_id.get("build", {}).get("with", {})
+    repository_step = by_id.get("repository", {})
+    repository_run = repository_step.get("run", "")
+    repository_env = repository_step.get("env", {})
+    if (
+        "uv run python manage.py test" not in repository_run
+        or "show server_version" not in repository_run
+        or not repository_env.get("DATABASE_URL", "").startswith("postgresql://")
+    ):
+        raise ReleaseGateError("MCP image publication must gate the exact commit on PostgreSQL")
+    if (
+        build.get("context") != "."
+        or build.get("file") != "./Dockerfile"
+        or build.get("platforms") != "linux/amd64"
+        or build.get("push") != "true"
+        or build.get("provenance") != "false"
+        or build.get("tags")
+        != "${{ env.IMAGE_NAME }}:mcp-staging-${{ inputs.source_commit }}"
+    ):
+        raise ReleaseGateError("MCP image build must stay deterministic and staging-tagged")
+    attest = by_id.get("attest", {}).get("with", {})
+    if (
+        attest.get("subject-name") != "${{ env.IMAGE_NAME }}"
+        or attest.get("subject-digest") != "${{ steps.build.outputs.digest }}"
+        or attest.get("push-to-registry") != "true"
+    ):
+        raise ReleaseGateError("MCP image provenance must bind the pushed GHCR digest")
+    required_ignores = {".env*", ".deploy", "**/.credentials.env", "*.key", "*.pem"}
+    missing_ignores = sorted(required_ignores - ignored)
+    if missing_ignores:
+        raise ReleaseGateError(
+            "Docker context may expose deployment credentials; missing ignores: "
+            + ", ".join(missing_ignores)
+        )
 
 
 def validate_release_sources() -> None:
@@ -499,6 +586,10 @@ def validate_release_sources() -> None:
         "descriptor_asset_name": "mcp-release.json",
         "image_store": "ghcr.io/onurmatik/feature-request",
         "image_reference_format": "ghcr.io/onurmatik/feature-request@sha256:{digest}",
+        "image_candidate_workflow_path": ".github/workflows/mcp-image.yml",
+        "image_candidate_tag_pattern": "mcp-staging-{source_commit}",
+        "image_candidate_platform": "linux/amd64",
+        "image_provenance": "github_artifact_attestation",
         "contract_pin_path": "integration/agent-contract-pin.json",
         "compatibility_manifest_path": "integration/client-compatibility.yaml",
         "runtime_conformance_manifest_path": "integration/runtime-conformance.yaml",
@@ -521,6 +612,7 @@ def validate_repository(
     registry_sha256 = validate_registry()
     runtime_conformance_sha256 = validate_runtime_conformance()
     validate_static_security()
+    validate_image_candidate_contract()
     validate_release_sources()
     return {
         "pin": pin,

@@ -1,8 +1,11 @@
 .git
 .github
 .venv
-.env
-.deploy/.credentials.env
+.env*
+.deploy
+**/.credentials.env
+*.key
+*.pem
 __pycache__
 *.pyc
 *.sqlite3

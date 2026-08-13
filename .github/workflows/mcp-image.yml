@@ -1,0 +1,238 @@
+name: MCP Image Candidate
+run-name: MCP image candidate ${{ inputs.source_commit }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_commit:
+        description: Full lowercase commit SHA from main to publish as the MCP image candidate
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+  attestations: write
+
+concurrency:
+  group: mcp-image-${{ inputs.source_commit }}
+  cancel-in-progress: false
+
+env:
+  IMAGE_NAME: ghcr.io/onurmatik/feature-request
+
+jobs:
+  publish:
+    name: Publish digest-pinned candidate
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: feature_request_test
+          POSTGRES_USER: feature_request
+          POSTGRES_PASSWORD: feature_request
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U feature_request"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Check out the requested source commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_commit }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify immutable source identity
+        env:
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+        run: |
+          python - <<'PY'
+          import os
+          import re
+          import subprocess
+
+          source = os.environ["SOURCE_COMMIT"]
+          if not re.fullmatch(r"[0-9a-f]{40}", source):
+              raise SystemExit("source_commit must be a full lowercase SHA-1")
+          head = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+          if head != source:
+              raise SystemExit(f"checkout mismatch: requested={source} resolved={head}")
+          PY
+          git fetch origin main:refs/remotes/origin/main --prune
+          git merge-base --is-ancestor "$SOURCE_COMMIT" origin/main
+          printf 'source_commit=%s\n' "$SOURCE_COMMIT"
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # v10.0.0
+        with:
+          version: "0.9.26"
+          enable-cache: true
+
+      - name: Verify repository release contract
+        run: |
+          uv sync --frozen --reinstall-package django-embedded-mcp
+          uv run python scripts/agent_contract.py validate
+          uv run python scripts/agent_contract.py mapping --check
+          uv run python scripts/mcp_release.py validate
+          uv run python manage.py check
+          uv run python manage.py makemigrations --check --dry-run
+          uv run python manage.py test tests.test_mcp_release tests.test_mcp_deploy
+
+      - name: Run PostgreSQL 17 repository gate
+        id: repository
+        env:
+          DATABASE_URL: postgresql://feature_request:feature_request@127.0.0.1:5432/feature_request_test
+          OPENAI_API_KEY: ""
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          postgresql_version=$(uv run python -c 'import os; os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings"); import django; django.setup(); from django.db import connection; cursor = connection.cursor(); cursor.execute("show server_version"); print(cursor.fetchone()[0]); cursor.close()')
+          printf 'postgresql_version=%s\n' "$postgresql_version" >> "$GITHUB_OUTPUT"
+          printf 'postgresql_server_version=%s\n' "$postgresql_version"
+          uv run python manage.py test
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Build and push candidate image
+        id: build
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          pull: true
+          push: true
+          provenance: false
+          tags: ${{ env.IMAGE_NAME }}:mcp-staging-${{ inputs.source_commit }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ inputs.source_commit }}
+            org.opencontainers.image.version=1.0.0-staging-${{ inputs.source_commit }}
+          cache-from: type=gha,scope=mcp-image
+          cache-to: type=gha,mode=max,scope=mcp-image
+
+      - name: Smoke-test the pushed digest
+        env:
+          IMAGE_REF: ${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+        run: |
+          docker pull "$IMAGE_REF"
+          docker run --rm "$IMAGE_REF" python manage.py check
+          docker run --rm "$IMAGE_REF" sh -ec 'test ! -e /app/.env; test ! -e /app/.env-prod; test ! -e /app/.deploy'
+          set +e
+          disabled_output=$(timeout 15s docker run --rm -e DEBUG=false -e FEATURE_REQUEST_MCP_PRODUCTION_ENABLED=false "$IMAGE_REF" python -m feature_request_mcp 2>&1)
+          disabled_status=$?
+          set -e
+          if [ "$disabled_status" -eq 124 ]; then
+            echo "disabled production MCP process did not fail closed" >&2
+            exit 1
+          fi
+          if [ "$disabled_status" -eq 0 ]; then
+            echo "disabled production MCP process unexpectedly started" >&2
+            exit 1
+          fi
+          printf '%s\n' "$disabled_output" | grep -F 'Production MCP process startup requires FEATURE_REQUEST_MCP_PRODUCTION_ENABLED=true.'
+
+      - name: Attest build provenance
+        id: attest
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+      - name: Create candidate evidence
+        id: evidence
+        env:
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+          ATTESTATION_URL: ${{ steps.attest.outputs.attestation-url }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          SERVER_URL: ${{ github.server_url }}
+          POSTGRESQL_VERSION: ${{ steps.repository.outputs.postgresql_version }}
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          digest = os.environ["IMAGE_DIGEST"]
+          if not digest.startswith("sha256:") or len(digest) != 71:
+              raise SystemExit("build did not return a sha256 image digest")
+          payload = {
+              "schema_version": 1,
+              "server_version": "1.0.0",
+              "status": "candidate_published_staging_pending",
+              "source_commit": os.environ["SOURCE_COMMIT"],
+              "image": f'{os.environ["IMAGE_NAME"]}@{digest}',
+              "platform": "linux/amd64",
+              "repository_gate": {
+                  "database": "postgresql",
+                  "database_version": os.environ["POSTGRESQL_VERSION"],
+                  "full_django_suite": "passed",
+              },
+              "workflow": {
+                  "repository": os.environ["REPOSITORY"],
+                  "run_id": int(os.environ["RUN_ID"]),
+                  "run_attempt": int(os.environ["RUN_ATTEMPT"]),
+                  "url": (
+                      f'{os.environ["SERVER_URL"]}/{os.environ["REPOSITORY"]}'
+                      f'/actions/runs/{os.environ["RUN_ID"]}'
+                  ),
+              },
+              "attestation_url": os.environ["ATTESTATION_URL"],
+              "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+          }
+          path = Path("mcp-image-evidence.json")
+          content = (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode()
+          path.write_bytes(content)
+          evidence_digest = hashlib.sha256(content).hexdigest()
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+              output.write(f"sha256={evidence_digest}\n")
+          PY
+
+      - name: Upload candidate evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mcp-image-evidence-${{ inputs.source_commit }}
+          path: mcp-image-evidence.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Record immutable candidate
+        env:
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+          ATTESTATION_URL: ${{ steps.attest.outputs.attestation-url }}
+          EVIDENCE_SHA256: ${{ steps.evidence.outputs.sha256 }}
+        run: |
+          {
+            printf '## MCP image candidate\n\n'
+            printf -- '- Source commit: `%s`\n' "$SOURCE_COMMIT"
+            printf -- '- Image: `%s@%s`\n' "$IMAGE_NAME" "$IMAGE_DIGEST"
+            printf -- '- Evidence SHA-256: `%s`\n' "$EVIDENCE_SHA256"
+            printf -- '- Attestation: %s\n' "$ATTESTATION_URL"
+            printf -- '- Production route enabled: `false`\n'
+          } >> "$GITHUB_STEP_SUMMARY"
