@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+from functools import wraps
 from urllib.parse import parse_qsl, urlencode, urlsplit
 
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
 from django.db.models import F
-from django.http import HttpResponse, JsonResponse
+from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.views.decorators.csrf import csrf_exempt
@@ -73,6 +74,19 @@ def _oauth_redirect(redirect_uri: str, payload: dict[str, str]):
     return _no_store(redirect(f"{redirect_uri}{separator}{urlencode(payload)}"))
 
 
+def mcp_surface_required(view):
+    """Keep pre-release OAuth discovery and mutation routes fail-closed."""
+
+    @wraps(view)
+    def wrapped(request, *args, **kwargs):
+        if not settings.DEBUG and not settings.FEATURE_REQUEST_MCP_PRODUCTION_ENABLED:
+            raise Http404
+        return view(request, *args, **kwargs)
+
+    return wrapped
+
+
+@mcp_surface_required
 @require_GET
 def authorization_server_metadata(request):
     return _public_json(
@@ -83,6 +97,7 @@ def authorization_server_metadata(request):
     )
 
 
+@mcp_surface_required
 @require_GET
 def protected_resource_metadata(request):
     return _public_json(
@@ -161,6 +176,7 @@ def _verified_client_hostnames(application: OAuthApplication) -> str:
     return ", ".join(hosts) or "registered public client"
 
 
+@mcp_surface_required
 @require_http_methods(["GET", "POST"])
 def authorize(request):
     error_target = None
@@ -315,6 +331,7 @@ def authorize(request):
         return _oauth_error(exc)
 
 
+@mcp_surface_required
 @csrf_exempt
 @require_POST
 def register(request):
@@ -442,6 +459,7 @@ def _reject_confidential_client_auth(request, pairs):
         )
 
 
+@mcp_surface_required
 @csrf_exempt
 @require_POST
 def token(request):
@@ -521,6 +539,7 @@ def token(request):
         return _oauth_error(exc)
 
 
+@mcp_surface_required
 @csrf_exempt
 @require_POST
 def revoke(request):

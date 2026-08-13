@@ -8,7 +8,9 @@ from unittest.mock import patch
 import yaml
 from asgiref.sync import async_to_sync
 from django.contrib.auth import get_user_model
-from django.db import close_old_connections, connection, transaction
+from django.core.exceptions import ImproperlyConfigured
+from django.core.management.color import no_style
+from django.db import close_old_connections, connection, connections, transaction
 from django.test import TestCase, TransactionTestCase, override_settings
 from jsonschema import Draft202012Validator
 from mcp import MCPError
@@ -89,6 +91,11 @@ class FeatureRequestMCPRegistryTest(TestCase):
         run.assert_called_once()
         self.assertEqual(run.call_args.args[0], "feature_request_mcp.asgi:application")
         self.assertFalse(run.call_args.kwargs["access_log"])
+
+    @override_settings(DEBUG=False, FEATURE_REQUEST_MCP_PRODUCTION_ENABLED=False)
+    def test_production_mcp_process_refuses_to_start_before_release_enablement(self):
+        with self.assertRaises(ImproperlyConfigured):
+            create_application()
 
 
 @override_settings(OPENAI_API_KEY="")
@@ -410,6 +417,20 @@ class FeatureRequestContractRuntimeConformanceTest(TestCase):
             url="https://example.com/pull/1",
             label="PR 1",
         )
+        reset_sql = connection.ops.sequence_reset_sql(
+            no_style(),
+            [
+                User,
+                Project,
+                Issue,
+                IssueComment,
+                IssueEvent,
+                IssueDeliveryArtifact,
+            ],
+        )
+        with connection.cursor() as cursor:
+            for statement in reset_sql:
+                cursor.execute(statement)
 
     def call(self, user, name, arguments, scopes=("read", "write")):
         token = AccessToken(
@@ -953,7 +974,7 @@ class FeatureRequestPostgreSQLConcurrencyTest(TransactionTestCase):
             except Exception as exc:  # Assertions inspect only stable public codes.
                 value = exc
             finally:
-                close_old_connections()
+                connections["default"].close()
             with lock:
                 outcomes.append(value)
 
@@ -1013,7 +1034,7 @@ class FeatureRequestPostgreSQLConcurrencyTest(TransactionTestCase):
         self.assertEqual(same_key[0], same_key[1])
 
 
-@override_settings(OPENAI_API_KEY="")
+@override_settings(OPENAI_API_KEY="", DEBUG=True)
 class FeatureRequestModernTransportTest(TransactionTestCase):
     reset_sequences = True
 

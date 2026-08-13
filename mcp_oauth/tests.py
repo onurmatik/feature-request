@@ -54,6 +54,7 @@ from .services import (
 )
 
 
+@override_settings(DEBUG=True)
 class MetadataAndRegistrationTest(TestCase):
     def test_discovery_is_public_cors_and_cimd_first(self):
         response = self.client.get("/.well-known/oauth-authorization-server")
@@ -64,22 +65,59 @@ class MetadataAndRegistrationTest(TestCase):
         self.assertEqual(payload["token_endpoint_auth_methods_supported"], ["none"])
         self.assertEqual(
             payload["authorization_endpoint"],
-            "http://127.0.0.1:8000/oauth/authorize",
+            "http://127.0.0.1:8000/oauth/authorize/",
         )
         self.assertEqual(
-            payload["token_endpoint"], "http://127.0.0.1:8000/oauth/token"
+            payload["token_endpoint"], "http://127.0.0.1:8000/oauth/token/"
         )
         self.assertEqual(
             payload["registration_endpoint"],
-            "http://127.0.0.1:8000/oauth/register",
+            "http://127.0.0.1:8000/oauth/register/",
         )
         self.assertEqual(
             payload["revocation_endpoint"],
-            "http://127.0.0.1:8000/oauth/revoke",
+            "http://127.0.0.1:8000/oauth/revoke/",
         )
         resource = self.client.get("/.well-known/oauth-protected-resource/mcp").json()
         self.assertEqual(resource["resource"], "http://127.0.0.1:8001/mcp")
         self.assertEqual(resource["scopes_supported"], ["read"])
+
+    @override_settings(
+        DEBUG=False,
+        FEATURE_REQUEST_MCP_PRODUCTION_ENABLED=False,
+        SECURE_SSL_REDIRECT=False,
+    )
+    def test_production_oauth_surface_is_hidden_until_release_enablement(self):
+        for path in (
+            "/.well-known/oauth-authorization-server",
+            "/.well-known/oauth-protected-resource",
+            "/.well-known/oauth-protected-resource/mcp",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(self.client.get(path, secure=True).status_code, 404)
+        for path in (
+            "/oauth/authorize/",
+            "/oauth/register/",
+            "/oauth/token/",
+            "/oauth/revoke/",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(self.client.post(path, secure=True).status_code, 404)
+
+    @override_settings(
+        DEBUG=False,
+        FEATURE_REQUEST_MCP_PRODUCTION_ENABLED=True,
+        SECURE_SSL_REDIRECT=False,
+    )
+    def test_enabled_production_discovery_surface_remains_available(self):
+        response = self.client.get(
+            "/.well-known/oauth-authorization-server", secure=True
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json()["authorization_endpoint"],
+            "http://127.0.0.1:8000/oauth/authorize/",
+        )
 
     def test_resource_comparison_casefolds_only_scheme_and_host(self):
         self.assertTrue(
@@ -426,7 +464,7 @@ class MetadataAndRegistrationTest(TestCase):
         self.assertEqual(too_many.json()["error"], "invalid_redirect_uri")
 
         malformed = self.client.post(
-            "/oauth/register",
+            "/oauth/register/",
             data=json.dumps(
                 {
                     "client_name": "Malformed",
@@ -470,7 +508,7 @@ class MetadataAndRegistrationTest(TestCase):
         self.assertEqual(caught.exception.status, 429)
 
     def test_client_bucket_is_created_only_after_client_verification(self):
-        request = RequestFactory().post("/oauth/token", REMOTE_ADDR="203.0.113.8")
+        request = RequestFactory().post("/oauth/token/", REMOTE_ADDR="203.0.113.8")
         enforce_rate_limit(request, "token", client_id="unverified-client")
         self.assertEqual(RateLimitBucket.objects.count(), 2)
         enforce_rate_limit(
@@ -486,7 +524,7 @@ class MetadataAndRegistrationTest(TestCase):
 
         now = timezone.now().replace(second=0, microsecond=0)
         source = "203.0.113.9"
-        request = RequestFactory().post("/oauth/token", REMOTE_ADDR=source)
+        request = RequestFactory().post("/oauth/token/", REMOTE_ADDR=source)
         RateLimitBucket.objects.create(
             bucket_key=credential_digest(f"oauth:source:{source}"),
             window_start=now,
@@ -547,6 +585,7 @@ class MetadataAndRegistrationTest(TestCase):
         self.assertEqual(response["Cache-Control"], "no-store")
 
 
+@override_settings(DEBUG=True)
 class OAuthStateMachineTest(TestCase):
     def setUp(self):
         User = get_user_model()
@@ -612,7 +651,7 @@ class OAuthStateMachineTest(TestCase):
     def test_write_only_step_up_scope_can_issue_a_contract_mutation_token(self):
         code, verifier = self._authorize(scope="write")
         response = self.client.post(
-            "/oauth/token",
+            "/oauth/token/",
             data=urlencode(
                 {
                     "grant_type": "authorization_code",
@@ -743,7 +782,7 @@ class OAuthStateMachineTest(TestCase):
 
     def test_confidential_client_auth_is_rejected_on_public_token_endpoint(self):
         response = self.client.post(
-            "/oauth/token",
+            "/oauth/token/",
             data=urlencode(
                 {
                     "grant_type": "refresh_token",
@@ -796,7 +835,7 @@ class OAuthStateMachineTest(TestCase):
         resume = parse_qs(urlsplit(response["Location"]).query)["next"][0]
         resume_handle = parse_qs(urlsplit(resume).query)["resume"][0]
         self.client.force_login(self.user)
-        continued = self.client.get("/oauth/authorize", {"resume": resume_handle})
+        continued = self.client.get("/oauth/authorize/", {"resume": resume_handle})
         self.assertEqual(continued.status_code, 200)
         self.assertEqual(continued.context["scopes"], ["read"])
         self.assertEqual(
@@ -830,7 +869,7 @@ class OAuthStateMachineTest(TestCase):
     def test_valid_callback_receives_authorization_error_with_issuer(self):
         verifier = "e" * 64
         response = self.client.get(
-            "/oauth/authorize",
+            "/oauth/authorize/",
             {
                 "client_id": self.client_id,
                 "redirect_uri": self.redirect_uri,
@@ -851,7 +890,7 @@ class OAuthStateMachineTest(TestCase):
     def test_unregistered_callback_is_never_used_for_error_redirect(self):
         verifier = "f" * 64
         response = self.client.get(
-            "/oauth/authorize",
+            "/oauth/authorize/",
             {
                 "client_id": self.client_id,
                 "redirect_uri": "http://127.0.0.1:49999/callback",
@@ -948,7 +987,7 @@ class OAuthStateMachineTest(TestCase):
     def test_direct_admin_consent_revocation_triggers_immediate_cascade(self):
         code, verifier = self._authorize()
         response = self.client.post(
-            "/oauth/token",
+            "/oauth/token/",
             data=urlencode(
                 {
                     "grant_type": "authorization_code",
@@ -971,7 +1010,7 @@ class OAuthStateMachineTest(TestCase):
     def test_direct_admin_application_revocation_triggers_immediate_cascade(self):
         code, verifier = self._authorize()
         response = self.client.post(
-            "/oauth/token",
+            "/oauth/token/",
             data=urlencode(
                 {
                     "grant_type": "authorization_code",
@@ -993,7 +1032,7 @@ class OAuthStateMachineTest(TestCase):
     def test_user_deactivation_revokes_every_refresh_family_member(self):
         code, verifier = self._authorize()
         response = self.client.post(
-            "/oauth/token",
+            "/oauth/token/",
             data=urlencode(
                 {
                     "grant_type": "authorization_code",
@@ -1020,6 +1059,7 @@ class OAuthStateMachineTest(TestCase):
     EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
     ADMINS=[("FeatureRequest Admin", "ops@example.com")],
 )
+@override_settings(DEBUG=True)
 class OAuthOperationsTest(TestCase):
     def test_rate_limit_backend_failure_alerts_and_fails_closed(self):
         request = RequestFactory().post(

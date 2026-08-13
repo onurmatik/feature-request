@@ -1,11 +1,19 @@
 import json
 from datetime import timedelta
+from threading import Barrier, Lock, Thread
+from unittest import skipUnless
 from unittest.mock import MagicMock, Mock, patch
 
 from django.contrib.auth import get_user_model
 from django.contrib.staticfiles import finders
-from django.db import IntegrityError
-from django.test import Client, RequestFactory, TestCase, override_settings
+from django.db import IntegrityError, close_old_connections, connection, connections
+from django.test import (
+    Client,
+    RequestFactory,
+    TestCase,
+    TransactionTestCase,
+    override_settings,
+)
 from django.utils import timezone
 
 from .embed import (
@@ -1428,6 +1436,78 @@ class EmbedWidgetTest(TestCase):
                 validate_turnstile(request, "valid-token")
 
         self.assertEqual(caught.exception.status_code, 503)
+
+
+@skipUnless(
+    connection.vendor == "postgresql",
+    "PostgreSQL row-lock behavior is part of the production database gate.",
+)
+@override_settings(
+    OPENAI_API_KEY="",
+    EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+)
+class EmbedVerificationPostgreSQLConcurrencyTest(TransactionTestCase):
+    reset_sequences = True
+
+    def setUp(self):
+        owner = get_user_model().objects.create_user(
+            email="pg-embed-owner@example.com",
+            handle="pg_embed_owner",
+        )
+        self.project = Project.objects.create(
+            owner=owner,
+            name="PostgreSQL Embed Project",
+            slug="postgresql-embed-project",
+        )
+        self.raw_token = "postgresql-concurrent-verify-token"
+        self.submission = EmbeddedIssueSubmission.objects.create(
+            project=self.project,
+            display_name="Concurrent Visitor",
+            email="pg-embed-visitor@example.com",
+            email_fingerprint=email_fingerprint("pg-embed-visitor@example.com"),
+            issue_type=Issue.Type.BUG,
+            title="Concurrent verification",
+            description="Publish this pending request exactly once.",
+            token_hash=token_digest(self.raw_token),
+            expires_at=timezone.now() + timedelta(minutes=30),
+        )
+
+    @patch("projects.api._notify_owner_on_new_issue")
+    def test_concurrent_verification_posts_publish_exactly_one_issue(self, notify_owner):
+        barrier = Barrier(2)
+        outcome_lock = Lock()
+        outcomes = []
+        url = f"/embed/submissions/{self.raw_token}/verify/"
+
+        def worker():
+            close_old_connections()
+            try:
+                client = Client()
+                barrier.wait(timeout=10)
+                response = client.post(url)
+                value = (response.status_code, response.get("Location", ""))
+            except Exception as exc:
+                value = exc
+            finally:
+                connections["default"].close()
+            with outcome_lock:
+                outcomes.append(value)
+
+        threads = [Thread(target=worker) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=20)
+
+        self.assertTrue(all(not thread.is_alive() for thread in threads))
+        self.assertEqual(len(outcomes), 2)
+        self.assertTrue(all(not isinstance(outcome, Exception) for outcome in outcomes))
+        self.assertEqual([outcome[0] for outcome in outcomes], [302, 302])
+        self.assertEqual(outcomes[0][1], outcomes[1][1])
+        self.assertEqual(Issue.objects.filter(project=self.project).count(), 1)
+        self.submission.refresh_from_db()
+        self.assertIsNotNone(self.submission.issue_id)
+        notify_owner.assert_called_once()
 
 
 @override_settings(OPENAI_API_KEY="")

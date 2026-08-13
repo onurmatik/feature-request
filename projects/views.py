@@ -196,10 +196,11 @@ def embed_submission_verify(request, token):
 
     created_issue = False
     with transaction.atomic():
-        locked = (
-            EmbeddedIssueSubmission.objects.select_for_update()
-            .select_related("project__owner", "issue__author")
-            .get(pk=submission.pk)
+        # Lock only the submission row. PostgreSQL rejects FOR UPDATE when a
+        # nullable select_related() join (issue) is included in the lock set.
+        # Related objects are resolved after the authoritative row is locked.
+        locked = EmbeddedIssueSubmission.objects.select_for_update().get(
+            pk=submission.pk
         )
         if locked.issue_id:
             issue = locked.issue

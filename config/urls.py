@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.contrib import admin
+from django.http import HttpResponseNotFound
 from django.templatetags.static import static
 from django.urls import include, path
 from django.views.generic import RedirectView
@@ -21,16 +22,23 @@ from mcp_oauth.views import (
 )
 
 
+def unavailable_backend_surface(request):
+    return HttpResponseNotFound()
+
+
 urlpatterns = [
+    # These paths must never fall through to the SPA. Nginx routes /mcp to
+    # the separately gated MCP process only after release approval.
+    path("mcp", unavailable_backend_surface, name="mcp-release-disabled"),
+    path(
+        ".well-known/openid-configuration",
+        unavailable_backend_surface,
+        name="unsupported-openid-configuration",
+    ),
     path(
         ".well-known/oauth-authorization-server",
         authorization_server_metadata,
         name="oauth-authorization-server-metadata",
-    ),
-    path(
-        ".well-known/openid-configuration",
-        authorization_server_metadata,
-        name="oauth-openid-configuration",
     ),
     path(
         ".well-known/oauth-protected-resource",

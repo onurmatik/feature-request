@@ -408,7 +408,7 @@ def validate_runtime_conformance() -> str:
         "runtime_dispatch",
         "runtime_policy",
         "agent_owned_precondition",
-        "production_database_pending",
+        "postgresql_process_concurrency",
         "audit_redaction",
     }
     for binding in bindings:

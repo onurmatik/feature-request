@@ -18,8 +18,9 @@ architecture:
   api_token_mcp_compatibility: clean_cut_removed
   shared_package: repo_internal_django_embedded_mcp_0.3.0
 rollout:
-  implementation_database: sqlite
-  production_database_gate: postgresql_concurrency_pending
+  implementation_databases: [sqlite, postgresql_17]
+  production_database: postgresql_17
+  production_database_gate: repository_blocking_ci_configured_immutable_evidence_pending
   production_mcp_enabled: false
   artifact_store: ghcr_and_github_release
   alert_channel: django_admins_via_ses

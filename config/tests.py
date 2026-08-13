@@ -21,6 +21,17 @@ class ApiDocsCompatibilityTest(TestCase):
         self.assertEqual(response.status_code, 404)
 
 
+class PreReleaseBackendSurfaceTest(TestCase):
+    def test_mcp_path_never_falls_through_to_frontend(self):
+        self.assertEqual(self.client.get("/mcp").status_code, 404)
+
+    def test_unsupported_openid_alias_never_falls_through_to_frontend(self):
+        self.assertEqual(
+            self.client.get("/.well-known/openid-configuration").status_code,
+            404,
+        )
+
+
 class FaviconRoutingTest(TestCase):
     def test_favicon_ico_redirects_to_static_asset(self):
         response = self.client.get("/favicon.ico")

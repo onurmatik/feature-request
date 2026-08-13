@@ -82,9 +82,8 @@ jobs:
           OPENAI_API_KEY: ""
         run: uv run python manage.py test
 
-  postgres-concurrency-preparation:
+  postgresql-17-repository-gate:
     runs-on: ubuntu-latest
-    continue-on-error: true
     services:
       postgres:
         image: postgres:17
@@ -110,8 +109,25 @@ jobs:
         with:
           python-version: "3.11"
       - run: uv sync --frozen --reinstall-package django-embedded-mcp
-      - name: Prepared PostgreSQL suite (release-blocking evidence remains pending)
+      - name: Record PostgreSQL gate identity
         env:
           DATABASE_URL: postgresql://feature_request:feature_request@127.0.0.1:5432/feature_request_test
           OPENAI_API_KEY: ""
-        run: uv run python manage.py test mcp_oauth feature_request_mcp
+        run: |
+          uv run python - <<'PY'
+          import os
+          os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
+          import django
+          django.setup()
+          from django.db import connection
+          with connection.cursor() as cursor:
+              cursor.execute("show server_version")
+              print(f"postgresql_server_version={cursor.fetchone()[0]}")
+          print(f"source_commit={os.environ['GITHUB_SHA']}")
+          PY
+      - name: Run full PostgreSQL 17 repository suite
+        env:
+          DATABASE_URL: postgresql://feature_request:feature_request@127.0.0.1:5432/feature_request_test
+          OPENAI_API_KEY: ""
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: uv run python manage.py test

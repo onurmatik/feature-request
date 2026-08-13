@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import re
+from threading import current_thread, main_thread
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -15,6 +16,8 @@ django.setup()
 
 from django.conf import settings  # noqa: E402
 from django.contrib.auth import get_user_model  # noqa: E402
+from django.core.exceptions import ImproperlyConfigured  # noqa: E402
+from django.db import close_old_connections, connections  # noqa: E402
 from django_embedded_mcp import (  # noqa: E402
     DigestTokenVerifier,
     MCPAuthCORSMiddleware,
@@ -65,6 +68,28 @@ def _request_id(context) -> str:
     return _validated_request_id("")
 
 
+def _database_operation(callback, *args, **kwargs):
+    """Bound ORM connection lifetime to an MCP worker operation."""
+
+    owns_worker_connection = current_thread() is not main_thread()
+    if owns_worker_connection:
+        close_old_connections()
+    try:
+        return callback(*args, **kwargs)
+    finally:
+        # AsyncToSync executes thread-sensitive work back on the test runner's
+        # main thread, whose transaction Django owns. Production ASGI dispatch
+        # uses a worker thread and must not retain its thread-local connection.
+        if owns_worker_connection:
+            connections.close_all()
+
+
+async def _database_sync(callback, *args, **kwargs):
+    return await sync_to_async(_database_operation, thread_sensitive=True)(
+        callback, *args, **kwargs
+    )
+
+
 class FeatureRequestMCPServer(MCPServer[None]):
     async def list_tools(self):
         return list(public_registry())
@@ -77,10 +102,9 @@ class FeatureRequestMCPServer(MCPServer[None]):
         if access is None or not access.subject:
             raise MCPError(code=INTERNAL_ERROR, message="Authenticated actor context is missing.")
         User = get_user_model()
-        user = await sync_to_async(
+        user = await _database_sync(
             lambda: User.objects.filter(pk=access.subject, is_active=True).first(),
-            thread_sensitive=True,
-        )()
+        )
         if user is None:
             raise MCPError(code=INTERNAL_ERROR, message="Authenticated actor is unavailable.")
         agent_context = AgentContext(
@@ -90,7 +114,8 @@ class FeatureRequestMCPServer(MCPServer[None]):
             request_id=_request_id(context),
         )
         try:
-            result = await sync_to_async(service.call, thread_sensitive=True)(
+            result = await _database_sync(
+                service.call,
                 name,
                 dict(arguments or {}),
                 agent_context,
@@ -112,7 +137,8 @@ class FeatureRequestMCPServer(MCPServer[None]):
                     resource_type = kind
                     resource_id = str(arguments[key])
                     break
-            await sync_to_async(record_tool_audit, thread_sensitive=True)(
+            await _database_sync(
+                record_tool_audit,
                 context=agent_context,
                 tool_name=name,
                 arguments=dict(arguments or {}),
@@ -205,7 +231,8 @@ async def _audit_scope_denial(
         capability_evaluated=False,
         ownership_decision="not_evaluated",
     )
-    await sync_to_async(record_tool_audit, thread_sensitive=True)(
+    await _database_sync(
+        record_tool_audit,
         context=context,
         tool_name=name,
         arguments={},
@@ -215,6 +242,10 @@ async def _audit_scope_denial(
 
 
 def create_application():
+    if not settings.DEBUG and not settings.FEATURE_REQUEST_MCP_PRODUCTION_ENABLED:
+        raise ImproperlyConfigured(
+            "Production MCP process startup requires FEATURE_REQUEST_MCP_PRODUCTION_ENABLED=true."
+        )
     transport_security = build_transport_security_settings(
         resource_url=settings.MCP_RESOURCE_URL,
         allowed_origins=settings.FEATURE_REQUEST_MCP_CORS_ORIGINS,
