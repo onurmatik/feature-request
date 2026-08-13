@@ -20,14 +20,15 @@ architecture:
 rollout:
   implementation_databases: [sqlite, postgresql_17]
   production_database: postgresql_17
-  production_database_gate: repository_blocking_ci_configured_immutable_evidence_pending
-  production_mcp_enabled: false
+  production_database_gate: repository_blocking_ci_passed
+  production_mcp_enabled: true
+  production_release_status: candidate_deployed_acceptance_pending
   runtime_artifact: exact_native_git_checkout
   release_evidence_store: github_release
   alert_channel: django_admins_via_ses
-  deployment: separate_explicit_task
+  deployment: native_fabric_exact_git_checkout
 rollback:
   previous_web_runtime_remains_available: true
-  mcp_route_remains_disabled_until_release_gate: true
+  mcp_route_fail_closed_on_failed_acceptance: true
   revoked_credentials_must_not_be_reactivated: true
   incompatible_schema_requires_roll_forward: true

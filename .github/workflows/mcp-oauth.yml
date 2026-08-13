@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - "agent_runtime/**"
+      - "agent/decisions/**"
       - "feature_request_mcp/**"
       - "mcp_oauth/**"
       - "packages/django-embedded-mcp/**"
@@ -27,6 +28,7 @@ on:
     branches: [main]
     paths:
       - "agent_runtime/**"
+      - "agent/decisions/**"
       - "feature_request_mcp/**"
       - "mcp_oauth/**"
       - "packages/django-embedded-mcp/**"
