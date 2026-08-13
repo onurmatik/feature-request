@@ -15,3 +15,5 @@ mcp>=2.0,<3
 gunicorn
 fabric
 PyJWT[crypto]
+dj-database-url==3.0.1
+psycopg[binary]==3.2.12
