@@ -82,6 +82,16 @@ class MetadataAndRegistrationTest(TestCase):
         self.assertEqual(resource["resource"], "http://127.0.0.1:8001/mcp")
         self.assertEqual(resource["scopes_supported"], ["read"])
 
+    def test_slashless_oauth_aliases_are_not_published(self):
+        for path in (
+            "/oauth/authorize",
+            "/oauth/token",
+            "/oauth/revoke",
+            "/oauth/register",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(self.client.get(path).status_code, 404)
+
     @override_settings(
         DEBUG=False,
         FEATURE_REQUEST_MCP_PRODUCTION_ENABLED=False,

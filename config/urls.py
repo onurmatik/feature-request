@@ -50,6 +50,18 @@ urlpatterns = [
         protected_resource_metadata,
         name="oauth-protected-resource-metadata",
     ),
+    path(
+        "oauth/authorize",
+        unavailable_backend_surface,
+        name="oauth-authorize-slashless-disabled",
+    ),
+    path("oauth/token", unavailable_backend_surface, name="oauth-token-slashless-disabled"),
+    path("oauth/revoke", unavailable_backend_surface, name="oauth-revoke-slashless-disabled"),
+    path(
+        "oauth/register",
+        unavailable_backend_surface,
+        name="oauth-register-slashless-disabled",
+    ),
     path("oauth/", include("mcp_oauth.urls")),
     path(settings.ADMIN_URL.lstrip("/"), admin.site.urls),
     path("auth/me", me_view, name="auth-me"),

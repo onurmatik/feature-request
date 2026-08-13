@@ -569,6 +569,7 @@ def validate_native_deploy_contract() -> None:
         "check_public_surfaces",
         "source_commit",
         "pgbackrest",
+        "--reinstall-package django-embedded-mcp",
     ):
         if marker not in fabfile:
             raise ReleaseGateError(f"native Fabric deploy is missing {marker}")
@@ -593,7 +594,7 @@ def validate_native_deploy_contract() -> None:
             raise ReleaseGateError(f"native Nginx contract is missing {marker}")
     if "openid-configuration" in nginx or "$proxy_add_x_forwarded_for" in nginx:
         raise ReleaseGateError("native Nginx contract exposes an unsupported or untrusted path")
-    if disabled.count("return 404;") < 5:
+    if disabled.count("return 404;") < 9:
         raise ReleaseGateError("route-disable contract must fail-close every MCP/OAuth surface")
     if "%%(U)s" not in gunicorn or "%%(q)s" in gunicorn or "%%(r)s" in gunicorn:
         raise ReleaseGateError("native Gunicorn access logs must be path-only")

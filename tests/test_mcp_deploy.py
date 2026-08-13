@@ -151,7 +151,7 @@ class MCPDeploymentContractTests(unittest.TestCase):
         self.assertNotIn("openid-configuration", nginx)
         self.assertNotIn("$proxy_add_x_forwarded_for", nginx)
         disabled = (deployment / "nginx-mcp-disabled.conf").read_text()
-        self.assertGreaterEqual(disabled.count("return 404;"), 5)
+        self.assertGreaterEqual(disabled.count("return 404;"), 9)
 
     def test_nginx_site_attachment_is_idempotent_and_https_scoped(self):
         site = """

@@ -437,7 +437,8 @@ def install_dependencies(c) -> None:
     )
     run_as_app_user(
         c,
-        f"UV_PROJECT_ENVIRONMENT={quote(VENV_DIR)} {quote(VENV_DIR)}/bin/uv sync --frozen --no-dev",
+        f"UV_PROJECT_ENVIRONMENT={quote(VENV_DIR)} {quote(VENV_DIR)}/bin/uv sync "
+        "--frozen --no-dev --reinstall-package django-embedded-mcp",
         cwd=PROJECT_DIR,
     )
 
