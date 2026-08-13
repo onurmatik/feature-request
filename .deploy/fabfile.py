@@ -243,44 +243,11 @@ def resolve_source_commit(source_commit: Optional[str]) -> str:
 
 def update_remote_env(c, values: dict[str, str]) -> None:
     payload = base64.b64encode(json.dumps(values, sort_keys=True).encode()).decode()
-    script = """
-import base64, json, os, sys, tempfile
-path = sys.argv[1]
-updates = json.loads(base64.b64decode(sys.argv[2]).decode())
-with open(path, encoding='utf-8') as handle:
-    lines = handle.read().splitlines()
-rendered = []
-written = set()
-for raw in lines:
-    stripped = raw.strip()
-    if stripped and not stripped.startswith('#') and '=' in stripped:
-        key = stripped.split('=', 1)[0]
-        if key in updates:
-            if key not in written:
-                rendered.append(f'{key}={updates[key]}')
-                written.add(key)
-            continue
-    rendered.append(raw)
-for key in sorted(updates):
-    if key not in written:
-        rendered.append(f'{key}={updates[key]}')
-content = '\n'.join(rendered) + '\n'
-directory = os.path.dirname(path)
-descriptor, temporary = tempfile.mkstemp(prefix='.env.', dir=directory)
-try:
-    with os.fdopen(descriptor, 'w', encoding='utf-8') as handle:
-        handle.write(content)
-        handle.flush()
-        os.fsync(handle.fileno())
-    os.chmod(temporary, 0o600)
-    os.replace(temporary, path)
-finally:
-    if os.path.exists(temporary):
-        os.unlink(temporary)
-"""
     run_as_app_user(
         c,
-        f"python3 -c {quote(script)} {quote(ENV_FILE)} {quote(payload)}",
+        f"{quote(PYTHON_BIN)} scripts/update_mcp_env.py "
+        f"--env-file {quote(ENV_FILE)} --values-base64 {quote(payload)}",
+        cwd=PROJECT_DIR,
     )
 
 

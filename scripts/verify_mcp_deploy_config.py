@@ -18,6 +18,7 @@ DEPLOY_CONTRACT_PATHS = (
     ".deploy/fabfile.py",
     "deploy/mcp",
     "scripts/install_mcp_nginx.py",
+    "scripts/update_mcp_env.py",
     "scripts/verify_mcp_deploy_config.py",
 )
 CONFIG_FINGERPRINT_FIELDS = (

@@ -523,6 +523,7 @@ def validate_static_security() -> None:
         "/.deploy/",
         "/scripts/mcp_release.py",
         "/scripts/install_mcp_nginx.py",
+        "/scripts/update_mcp_env.py",
         "/scripts/verify_mcp_deploy_config.py",
         "/projects/services.py",
     ):

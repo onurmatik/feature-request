@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 
 from scripts.install_mcp_nginx import render_site
+from scripts.update_mcp_env import update_env
 from scripts.verify_mcp_deploy_config import (
     config_fingerprint_sha256,
     parse_env,
@@ -73,6 +74,18 @@ class MCPDeploymentContractTests(unittest.TestCase):
             path.write_text("A=1\nA=2\n", encoding="utf-8")
             with self.assertRaises(ValueError):
                 parse_env(path)
+
+    def test_native_environment_update_is_atomic_and_preserves_secrets(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / ".env"
+            path.write_text("SECRET=keep\nMCP_VALUE=old\n", encoding="utf-8")
+            path.chmod(0o644)
+            update_env(path, {"MCP_VALUE": "new", "SOURCE_ID": "exact"})
+            self.assertEqual(
+                "SECRET=keep\nMCP_VALUE=new\nSOURCE_ID=exact\n",
+                path.read_text(encoding="utf-8"),
+            )
+            self.assertEqual(0o600, path.stat().st_mode & 0o777)
 
     def test_native_repository_identity_is_deterministic(self):
         commit = subprocess.check_output(
