@@ -152,10 +152,12 @@ jobs:
         run: |
           docker pull "$IMAGE_REF"
           docker run --rm --network host --env-file "$STAGING_ENV" "$IMAGE_REF" python manage.py migrate --noinput
-          docker run --detach --rm --name "$STAGING_WEB" --network host --env-file "$STAGING_ENV" "$IMAGE_REF" gunicorn config.wsgi:application --bind 127.0.0.1:18000 --workers 1 --access-logfile - --access-logformat '%(p)s %(h)s %(m)s %(U)s %(H)s %(s)s %(L)s'
-          docker run --detach --rm --name "$STAGING_MCP" --network host --env-file "$STAGING_ENV" "$IMAGE_REF" python -m feature_request_mcp
+          docker run --detach --name "$STAGING_WEB" --network host --env-file "$STAGING_ENV" "$IMAGE_REF" gunicorn config.wsgi:application --bind 127.0.0.1:18000 --workers 1 --access-logfile - --access-logformat '%(p)s %(h)s %(m)s %(U)s %(H)s %(s)s %(L)s'
+          docker run --detach --name "$STAGING_MCP" --network host --env-file "$STAGING_ENV" "$IMAGE_REF" python -m feature_request_mcp
           for attempt in $(seq 1 30); do
-            if curl --silent --show-error --fail --header "Host: $STAGING_HOST" --header 'X-Forwarded-Proto: https' http://127.0.0.1:18000/.well-known/oauth-authorization-server > /dev/null; then
+            web_status=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --header "Host: $STAGING_HOST" --header 'X-Forwarded-Proto: https' http://127.0.0.1:18000/.well-known/oauth-authorization-server || true)
+            mcp_status=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --request POST --header "Host: $STAGING_HOST" --header 'Content-Type: application/json' --header 'Accept: application/json' --header 'MCP-Protocol-Version: 2026-07-28' --header 'Mcp-Method: server/discover' --data '{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}' http://127.0.0.1:18001/mcp || true)
+            if test "$web_status" = 200 && test "$mcp_status" = 401; then
               exit 0
             fi
             sleep 1

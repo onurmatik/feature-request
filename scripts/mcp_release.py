@@ -702,6 +702,7 @@ def validate_staging_rehearsal_contract(
             "/.well-known/openid-configuration",
             "FEATURE_REQUEST_MCP_PRODUCTION_ENABLED=true",
             "MCP-Protocol-Version: 2026-07-28",
+            'test "$web_status" = 200 && test "$mcp_status" = 401',
             'test "$mcp_status" = 401',
             'test "$cors_status" = 204',
             '"rollback_target": "existing_web_runtime_mcp_route_disabled"',
