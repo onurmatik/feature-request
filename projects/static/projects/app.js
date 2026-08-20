@@ -13,6 +13,7 @@
     { value: "in_progress", label: "In Progress" },
     { value: "done", label: "Done" },
     { value: "closed", label: "Closed" },
+    { value: "declined", label: "Declined" },
   ];
 
   const DETAIL_STATUS_OPTIONS = STATUS_OPTIONS.filter(
@@ -75,6 +76,26 @@
     description: "$3/mo for up to 30 projects",
     cta: "Upgrade",
   };
+
+  const PROJECT_SPEC_TEMPLATE = `# Purpose
+
+Describe the outcome this product exists to create.
+
+## Intended users
+
+Describe the people or teams this product serves.
+
+## In scope
+
+- List capabilities and use cases the project supports.
+
+## Out of scope
+
+- List explicit boundaries the project will not support.
+
+## Product principles / Constraints
+
+- List durable product principles and constraints.`;
 
   const APP_NAME = "Feature Request";
   const APP_BASE_DESCRIPTION =
@@ -201,6 +222,21 @@
     projectUrlDraft: "",
     projectFeedback: "",
     projectFeedbackTone: "",
+    projectSpec: null,
+    projectSpecDraft: PROJECT_SPEC_TEMPLATE,
+    projectSpecAutoDecline: false,
+    projectSpecFeedback: "",
+    projectSpecFeedbackTone: "",
+    projectSpecDraftProjectId: null,
+    isProjectSpecLoading: false,
+    isProjectSpecSaving: false,
+    isProjectSpecDeleting: false,
+    scopeAssessment: null,
+    loadedScopeAssessmentIssueId: null,
+    isScopeAssessmentLoading: false,
+    isScopeAssessmentActionRunning: false,
+    specProposals: [],
+    isSpecProposalsLoading: false,
     embedWidgetPosition: "right",
     embedWidgetColor: "#06B6D4",
     embedWidgetCodeTab: "script",
@@ -374,6 +410,9 @@
     if (pathParts.length === 2) {
       return { kind: "board", ownerHandle: first, projectSlug: String(pathParts[1] || ""), isProjectFormRoute: false };
     }
+    if (pathParts.length === 3 && pathParts[2] === "spec") {
+      return { kind: "board", ownerHandle: first, projectSlug: String(pathParts[1] || ""), isProjectFormRoute: false, isProjectSpecRoute: true };
+    }
     if (pathParts.length === 4 && pathParts[2] === "issues" && /^\d+$/.test(pathParts[3])) {
       return {
         kind: "board",
@@ -445,7 +484,7 @@
         state.priorityFilter = "";
         state.searchQuery = "";
       }
-      state.view = route.isProjectFormRoute ? "newProject" : "issues";
+      state.view = route.isProjectFormRoute ? "newProject" : route.isProjectSpecRoute ? "productSpec" : "issues";
       return;
     }
     if (route.kind === "messages") {
@@ -562,6 +601,7 @@
       in_progress: "border-emerald-100 text-emerald-700",
       done: "border-cyan-100 text-cyan-700",
       closed: "border-zinc-200 text-zinc-500",
+      declined: "border-rose-200 text-rose-700",
     };
     return map[status] || "border-gray-100 text-gray-500";
   }
@@ -1142,6 +1182,12 @@
     return `/${normalizedOwner}/${normalizedProjectSlug}/issues/${normalizedIssueId}/`;
   }
 
+  function projectSpecUrl(ownerHandle = state.ownerHandle, projectSlug = state.selectedProjectSlug) {
+    const normalizedOwner = normalizeHandle(ownerHandle);
+    const normalizedSlug = String(projectSlug || "").trim();
+    return normalizedOwner && normalizedSlug ? `/${normalizedOwner}/${normalizedSlug}/spec/` : projectBoardUrl(normalizedOwner, normalizedSlug);
+  }
+
   function absoluteIssueDetailUrl(issueId) {
     return new URL(issueDetailUrl(state.ownerHandle, state.selectedProjectSlug, issueId), window.location.origin).href;
   }
@@ -1189,6 +1235,9 @@
     } else if (state.view === "projectSettings" && selectedProject?.name) {
       title = `${selectedProject.name} Settings | ${APP_NAME}`;
       description = `Manage project settings for ${selectedProject.name} on ${APP_NAME}.`;
+    } else if (state.view === "productSpec" && selectedProject?.name) {
+      title = `${selectedProject.name} Product Spec | ${APP_NAME}`;
+      description = `Read the public Product Spec for ${selectedProject.name}.`;
     } else if (state.view === "newProject") {
       title = `New Project | ${APP_NAME}`;
     } else if (selectedIssue?.title && selectedProject?.name) {
@@ -1298,6 +1347,13 @@
     state.embedWidgetColor = "#06B6D4";
     state.embedWidgetCodeTab = "script";
     state.embedWidgetCopyFeedback = "";
+    state.projectSpec = null;
+    state.projectSpecDraft = PROJECT_SPEC_TEMPLATE;
+    state.projectSpecAutoDecline = false;
+    state.projectSpecFeedback = "";
+    state.projectSpecFeedbackTone = "";
+    state.projectSpecDraftProjectId = nextProjectId;
+    state.specProposals = [];
   }
 
   function ensureSelectedIssueComments(selectedIssue) {
@@ -1313,6 +1369,9 @@
     state.issueDescriptionDraft = selectedIssue?.description || "";
     state.issueEditFeedback = "";
     state.issueCopiedAction = "";
+    state.scopeAssessment = null;
+    state.loadedScopeAssessmentIssueId = nextId;
+    state.isScopeAssessmentLoading = Boolean(nextId);
     state.editingCommentId = null;
     state.commentEditDraft = "";
     state.commentEditFeedback = "";
@@ -1321,6 +1380,13 @@
         state.comments = [];
         render();
       });
+      refreshScopeAssessment(nextId);
+      if (getComputed().isOwnerViewer) {
+        if (!state.projectSpec && getComputed().selectedProject?.has_spec) {
+          refreshProjectSpec();
+        }
+        refreshSpecProposals();
+      }
     }
   }
 
@@ -1526,6 +1592,8 @@
                     ? renderSettingsView(computed)
                     : state.view === "projectSettings"
                       ? renderProjectSettingsView(computed)
+                      : state.view === "productSpec"
+                        ? renderProductSpecView(computed)
                       : renderNewProjectView(computed)
             }
           </div>
@@ -1837,7 +1905,7 @@
         <section class="${issueListDisplayClass} issue-list-shell w-full md:w-[380px] border-r border-[#e5e7eb] bg-white flex-col shrink-0">
           <div class="p-4 border-b border-[#e5e7eb] space-y-3">
             <div class="mobile-project-picker md:hidden space-y-3">${renderBoardProjectsSection(computed)}</div>
-            <div class="flex items-center justify-between gap-3"><h2 class="text-sm font-bold uppercase tracking-widest text-[#6b7280]">Requests</h2><div class="flex items-center gap-2">${computed.isOwnerViewer && computed.selectedProject ? `<button type="button" data-action="copy-project-agent-prompt" class="inline-flex items-center gap-1 rounded-sm-ds border border-[#e5e7eb] bg-white px-2 py-1.5 text-[10px] font-bold uppercase tracking-wide text-[#6b7280] hover:bg-[#f3f4f6] hover:text-[#111827]" title="Copy project-scoped agent prompt">${icon("bot", 12)}<span class="hidden sm:inline">Agent Prompt</span></button>` : ""}<button type="button" data-action="open-new-issue" class="px-3 py-1.5 bg-[#06B6D4] text-white text-[10px] font-bold rounded-sm-ds hover:bg-cyan-600 shadow-sm transition-all uppercase tracking-wide disabled:opacity-45 disabled:cursor-not-allowed"${disabledAttr(!state.selectedProjectSlug)}>New Request</button></div></div>
+            <div class="flex items-center justify-between gap-3"><h2 class="text-sm font-bold uppercase tracking-widest text-[#6b7280]">Requests</h2><div class="flex items-center gap-2">${computed.selectedProject ? `<a href="${projectSpecUrl()}" data-action="open-product-spec" class="inline-flex items-center gap-1 rounded-sm-ds border border-[#e5e7eb] bg-white px-2 py-1.5 text-[10px] font-bold uppercase tracking-wide text-[#6b7280] hover:bg-[#f3f4f6] hover:text-[#111827]">Spec${computed.selectedProject.has_spec ? "" : " · empty"}</a>` : ""}${computed.isOwnerViewer && computed.selectedProject ? `<button type="button" data-action="copy-project-agent-prompt" class="inline-flex items-center gap-1 rounded-sm-ds border border-[#e5e7eb] bg-white px-2 py-1.5 text-[10px] font-bold uppercase tracking-wide text-[#6b7280] hover:bg-[#f3f4f6] hover:text-[#111827]" title="Copy project-scoped agent prompt">${icon("bot", 12)}<span class="hidden sm:inline">Agent Prompt</span></button>` : ""}<button type="button" data-action="open-new-issue" class="px-3 py-1.5 bg-[#06B6D4] text-white text-[10px] font-bold rounded-sm-ds hover:bg-cyan-600 shadow-sm transition-all uppercase tracking-wide disabled:opacity-45 disabled:cursor-not-allowed"${disabledAttr(!state.selectedProjectSlug)}>New Request</button></div></div>
             <div class="relative">${icon("search", 16, "absolute left-3 top-1/2 -translate-y-1/2 text-[#d1d5db]")}<input data-bind="searchQuery" value="${escapeAttr(state.searchQuery)}" type="text" placeholder="Filter issues..." class="w-full pl-9 pr-3 py-2 bg-[#f3f4f6] border border-[#e5e7eb] text-xs rounded-sm-ds focus:ring-1 focus:ring-[#06B6D4] outline-none"></div>
             <div class="grid grid-cols-3 gap-2">
               <select data-bind="typeFilter" class="text-[11px] font-medium bg-white border border-[#e5e7eb] rounded-sm-ds px-2 py-1 outline-none">${renderOptions(TYPE_OPTIONS, state.typeFilter)}</select>
@@ -1907,12 +1975,13 @@
         <div class="flex flex-wrap items-center gap-2">
           <button type="button" data-action="copy-issue-url" class="inline-flex items-center gap-1.5 border border-[#e5e7eb] rounded-sm-ds px-2 py-1.5 text-xs font-bold text-[#6b7280] hover:bg-[#f3f4f6] hover:text-[#111827] transition-colors" title="${state.issueCopiedAction === "share" ? "Issue URL copied" : "Copy issue URL"}">${icon(state.issueCopiedAction === "share" ? "check" : "link", 14, state.issueCopiedAction === "share" ? "text-[#16a34a]" : "")}Share</button>
           <button type="button" data-action="copy-issue-agent-prompt" class="inline-flex items-center gap-1.5 border border-[#e5e7eb] rounded-sm-ds px-2 py-1.5 text-xs font-bold text-[#6b7280] hover:bg-[#f3f4f6] hover:text-[#111827] transition-colors" title="${state.issueCopiedAction === "prompt" ? "Agent prompt copied" : "Copy agent prompt for this issue"}">${icon(state.issueCopiedAction === "prompt" ? "check" : "bot", 14, state.issueCopiedAction === "prompt" ? "text-[#16a34a]" : "")}Prompt</button>
-          <div class="flex items-center gap-2 border border-[#e5e7eb] rounded-sm-ds px-2 py-1"><label class="text-[10px] font-mono text-[#6b7280] uppercase">Status</label><select data-patch-issue="true" data-field="status" class="text-xs font-bold text-[#16a34a] bg-transparent outline-none cursor-pointer disabled:cursor-not-allowed"${disabledAttr(!state.isAuthenticated || state.isIssueUpdating)}>${renderOptions(DETAIL_STATUS_OPTIONS, issue.status)}</select></div>
+          <div class="flex items-center gap-2 border border-[#e5e7eb] rounded-sm-ds px-2 py-1"><label class="text-[10px] font-mono text-[#6b7280] uppercase">Status</label><select data-patch-issue="true" data-field="status" class="text-xs font-bold text-[#16a34a] bg-transparent outline-none cursor-pointer disabled:cursor-not-allowed"${disabledAttr(!state.isAuthenticated || state.isIssueUpdating || (issue.status === "declined" && !computed.isOwnerViewer))}>${renderOptions(computed.isOwnerViewer || issue.status === "declined" ? DETAIL_STATUS_OPTIONS : DETAIL_STATUS_OPTIONS.filter((option) => option.value !== "declined"), issue.status)}</select></div>
           <div class="flex items-center gap-2 border border-[#e5e7eb] rounded-sm-ds px-2 py-1"><label class="text-[10px] font-mono text-[#6b7280] uppercase">Priority</label><select data-patch-issue="true" data-field="priority" class="text-xs font-bold text-[#f59e0b] bg-transparent outline-none cursor-pointer disabled:cursor-not-allowed"${disabledAttr(!state.isAuthenticated || state.isIssueUpdating)}>${renderOptions(PRIORITY_OPTIONS.filter((option) => option.value), String(issue.priority))}</select></div>
         </div>
       </header>
       <div class="flex-1 overflow-hidden flex flex-col">
         <div class="flex-1 overflow-y-auto px-4 py-5 md:px-8 space-y-8">
+          ${renderScopeAssessmentBanner(computed)}
           <div>${state.isIssueEditOpen ? renderIssueEditForm() : renderIssueDisplay(issue, canEditSelectedIssue)}</div>
           <div class="border-t border-[#e5e7eb] pt-8">
             <h4 class="text-xs font-bold text-[#6b7280] uppercase tracking-widest mb-6">Activity & Comments (${state.comments.length})</h4>
@@ -1933,6 +2002,36 @@
           </div>
         </div>
       </div>`;
+  }
+
+  function renderScopeAssessmentBanner(computed) {
+    if (state.isScopeAssessmentLoading) {
+      return `<div class="rounded-md-ds border border-[#e5e7eb] bg-[#f9fafb] p-4 text-xs text-[#6b7280]">Checking this request against the Product Spec…</div>`;
+    }
+    const assessment = state.scopeAssessment;
+    if (!assessment) {
+      return "";
+    }
+    if (assessment.state === "failed") {
+      return computed.isOwnerViewer
+        ? `<div class="rounded-md-ds border border-amber-200 bg-amber-50 p-4 flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between"><div><p class="text-xs font-bold uppercase tracking-wide text-amber-800">Scope assessment needs attention</p><p class="mt-1 text-xs text-amber-700">The request stayed open. Provider details are visible only to the project owner.</p></div><button type="button" data-action="retry-scope-assessment" class="shrink-0 rounded-sm-ds bg-[#111827] px-3 py-2 text-[10px] font-bold uppercase tracking-wide text-white disabled:opacity-45"${disabledAttr(state.isScopeAssessmentActionRunning)}>Retry</button></div>`
+        : "";
+    }
+    const verdictLabel = String(assessment.verdict || "needs_review").replaceAll("_", " ");
+    const tone = assessment.verdict === "out_of_scope" ? "border-rose-200 bg-rose-50" : assessment.verdict === "spec_gap" ? "border-amber-200 bg-amber-50" : "border-cyan-200 bg-cyan-50";
+    const issueProposals = state.specProposals.filter((proposal) => Number(proposal.issue_id) === Number(computed.selectedIssue?.id));
+    return `<div class="rounded-md-ds border ${tone} p-4 space-y-3">
+      <div class="flex flex-wrap items-center justify-between gap-3"><div><p class="text-[10px] font-mono font-bold uppercase tracking-widest text-[#6b7280]">Product Spec assessment · revision ${Number(assessment.spec_revision || 0)}</p><p class="mt-1 text-sm font-bold capitalize text-[#111827]">${escapeHtml(verdictLabel)}</p></div>${assessment.auto_declined ? `<span class="rounded-sm-ds border border-rose-200 bg-white px-2 py-1 text-[10px] font-bold uppercase text-rose-700">Auto-declined</span>` : ""}</div>
+      ${assessment.public_reason ? `<p class="text-sm text-[#4b5563]">${escapeHtml(assessment.public_reason)}</p>` : ""}
+      ${assessment.out_of_scope_quote ? `<blockquote class="border-l-2 border-rose-300 pl-3 text-xs italic text-[#6b7280]">${escapeHtml(assessment.out_of_scope_quote)}</blockquote>` : ""}
+      ${assessment.spec_gap_summary ? `<p class="text-xs text-[#6b7280]"><strong>Spec gap:</strong> ${escapeHtml(assessment.spec_gap_summary)}</p>` : ""}
+      ${computed.isOwnerViewer && assessment.verdict === "spec_gap" && !issueProposals.length ? `<button type="button" data-action="propose-spec-update" class="rounded-sm-ds bg-[#111827] px-3 py-2 text-[10px] font-bold uppercase tracking-wide text-white disabled:opacity-45"${disabledAttr(state.isScopeAssessmentActionRunning)}>Suggest spec update</button>` : ""}
+      ${issueProposals.map((proposal) => renderSpecProposal(proposal)).join("")}
+    </div>`;
+  }
+
+  function renderSpecProposal(proposal) {
+    return `<div class="rounded-sm-ds border border-[#e5e7eb] bg-white p-4 space-y-3"><div class="flex items-center justify-between gap-3"><div><p class="text-xs font-bold text-[#111827]">Private spec proposal</p><p class="text-[10px] font-mono text-[#6b7280]">Base revision ${Number(proposal.base_spec_revision || 0)}</p></div><span class="text-[10px] font-bold uppercase text-amber-700">${escapeHtml(proposal.status)}</span></div><p class="text-xs text-[#4b5563]">${escapeHtml(proposal.summary)}</p><pre class="max-h-72 overflow-auto rounded-sm-ds bg-[#0b1220] p-3 text-[10px] leading-relaxed text-[#e5e7eb] whitespace-pre-wrap"><code>${escapeHtml(proposal.diff)}</code></pre>${proposal.status === "pending" ? `<div class="flex justify-end gap-2"><button type="button" data-action="resolve-spec-proposal" data-id="${proposal.id}" data-decision="reject" class="rounded-sm-ds border border-[#e5e7eb] px-3 py-2 text-[10px] font-bold uppercase text-[#6b7280] disabled:opacity-45"${disabledAttr(state.isScopeAssessmentActionRunning)}>Reject</button><button type="button" data-action="resolve-spec-proposal" data-id="${proposal.id}" data-decision="accept" class="rounded-sm-ds bg-[#06B6D4] px-3 py-2 text-[10px] font-bold uppercase text-white disabled:opacity-45"${disabledAttr(state.isScopeAssessmentActionRunning)}>Accept & publish</button></div>` : ""}</div>`;
   }
 
   function renderIssueDisplay(issue, canEditSelectedIssue) {
@@ -2160,6 +2259,16 @@
       </div>`;
   }
 
+  function renderProductSpecView(computed) {
+    const project = computed.selectedProject;
+    return `<div class="flex-1 bg-white overflow-y-auto" data-preserve-scroll="product-spec"><div class="mx-auto w-full max-w-3xl px-6 py-10 md:px-8"><div class="mb-8 flex flex-wrap items-start justify-between gap-4"><div><p class="text-[10px] font-mono font-bold uppercase tracking-widest text-[#06B6D4]">Public Product Spec</p><h1 class="mt-2 text-3xl font-bold text-[#111827]">${escapeHtml(project?.name || "Product Spec")}</h1>${state.projectSpec ? `<p class="mt-2 text-xs text-[#6b7280]">Revision ${Number(state.projectSpec.revision)} · updated ${formatRelativeDate(state.projectSpec.updated_at)}</p>` : ""}</div><div class="flex gap-2"><a href="${boardUrl(state.selectedProjectSlug)}" data-action="back-to-project-board" class="rounded-sm-ds border border-[#e5e7eb] px-3 py-2 text-xs font-bold text-[#6b7280] hover:bg-[#f3f4f6]">Requests</a>${computed.isOwnerViewer ? `<button type="button" data-action="open-project-settings" data-slug="${escapeAttr(state.selectedProjectSlug)}" class="rounded-sm-ds bg-[#111827] px-3 py-2 text-xs font-bold text-white">Edit spec</button>` : ""}</div></div>${state.isProjectSpecLoading ? `<p class="text-sm text-[#6b7280]">Loading Product Spec…</p>` : state.projectSpec ? `<article class="rounded-md-ds border border-[#e5e7eb] bg-white p-6 md:p-8">${markdownContent(state.projectSpec.content)}</article>` : `<div class="rounded-md-ds border border-dashed border-[#d1d5db] bg-[#f9fafb] p-8 text-center"><p class="text-sm font-bold text-[#111827]">No Product Spec published yet</p><p class="mt-2 text-xs text-[#6b7280]">Requests continue through the normal moderation and intake flow.</p></div>`}</div></div>`;
+  }
+
+  function renderProjectSpecSettings(project, computed) {
+    const disabled = !computed.isOwnerViewer || state.isProjectSpecSaving || state.isProjectSpecDeleting;
+    return `<section class="space-y-6"><div class="pb-4 border-b border-[#e5e7eb]"><div class="flex flex-wrap items-center justify-between gap-3"><div><h3 class="text-sm font-bold uppercase tracking-widest text-[#6b7280]">Product Spec</h3><p class="mt-2 text-xs text-[#6b7280]">A public one-page product boundary. Business plans, revenue targets, dates, and ordered roadmaps stay outside this document.</p></div>${state.projectSpec ? `<a href="${projectSpecUrl()}" data-action="open-product-spec" class="text-xs font-bold text-[#06B6D4] hover:underline">View public spec</a>` : ""}</div></div>${state.isProjectSpecLoading ? `<p class="text-sm text-[#6b7280]">Loading spec…</p>` : `<div class="grid grid-cols-1 lg:grid-cols-2 gap-6"><div class="space-y-3"><label class="text-[10px] font-mono font-bold uppercase text-[#6b7280]">Markdown · ${state.projectSpecDraft.length.toLocaleString()}/10,000</label><textarea data-bind="projectSpecDraft" maxlength="10000" rows="24" class="w-full rounded-sm-ds border border-[#e5e7eb] bg-white p-3 font-mono text-xs leading-relaxed outline-none focus:ring-1 focus:ring-[#06B6D4]"${disabledAttr(disabled)}>${escapeHtml(state.projectSpecDraft)}</textarea><label class="flex items-start gap-3 rounded-sm-ds border border-[#e5e7eb] bg-[#f9fafb] p-3"><input type="checkbox" data-bind="projectSpecAutoDecline" class="mt-0.5"${state.projectSpecAutoDecline ? " checked" : ""}${disabledAttr(disabled)}><span><span class="block text-xs font-bold text-[#111827]">Enable guarded auto-decline</span><span class="mt-1 block text-[10px] leading-relaxed text-[#6b7280]">Requires non-empty In scope and Out of scope sections. Only exact, unambiguous out-of-scope matches decline automatically.</span></span></label></div><div class="min-h-[28rem] rounded-sm-ds border border-[#e5e7eb] bg-[#f9fafb] p-4 overflow-auto"><p class="mb-4 text-[10px] font-mono font-bold uppercase tracking-widest text-[#9ca3af]">Safe preview</p>${markdownContent(state.projectSpecDraft, "Start from the template to preview your spec.")}</div></div><div class="flex flex-wrap items-center justify-between gap-3"><p class="text-xs ${state.projectSpecFeedbackTone === "error" ? "text-[#dc2626]" : state.projectSpecFeedbackTone === "success" ? "text-[#16a34a]" : "text-[#6b7280]"}">${escapeHtml(state.projectSpecFeedback)}</p><div class="flex gap-2">${state.projectSpec ? `<button type="button" data-action="delete-project-spec" class="rounded-sm-ds border border-rose-200 px-4 py-2 text-xs font-bold text-rose-700 disabled:opacity-45"${disabledAttr(disabled)}>Delete spec</button>` : ""}<button type="button" data-action="save-project-spec" class="rounded-sm-ds bg-[#06B6D4] px-4 py-2 text-xs font-bold text-white disabled:opacity-45"${disabledAttr(disabled || !state.projectSpecDraft.trim())}>${state.isProjectSpecSaving ? "Publishing…" : state.projectSpec ? "Publish revision" : "Publish spec"}</button></div></div>`}</section>`;
+  }
+
   function renderProjectSettingsView(computed) {
     const project = computed.selectedProject;
     return `
@@ -2173,6 +2282,7 @@
             ${state.projectFeedback ? `<p class="text-xs ${state.projectFeedbackTone === "error" ? "text-[#dc2626]" : state.projectFeedbackTone === "success" ? "text-[#16a34a]" : "text-[#6b7280]"}">${escapeHtml(state.projectFeedback)}</p>` : ""}
             <div class="flex justify-end"><button type="button" data-action="save-project" class="px-6 py-2 bg-[#06B6D4] text-white text-sm font-bold rounded-sm-ds hover:bg-cyan-600 shadow-sm transition-all disabled:opacity-45"${disabledAttr(!project || !computed.isOwnerViewer || state.isProjectSaving)}>${state.isProjectSaving ? "Saving..." : "Save Changes"}</button></div>
           </section>
+          ${project ? renderProjectSpecSettings(project, computed) : ""}
           ${project ? renderEmbedWidgetSettings(project, computed) : ""}
           <section class="space-y-6">
             <div class="pb-4 border-b border-[#e5e7eb]"><h3 class="text-sm font-bold uppercase tracking-widest text-[#dc2626]">Danger Zone</h3></div>
@@ -2405,6 +2515,88 @@
       state.selectedProjectSlug = "";
     }
     render();
+  }
+
+  async function refreshProjectSpec() {
+    const project = getComputed().selectedProject;
+    if (!project || !state.ownerHandle || !state.selectedProjectSlug) {
+      state.projectSpec = null;
+      state.projectSpecDraft = PROJECT_SPEC_TEMPLATE;
+      state.projectSpecAutoDecline = false;
+      state.isProjectSpecLoading = false;
+      render();
+      return;
+    }
+    state.isProjectSpecLoading = true;
+    render();
+    try {
+      const response = await fetch(`/api/projects/${encodeURIComponent(state.ownerHandle)}/${encodeURIComponent(state.selectedProjectSlug)}/spec`);
+      if (response.status === 404) {
+        state.projectSpec = null;
+        state.projectSpecDraft = PROJECT_SPEC_TEMPLATE;
+        state.projectSpecAutoDecline = false;
+        return;
+      }
+      const payload = await jsonOrEmpty(response);
+      if (!response.ok) {
+        state.projectSpecFeedback = detailFromPayload(payload, "Product Spec could not be loaded.");
+        state.projectSpecFeedbackTone = "error";
+        return;
+      }
+      state.projectSpec = payload;
+      state.projectSpecDraft = String(payload.content || "");
+      state.projectSpecAutoDecline = Boolean(payload.auto_decline_enabled);
+    } catch {
+      state.projectSpecFeedback = "Product Spec could not be loaded.";
+      state.projectSpecFeedbackTone = "error";
+    } finally {
+      state.isProjectSpecLoading = false;
+      render();
+    }
+  }
+
+  async function refreshScopeAssessment(issueId) {
+    if (!issueId) {
+      state.scopeAssessment = null;
+      state.isScopeAssessmentLoading = false;
+      render();
+      return;
+    }
+    state.isScopeAssessmentLoading = true;
+    render();
+    try {
+      const response = await fetch(`/api/issues/${Number(issueId)}/scope-assessment`);
+      if (response.status === 404) {
+        state.scopeAssessment = null;
+        return;
+      }
+      const payload = await jsonOrEmpty(response);
+      state.scopeAssessment = response.ok ? payload : null;
+    } catch {
+      state.scopeAssessment = null;
+    } finally {
+      state.isScopeAssessmentLoading = false;
+      render();
+    }
+  }
+
+  async function refreshSpecProposals() {
+    const project = getComputed().selectedProject;
+    if (!project || !getComputed().isOwnerViewer) {
+      state.specProposals = [];
+      return;
+    }
+    state.isSpecProposalsLoading = true;
+    try {
+      const response = await fetch(`/api/projects/${project.id}/spec-change-proposals?status=pending`);
+      const payload = await jsonOrEmpty(response);
+      state.specProposals = response.ok && Array.isArray(payload) ? payload : [];
+    } catch {
+      state.specProposals = [];
+    } finally {
+      state.isSpecProposalsLoading = false;
+      render();
+    }
   }
 
   async function refreshInteractedProjects() {
@@ -3556,6 +3748,171 @@
     }
   }
 
+  async function handleSaveProjectSpec() {
+    const project = getComputed().selectedProject;
+    if (!project || !getComputed().isOwnerViewer) {
+      return;
+    }
+    state.isProjectSpecSaving = true;
+    state.projectSpecFeedback = "";
+    state.projectSpecFeedbackTone = "";
+    render();
+    try {
+      const response = await fetch(`/api/projects/${project.id}/spec`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", "X-CSRFToken": csrfTokenFromCookie() },
+        body: JSON.stringify({
+          content: state.projectSpecDraft,
+          auto_decline_enabled: Boolean(state.projectSpecAutoDecline),
+          expected_revision: Number(state.projectSpec?.revision || 0),
+        }),
+      });
+      const payload = await jsonOrEmpty(response);
+      if (!response.ok) {
+        state.projectSpecFeedback = detailFromPayload(payload, "Product Spec could not be published.");
+        state.projectSpecFeedbackTone = "error";
+        return;
+      }
+      state.projectSpec = payload;
+      state.projectSpecDraft = String(payload.content || "");
+      state.projectSpecAutoDecline = Boolean(payload.auto_decline_enabled);
+      state.projectSpecFeedback = `Revision ${payload.revision} published.`;
+      state.projectSpecFeedbackTone = "success";
+      state.projects = state.projects.map((item) => item.id === project.id ? { ...item, has_spec: true, spec_revision: payload.revision } : item);
+    } catch {
+      state.projectSpecFeedback = "Product Spec could not be published.";
+      state.projectSpecFeedbackTone = "error";
+    } finally {
+      state.isProjectSpecSaving = false;
+      render();
+    }
+  }
+
+  async function handleDeleteProjectSpec() {
+    const project = getComputed().selectedProject;
+    if (!project || !state.projectSpec || !getComputed().isOwnerViewer) {
+      return;
+    }
+    if (!window.confirm("Delete the public Product Spec? Auto-decline will be disabled and pending proposals will be invalidated.")) {
+      return;
+    }
+    state.isProjectSpecDeleting = true;
+    render();
+    try {
+      const response = await fetch(`/api/projects/${project.id}/spec`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json", "X-CSRFToken": csrfTokenFromCookie() },
+        body: JSON.stringify({ confirm_project_id: project.id, expected_revision: state.projectSpec.revision }),
+      });
+      const payload = await jsonOrEmpty(response);
+      if (!response.ok) {
+        state.projectSpecFeedback = detailFromPayload(payload, "Product Spec could not be deleted.");
+        state.projectSpecFeedbackTone = "error";
+        return;
+      }
+      state.projectSpec = null;
+      state.projectSpecDraft = PROJECT_SPEC_TEMPLATE;
+      state.projectSpecAutoDecline = false;
+      state.specProposals = [];
+      state.projectSpecFeedback = "Product Spec deleted.";
+      state.projectSpecFeedbackTone = "success";
+      state.projects = state.projects.map((item) => item.id === project.id ? { ...item, has_spec: false, spec_revision: 0 } : item);
+    } catch {
+      state.projectSpecFeedback = "Product Spec could not be deleted.";
+      state.projectSpecFeedbackTone = "error";
+    } finally {
+      state.isProjectSpecDeleting = false;
+      render();
+    }
+  }
+
+  async function handleRetryScopeAssessment() {
+    const issue = getComputed().selectedIssue;
+    if (!issue || !getComputed().isOwnerViewer) {
+      return;
+    }
+    state.isScopeAssessmentActionRunning = true;
+    render();
+    try {
+      const response = await fetch(`/api/issues/${issue.id}/scope-assessment/retry`, {
+        method: "POST",
+        headers: { "X-CSRFToken": csrfTokenFromCookie() },
+      });
+      const payload = await jsonOrEmpty(response);
+      if (!response.ok) {
+        setStatus(detailFromPayload(payload, "Scope assessment could not be retried."), true);
+        return;
+      }
+      state.scopeAssessment = payload;
+      await refreshIssues();
+    } catch {
+      setStatus("Scope assessment could not be retried.", true);
+    } finally {
+      state.isScopeAssessmentActionRunning = false;
+      render();
+    }
+  }
+
+  async function handleProposeSpecUpdate() {
+    const issue = getComputed().selectedIssue;
+    if (!issue || !getComputed().isOwnerViewer) {
+      return;
+    }
+    state.isScopeAssessmentActionRunning = true;
+    render();
+    try {
+      const response = await fetch(`/api/issues/${issue.id}/spec-change-proposals`, {
+        method: "POST",
+        headers: { "X-CSRFToken": csrfTokenFromCookie() },
+      });
+      const payload = await jsonOrEmpty(response);
+      if (!response.ok) {
+        setStatus(detailFromPayload(payload, "Spec proposal could not be generated."), true);
+        return;
+      }
+      state.specProposals = [payload, ...state.specProposals.filter((item) => item.id !== payload.id)];
+      setStatus("Private spec proposal generated.");
+    } catch {
+      setStatus("Spec proposal could not be generated.", true);
+    } finally {
+      state.isScopeAssessmentActionRunning = false;
+      render();
+    }
+  }
+
+  async function handleResolveSpecProposal(proposalId, decision) {
+    const proposal = state.specProposals.find((item) => item.id === Number(proposalId));
+    if (!proposal || !state.projectSpec || !getComputed().isOwnerViewer) {
+      return;
+    }
+    state.isScopeAssessmentActionRunning = true;
+    render();
+    try {
+      const response = await fetch(`/api/spec-change-proposals/${proposal.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", "X-CSRFToken": csrfTokenFromCookie() },
+        body: JSON.stringify({ decision, expected_revision: state.projectSpec.revision }),
+      });
+      const payload = await jsonOrEmpty(response);
+      if (!response.ok) {
+        setStatus(detailFromPayload(payload, "Spec proposal could not be resolved."), true);
+        return;
+      }
+      state.specProposals = state.specProposals.filter((item) => item.id !== proposal.id);
+      if (decision === "accept") {
+        await refreshProjectSpec();
+        setStatus("Spec update published from this request.");
+      } else {
+        setStatus("Spec proposal rejected privately.");
+      }
+    } catch {
+      setStatus("Spec proposal could not be resolved.", true);
+    } finally {
+      state.isScopeAssessmentActionRunning = false;
+      render();
+    }
+  }
+
   async function selectPlan(planId) {
     state.pricingFeedback = "";
     state.isPricingSubmitting = true;
@@ -3595,7 +3952,7 @@
     if (!bind || !(bind in state)) {
       return;
     }
-    state[bind] = target.value;
+    state[bind] = target.type === "checkbox" ? target.checked : target.value;
     if (["typeFilter", "statusFilter", "priorityFilter"].includes(bind)) {
       closeIssueDetailAndHistory();
       refreshIssues().catch(() => {
@@ -3613,7 +3970,16 @@
     if (actionTarget) {
       const field = actionTarget.dataset.field;
       const value = field === "priority" ? Number(actionTarget.value) : actionTarget.value;
-      handleIssuePatch({ [field]: value });
+      if (field === "status" && value === "declined") {
+        const publicReason = window.prompt("Give a short public reason for declining this request:", "");
+        if (!publicReason?.trim()) {
+          render();
+          return;
+        }
+        handleIssuePatch({ status: value, public_reason: publicReason.trim() });
+      } else {
+        handleIssuePatch({ [field]: value });
+      }
       return;
     }
     handleInput(event);
@@ -3732,6 +4098,22 @@
         closeIssueDetailAndHistory();
         state.view = "projectSettings";
         render();
+        refreshProjectSpec();
+        refreshSpecProposals();
+        break;
+      case "open-product-spec":
+        if (!state.selectedProjectSlug) {
+          break;
+        }
+        state.view = "productSpec";
+        state.selectedIssueId = null;
+        state.isIssueDetailOpen = false;
+        window.history.pushState({ slug: state.selectedProjectSlug, view: "productSpec" }, "", projectSpecUrl());
+        render();
+        refreshProjectSpec();
+        break;
+      case "back-to-project-board":
+        setProjectSlugAndHistory(state.selectedProjectSlug);
         break;
       case "select-issue":
         openIssueDetailAndHistory(element.dataset.id);
@@ -3939,6 +4321,21 @@
       case "save-project":
         handleSaveProjectSettings();
         break;
+      case "save-project-spec":
+        handleSaveProjectSpec();
+        break;
+      case "delete-project-spec":
+        handleDeleteProjectSpec();
+        break;
+      case "retry-scope-assessment":
+        handleRetryScopeAssessment();
+        break;
+      case "propose-spec-update":
+        handleProposeSpecUpdate();
+        break;
+      case "resolve-spec-proposal":
+        handleResolveSpecProposal(Number(element.dataset.id), element.dataset.decision || "reject");
+        break;
       case "open-delete-modal":
         state.isDeleteModalOpen = true;
         render();
@@ -4004,6 +4401,8 @@
       }
       if (!state.isRouteNotFound && state.view === "issues") {
         await refreshIssues();
+      } else if (!state.isRouteNotFound && state.view === "productSpec") {
+        await refreshProjectSpec();
       }
       return;
     }

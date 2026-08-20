@@ -50,6 +50,18 @@ VENV_DIR = f"{PROJECT_DIR}/venv"
 PYTHON_BIN = f"{VENV_DIR}/bin/python"
 ENV_FILE = f"{PROJECT_DIR}/.env"
 UV_VERSION = "0.9.26"
+MCP_SERVICE = "feature-request-mcp.service"
+MCP_CLEANUP_SERVICE = "feature-request-oauth-cleanup.service"
+MCP_CLEANUP_TIMER = "feature-request-oauth-cleanup.timer"
+MCP_HEALTH_SERVICE = "feature-request-oauth-health.service"
+MCP_HEALTH_TIMER = "feature-request-oauth-health.timer"
+MCP_SYSTEMD_UNITS = (
+    MCP_SERVICE,
+    MCP_CLEANUP_SERVICE,
+    MCP_CLEANUP_TIMER,
+    MCP_HEALTH_SERVICE,
+    MCP_HEALTH_TIMER,
+)
 
 
 def debug(message: str) -> None:
@@ -246,6 +258,28 @@ def run_django_release(connection: Connection) -> None:
     )
 
 
+def restart_mcp_runtime(connection: Connection) -> None:
+    for unit in MCP_SYSTEMD_UNITS:
+        result = connection.sudo(
+            f"systemctl cat {quote(unit)}",
+            warn=True,
+            hide=True,
+        )
+        if result.failed:
+            raise RuntimeError(
+                f"StageOps-managed unit is missing: {unit}. "
+                "Apply the featurerequest app in StageOps before deploying."
+            )
+
+    connection.sudo(f"systemctl restart {quote(MCP_SERVICE)}")
+    connection.sudo(f"systemctl is-active --quiet {quote(MCP_SERVICE)}")
+
+    for timer in (MCP_CLEANUP_TIMER, MCP_HEALTH_TIMER):
+        connection.sudo(f"systemctl is-enabled --quiet {quote(timer)}")
+        connection.sudo(f"systemctl restart {quote(timer)}")
+        connection.sudo(f"systemctl is-active --quiet {quote(timer)}")
+
+
 def restart_web(connection: Connection) -> None:
     socket = f"app@{PROJECT_NAME}.socket"
     service = f"app@{PROJECT_NAME}.service"
@@ -263,6 +297,15 @@ def public_smoke(connection: Connection) -> None:
         "--connect-timeout 10 --max-time 30 "
         f"{quote('https://' + domain.rstrip('/') + '/')} >/dev/null"
     )
+    headers = connection.run(
+        "curl --silent --show-error --dump-header - --output /dev/null "
+        "--connect-timeout 10 --max-time 30 "
+        f"{quote('https://' + domain.rstrip('/') + '/mcp')}",
+        hide=True,
+    ).stdout
+    status_line = headers.splitlines()[0] if headers else ""
+    if " 401" not in status_line or "www-authenticate: bearer" not in headers.lower():
+        raise RuntimeError("FeatureRequest public MCP discovery smoke did not return a Bearer 401")
 
 
 @task
@@ -289,6 +332,8 @@ def deploy(_context):
         install_dependencies(connection)
     with timed_step("Django release steps"):
         run_django_release(connection)
+    with timed_step("StageOps-managed MCP restart"):
+        restart_mcp_runtime(connection)
     with timed_step("Web service restart"):
         restart_web(connection)
     with timed_step("Public smoke"):

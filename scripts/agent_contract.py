@@ -80,18 +80,25 @@ EXPECTED_TOOLS = {
     "get_account_capabilities",
     "list_projects",
     "get_project",
+    "get_project_spec",
     "create_project",
     "update_project",
+    "update_project_spec",
     "delete_project",
     "list_requests",
     "get_request",
+    "get_request_scope_assessment",
     "list_request_comments",
     "get_queue_snapshot",
     "find_duplicate_candidates",
     "list_request_activity",
     "list_request_changes",
     "list_delivery_artifacts",
+    "list_project_spec_proposals",
     "create_request",
+    "reassess_request_scope",
+    "propose_project_spec_update",
+    "resolve_project_spec_proposal",
     "link_duplicate_request",
     "unlink_duplicate_request",
     "link_delivery_artifact",
@@ -104,8 +111,12 @@ EXPECTED_TOOLS = {
 MUTATION_TOOLS = {
     "create_project",
     "update_project",
+    "update_project_spec",
     "delete_project",
     "create_request",
+    "reassess_request_scope",
+    "propose_project_spec_update",
+    "resolve_project_spec_proposal",
     "link_duplicate_request",
     "unlink_duplicate_request",
     "link_delivery_artifact",
@@ -119,30 +130,45 @@ CREATE_WITHOUT_REVISION_TOOLS = {
     "create_project",
     "create_request",
     "add_request_comment",
+    "propose_project_spec_update",
 }
 EXISTING_RESOURCE_MUTATION_TOOLS = MUTATION_TOOLS - CREATE_WITHOUT_REVISION_TOOLS
 EXTERNAL_EFFECT_TOOLS = {
     "create_request",
+    "update_project_spec",
+    "reassess_request_scope",
+    "propose_project_spec_update",
     "add_request_comment",
     "update_request_comment",
 }
-DESTRUCTIVE_TOOLS = {"delete_project", "transition_request"}
+DESTRUCTIVE_TOOLS = {
+    "delete_project",
+    "transition_request",
+    "reassess_request_scope",
+}
 EXPECTED_OWNERSHIP = {
     "get_account_capabilities": "authenticated_actor",
     "list_projects": "project_owner",
     "get_project": "project_owner",
+    "get_project_spec": "public_board_authenticated",
     "create_project": "project_owner",
     "update_project": "project_owner",
+    "update_project_spec": "project_owner",
     "delete_project": "project_owner",
     "list_requests": "public_board_authenticated",
     "get_request": "public_board_authenticated",
+    "get_request_scope_assessment": "public_board_authenticated",
     "list_request_comments": "public_board_authenticated",
     "get_queue_snapshot": "owned_project_feed",
     "find_duplicate_candidates": "public_board_authenticated",
     "list_request_activity": "project_owner_or_request_author",
     "list_request_changes": "owned_project_feed",
     "list_delivery_artifacts": "project_owner_or_request_author",
+    "list_project_spec_proposals": "project_owner",
     "create_request": "public_board_authenticated",
+    "reassess_request_scope": "project_owner",
+    "propose_project_spec_update": "project_owner",
+    "resolve_project_spec_proposal": "project_owner",
     "link_duplicate_request": "project_owner_or_request_author",
     "unlink_duplicate_request": "project_owner_or_request_author",
     "link_delivery_artifact": "project_owner_or_request_author",
@@ -219,6 +245,7 @@ NO_IDEMPOTENCY = {
 PUBLIC_UNTRUSTED_INPUT_TOOLS = {
     "create_project",
     "update_project",
+    "update_project_spec",
     "find_duplicate_candidates",
     "create_request",
     "link_duplicate_request",
@@ -241,6 +268,15 @@ CAPABILITY_TOOLS = {
         "create_project",
         "update_project",
         "delete_project",
+    },
+    "project_specification": {
+        "get_project_spec",
+        "update_project_spec",
+        "get_request_scope_assessment",
+        "reassess_request_scope",
+        "propose_project_spec_update",
+        "list_project_spec_proposals",
+        "resolve_project_spec_proposal",
     },
     "request_management": {
         "list_requests",
@@ -1723,20 +1759,47 @@ def classify_semver(old: Mapping[str, Any], new: Mapping[str, Any]) -> dict[str,
         "identity",
         "limits",
         "bootstrap",
-        "resources",
         "authorization_policies",
         "data_classifications",
         "audit",
         "idempotency_policy",
-        "mapping",
     }
     for section in sorted(normative_root_sections):
         if old.get(section) != new.get(section):
             changes.append(Change("major", section, f"{section} semantics changed"))
 
+    for section in ("resources",):
+        old_catalog = old.get(section, {})
+        new_catalog = new.get(section, {})
+        if isinstance(old_catalog, Mapping) and isinstance(new_catalog, Mapping):
+            for key in sorted(set(old_catalog) - set(new_catalog)):
+                changes.append(Change("major", f"{section}.{key}", "published entry removed"))
+            for key in sorted(set(new_catalog) - set(old_catalog)):
+                changes.append(Change("minor", f"{section}.{key}", "published entry added"))
+            for key in sorted(set(old_catalog) & set(new_catalog)):
+                if old_catalog[key] != new_catalog[key]:
+                    changes.append(Change("major", f"{section}.{key}", "published entry semantics changed"))
+        elif old_catalog != new_catalog:
+            changes.append(Change("major", section, f"{section} semantics changed"))
+
+    old_mapping = old.get("mapping", {})
+    new_mapping = new.get("mapping", {})
+    if old_mapping != new_mapping:
+        old_mapping_semantics = copy.deepcopy(old_mapping)
+        new_mapping_semantics = copy.deepcopy(new_mapping)
+        if isinstance(old_mapping_semantics, dict) and isinstance(new_mapping_semantics, dict):
+            old_snapshot = old_mapping_semantics.pop("snapshot", None)
+            new_snapshot = new_mapping_semantics.pop("snapshot", None)
+            if old_mapping_semantics == new_mapping_semantics and old_snapshot != new_snapshot:
+                changes.append(Change("patch", "mapping.snapshot", "versioned mapping snapshot advanced"))
+            else:
+                changes.append(Change("major", "mapping", "mapping semantics changed"))
+        else:
+            changes.append(Change("major", "mapping", "mapping semantics changed"))
+
     old_product = old.get("product", {})
     new_product = new.get("product", {})
-    for field in ("name", "slug", "supported_goals", "excluded_goals"):
+    for field in ("name", "slug"):
         if (
             isinstance(old_product, Mapping)
             and isinstance(new_product, Mapping)
@@ -1745,21 +1808,44 @@ def classify_semver(old: Mapping[str, Any], new: Mapping[str, Any]) -> dict[str,
             changes.append(
                 Change("major", f"product.{field}", f"product {field} semantics changed")
             )
+    for field in ("supported_goals", "excluded_goals"):
+        old_values = old_product.get(field, []) if isinstance(old_product, Mapping) else []
+        new_values = new_product.get(field, []) if isinstance(new_product, Mapping) else []
+        if isinstance(old_values, list) and isinstance(new_values, list):
+            if not set(old_values) <= set(new_values):
+                changes.append(Change("major", f"product.{field}", f"product {field} removed or changed"))
+            elif old_values != new_values:
+                changes.append(Change("minor", f"product.{field}", f"product {field} expanded"))
+        elif old_values != new_values:
+            changes.append(Change("major", f"product.{field}", f"product {field} semantics changed"))
 
     old_instructions = old.get("server_instructions", {})
     new_instructions = new.get("server_instructions", {})
-    if (
-        isinstance(old_instructions, Mapping)
-        and isinstance(new_instructions, Mapping)
-        and old_instructions.get("rules") != new_instructions.get("rules")
-    ):
-        changes.append(
-            Change(
-                "major",
-                "server_instructions.rules",
-                "cross-tool instruction rules changed",
-            )
-        )
+    if isinstance(old_instructions, Mapping) and isinstance(new_instructions, Mapping):
+        old_rules = old_instructions.get("rules", {})
+        new_rules = new_instructions.get("rules", {})
+        if isinstance(old_rules, Mapping) and isinstance(new_rules, Mapping):
+            if not set(old_rules) <= set(new_rules) or any(
+                old_rules[key] != new_rules[key] for key in set(old_rules) & set(new_rules)
+            ):
+                changes.append(Change("major", "server_instructions.rules", "cross-tool instruction rules changed"))
+            elif old_rules != new_rules:
+                changes.append(Change("minor", "server_instructions.rules", "cross-tool instruction rules added"))
+        elif isinstance(old_rules, list) and isinstance(new_rules, list) and all(
+            isinstance(item, Mapping) and isinstance(item.get("id"), str)
+            for item in [*old_rules, *new_rules]
+        ):
+            old_by_id = {item["id"]: item for item in old_rules}
+            new_by_id = {item["id"]: item for item in new_rules}
+            if not set(old_by_id) <= set(new_by_id) or any(
+                old_by_id[key] != new_by_id[key]
+                for key in set(old_by_id) & set(new_by_id)
+            ):
+                changes.append(Change("major", "server_instructions.rules", "cross-tool instruction rules changed"))
+            elif old_rules != new_rules:
+                changes.append(Change("minor", "server_instructions.rules", "cross-tool instruction rules added"))
+        elif old_rules != new_rules:
+            changes.append(Change("major", "server_instructions.rules", "cross-tool instruction rules changed"))
 
     if old.get("compatibility") != new.get("compatibility"):
         changes.append(Change("major", "compatibility", "compatibility policy changed"))

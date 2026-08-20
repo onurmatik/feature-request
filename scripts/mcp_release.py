@@ -222,11 +222,25 @@ def validate_contract_pin(*, check_git_tag: bool = True) -> dict[str, Any]:
         "agent-contract-v1.0.0/contract-release.json"
     ):
         raise ReleaseGateError("Agent Contract descriptor URL is not immutable")
+    # The pin represents the last immutable release, while the working tree may
+    # already contain the next additive Contract candidate. Verify historical
+    # assets from the pinned commit instead of pretending the candidate is live.
+    pinned_contract = _git_bytes("show", f"{pin['git_commit']}:agent/contract.yaml")
+    pinned_schema = _git_bytes(
+        "show", f"{pin['git_commit']}:agent/contract.schema.json"
+    )
+    pinned_vectors_path = "agent/conformance/1.0.0/vectors.yaml"
+    pinned_vectors = _git_bytes("show", f"{pin['git_commit']}:{pinned_vectors_path}")
+    pinned_mapping = _git_bytes(
+        "show", f"{pin['git_commit']}:agent/mappings/mcp-1.0.0.json"
+    )
     local_digests = {
-        "contract_sha256": _sha256(CONTRACT_PATH.read_bytes()),
-        "contract_schema_sha256": _sha256(CONTRACT_SCHEMA_PATH.read_bytes()),
-        "conformance_vectors_sha256": _vector_digest(VECTOR_PATH),
-        "mapping_sha256": _sha256(MAPPING_PATH.read_bytes()),
+        "contract_sha256": _sha256(pinned_contract),
+        "contract_schema_sha256": _sha256(pinned_schema),
+        "conformance_vectors_sha256": _sha256(
+            pinned_vectors_path.encode() + b"\0" + pinned_vectors + b"\0"
+        ),
+        "mapping_sha256": _sha256(pinned_mapping),
     }
     for field, actual in local_digests.items():
         if pin.get(field) != actual or not SHA256_RE.fullmatch(actual):
@@ -397,8 +411,8 @@ def validate_registry() -> str:
 
     definitions = contract()["tools"]
     tools = public_registry()
-    if [tool.name for tool in tools] != list(definitions) or len(tools) != 23:
-        raise ReleaseGateError("runtime registry tool names/order do not match Agent Contract 1.0.0")
+    if [tool.name for tool in tools] != list(definitions):
+        raise ReleaseGateError("runtime registry tool names/order do not match the current Agent Contract")
     for tool in tools:
         definition = definitions[tool.name]
         annotations = tool.annotations

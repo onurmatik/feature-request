@@ -15,8 +15,8 @@ from mcp.types import Tool, ToolAnnotations
 
 
 CONTRACT_PATH = Path(settings.BASE_DIR) / "agent" / "contract.yaml"
-PIN_PATH = Path(settings.BASE_DIR) / "integration" / "agent-contract-pin.json"
-SERVER_VERSION = "1.0.0"
+PIN_PATH = Path(settings.BASE_DIR) / "agent" / "runtime-contract-pin.json"
+SERVER_VERSION = "1.1.0"
 
 
 @lru_cache(maxsize=1)
@@ -84,7 +84,7 @@ def validate_tool_input(name: str, arguments: dict):
             else:
                 fields.add(prefix or "$")
         # A closed-schema violation is the most actionable and stable diagnosis.
-        # Contract 1.0.0 vectors intentionally report the unexpected fields first
+        # Contract vectors intentionally report the unexpected fields first
         # instead of also enumerating every required field omitted by that payload.
         fields = sorted(additional_fields or fields)
         return fields

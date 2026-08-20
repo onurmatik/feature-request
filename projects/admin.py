@@ -6,8 +6,11 @@ from .models import (
     IssueComment,
     IssueDeliveryArtifact,
     IssueEvent,
+    IssueScopeAssessment,
     IssueUpvote,
     Project,
+    ProjectSpec,
+    ProjectSpecChangeProposal,
 )
 from .api import _normalize_project_url, _resolve_favicon_url_with_debug
 
@@ -110,6 +113,21 @@ class ProjectAdmin(admin.ModelAdmin):
     fields = ("owner", "name", "slug", "tagline", "url", "favicon_url", "created_at", "updated_at")
 
 
+@admin.register(ProjectSpec)
+class ProjectSpecAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "project",
+        "revision",
+        "auto_decline_enabled",
+        "updated_at",
+    )
+    list_filter = ("auto_decline_enabled", "updated_at")
+    search_fields = ("project__name", "project__slug", "project__owner__handle", "content")
+    autocomplete_fields = ("project",)
+    readonly_fields = ("revision", "created_at", "updated_at")
+
+
 @admin.register(Issue)
 class IssueAdmin(admin.ModelAdmin):
     list_display = (
@@ -126,6 +144,52 @@ class IssueAdmin(admin.ModelAdmin):
     search_fields = ("title", "description", "project__name", "project__slug")
     ordering = ("-created_at",)
     autocomplete_fields = ("project", "author")
+
+
+@admin.register(IssueScopeAssessment)
+class IssueScopeAssessmentAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "issue",
+        "spec_revision",
+        "state",
+        "verdict",
+        "auto_declined",
+        "created_at",
+    )
+    list_filter = ("state", "verdict", "auto_declined", "created_at")
+    search_fields = ("issue__title", "public_reason", "out_of_scope_quote")
+    autocomplete_fields = ("issue",)
+    readonly_fields = (
+        "issue",
+        "spec_revision",
+        "state",
+        "verdict",
+        "public_reason",
+        "out_of_scope_quote",
+        "spec_gap_summary",
+        "evaluator_version",
+        "auto_declined",
+        "error_code",
+        "created_at",
+    )
+
+
+@admin.register(ProjectSpecChangeProposal)
+class ProjectSpecChangeProposalAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "project",
+        "issue",
+        "base_spec_revision",
+        "status",
+        "created_by",
+        "reviewed_by",
+        "created_at",
+    )
+    list_filter = ("status", "created_at")
+    search_fields = ("project__name", "issue__title", "summary")
+    autocomplete_fields = ("project", "issue", "created_by", "reviewed_by")
 
 
 @admin.register(IssueUpvote)

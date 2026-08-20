@@ -37,8 +37,12 @@ from projects.models import (
     IssueComment,
     IssueDeliveryArtifact,
     IssueEvent,
+    IssueScopeAssessment,
     Project,
+    ProjectSpec,
+    ProjectSpecChangeProposal,
 )
+from projects.services import ScopeEvaluation
 
 
 class FeatureRequestMCPRegistryTest(TestCase):
@@ -47,7 +51,7 @@ class FeatureRequestMCPRegistryTest(TestCase):
         contract = yaml.safe_load(open("agent/contract.yaml"))
         tools = async_to_sync(mcp.list_tools)()
         self.assertEqual([tool.name for tool in tools], list(contract["tools"]))
-        self.assertEqual(len(tools), 23)
+        self.assertEqual(len(tools), 30)
         self.assertEqual(registry_digest(), registry_digest())
         for tool in tools:
             definition = contract["tools"][tool.name]
@@ -338,6 +342,139 @@ class FeatureRequestMCPServiceTest(TestCase):
         )
         self.assertNotIn("Secret looking title", serialized)
 
+    def test_project_spec_tools_are_public_read_owner_write_and_revisioned(self):
+        content = "# Purpose\nFocused.\n## Intended users\nTeams.\n## In scope\nRequests.\n## Out of scope\nPrivate strategy.\n## Product principles / Constraints\nSafe defaults."
+        created = self.call(
+            self.owner,
+            "update_project_spec",
+            {
+                "project_id": self.project.pk,
+                "content": content,
+                "auto_decline_enabled": True,
+                "expected_revision": 0,
+                "idempotency_key": "mcp-spec-create-0001",
+            },
+        )
+        self.assertFalse(created.is_error)
+        self.assertEqual(created.structured_content["revision"], 1)
+        public = self.call(
+            self.visitor,
+            "get_project_spec",
+            {"owner_handle": self.owner.handle, "project_slug": self.project.slug},
+            scopes=("read",),
+        )
+        self.assertFalse(public.is_error)
+        self.assertEqual(public.structured_content["content"], content)
+        denied = self.call(
+            self.visitor,
+            "update_project_spec",
+            {
+                "project_id": self.project.pk,
+                "content": content,
+                "auto_decline_enabled": False,
+                "expected_revision": 1,
+                "idempotency_key": "mcp-spec-denied-0001",
+            },
+        )
+        self.assertEqual(denied.structured_content["code"], "permission_denied")
+        stale = self.call(
+            self.owner,
+            "update_project_spec",
+            {
+                "project_id": self.project.pk,
+                "content": content + "\nChanged.",
+                "auto_decline_enabled": False,
+                "expected_revision": 0,
+                "idempotency_key": "mcp-spec-stale-0001",
+            },
+        )
+        self.assertEqual(stale.structured_content["code"], "revision_conflict")
+        capabilities = self.call(self.owner, "get_account_capabilities", {}, scopes=("read",))
+        self.assertTrue(capabilities.structured_content["capabilities"]["project_specification"])
+
+    @patch("agent_runtime.service.evaluate_request_scope")
+    def test_mcp_reassessment_uses_same_guarded_auto_decline_rule(self, evaluate):
+        spec = ProjectSpec.objects.create(
+            project=self.project,
+            content="# Purpose\nFocused.\n## Intended users\nTeams.\n## In scope\nRequests.\n## Out of scope\nPrivate strategy.\n## Product principles / Constraints\nSafe defaults.",
+            auto_decline_enabled=True,
+        )
+        issue = Issue.objects.create(project=self.project, author=self.visitor, title="Strategy")
+        evaluate.return_value = ScopeEvaluation(
+            state=IssueScopeAssessment.State.COMPLETED,
+            verdict=IssueScopeAssessment.Verdict.OUT_OF_SCOPE,
+            public_reason="Explicit non-goal.",
+            out_of_scope_quote="Private strategy.",
+            contradicts_in_scope=False,
+            requires_owner_judgment=False,
+        )
+        result = self.call(
+            self.owner,
+            "reassess_request_scope",
+            {
+                "issue_id": issue.pk,
+                "expected_revision": 1,
+                "idempotency_key": "mcp-reassess-0001",
+            },
+        )
+        self.assertFalse(result.is_error)
+        self.assertTrue(result.structured_content["assessment"]["auto_declined"])
+        self.assertEqual(result.structured_content["request"]["status"], Issue.Status.DECLINED)
+        self.assertEqual(result.structured_content["assessment"]["spec_revision"], spec.revision)
+
+    @patch("agent_runtime.service.generate_spec_change_proposal")
+    def test_mcp_private_spec_proposal_flow_accepts_only_current_revision(self, generate):
+        spec = ProjectSpec.objects.create(
+            project=self.project,
+            content="# Purpose\nFocused.\n## Intended users\nTeams.\n## In scope\nRequests.\n## Out of scope\nPrivate strategy.\n## Product principles / Constraints\nSafe defaults.",
+        )
+        issue = Issue.objects.create(project=self.project, author=self.visitor, title="Integration gap")
+        IssueScopeAssessment.objects.create(
+            issue=issue,
+            spec_revision=1,
+            state=IssueScopeAssessment.State.COMPLETED,
+            verdict=IssueScopeAssessment.Verdict.SPEC_GAP,
+            public_reason="Undefined boundary.",
+            spec_gap_summary="Clarify integrations.",
+            evaluator_version="test-v1",
+        )
+        proposed = spec.content.replace("Requests.", "Requests and integrations.")
+        generate.return_value = (proposed, "Clarify integrations.")
+        created = self.call(
+            self.owner,
+            "propose_project_spec_update",
+            {
+                "issue_id": issue.pk,
+                "expected_spec_revision": 1,
+                "idempotency_key": "mcp-proposal-create-0001",
+            },
+        )
+        self.assertFalse(created.is_error)
+        listed = self.call(
+            self.owner,
+            "list_project_spec_proposals",
+            {"project_id": self.project.pk, "status": "pending"},
+            scopes=("read",),
+        )
+        self.assertEqual(len(listed.structured_content["proposals"]), 1)
+        accepted = self.call(
+            self.owner,
+            "resolve_project_spec_proposal",
+            {
+                "proposal_id": created.structured_content["id"],
+                "decision": "accept",
+                "expected_revision": 1,
+                "idempotency_key": "mcp-proposal-accept-0001",
+            },
+        )
+        self.assertFalse(accepted.is_error)
+        spec.refresh_from_db()
+        self.assertEqual(spec.revision, 2)
+        self.assertEqual(
+            ProjectSpecChangeProposal.objects.get(pk=created.structured_content["id"]).status,
+            ProjectSpecChangeProposal.Status.ACCEPTED,
+        )
+
 
 @override_settings(OPENAI_API_KEY="")
 class FeatureRequestContractRuntimeConformanceTest(TestCase):
@@ -349,6 +486,12 @@ class FeatureRequestContractRuntimeConformanceTest(TestCase):
         bundle = yaml.safe_load(open("agent/conformance/1.0.0/vectors.yaml"))
         cls.vectors = {item["id"]: item for item in bundle["vectors"]}
         cls.contract = yaml.safe_load(open("agent/contract.yaml"))
+        baseline_tools = next(
+            item for item in bundle["vectors"] if item["id"] == "invalid_input_matrix"
+        )["matrix"]["tools"]
+        cls.contract["tools"] = {
+            name: cls.contract["tools"][name] for name in baseline_tools
+        }
 
     def setUp(self):
         User = get_user_model()
@@ -643,11 +786,15 @@ class FeatureRequestContractRuntimeConformanceTest(TestCase):
                 update_fields=["subscription_tier", "subscription_status", "updated_at"]
             )
             pro = self.call(self.owner, "get_account_capabilities", {})
-            self.assertEqual(
-                pro.structured_content,
+            expected = deepcopy(
                 self.vectors["pro_plan_matrix"]["expected"]["result_by_tool"][
                     "get_account_capabilities"
-                ],
+                ]
+            )
+            expected["capabilities"]["project_specification"] = True
+            self.assertEqual(
+                pro.structured_content,
+                expected,
             )
             catalog = set(pro.structured_content["capabilities"])
             for tool, definition in self.contract["tools"].items():
@@ -1136,7 +1283,7 @@ class FeatureRequestModernTransportTest(TransactionTestCase):
         )
         self.assertEqual(tools.status_code, 200, tools.text)
         result = tools.json()["result"]
-        self.assertEqual(len(result["tools"]), 23)
+        self.assertEqual(len(result["tools"]), 30)
         self.assertEqual(result["ttlMs"], 300000)
         self.assertEqual(result["cacheScope"], "public")
 

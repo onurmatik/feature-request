@@ -13,10 +13,19 @@ from django.utils import timezone
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views.decorators.http import require_http_methods
+from openai import OpenAI
 
 from .embed import get_or_create_embed_user, token_digest
 from .events import record_issue_event
-from .models import EmbeddedIssueSubmission, Issue, IssueEvent, Project
+from .models import (
+    EmbeddedIssueSubmission,
+    Issue,
+    IssueEvent,
+    IssueScopeAssessment,
+    Project,
+    ProjectSpec,
+)
+from .services import ScopeEvaluation, evaluate_request_scope, record_scope_assessment
 
 
 logger = logging.getLogger(__name__)
@@ -194,6 +203,19 @@ def embed_submission_verify(request, token):
             },
         )
 
+    spec = ProjectSpec.objects.filter(project=submission.project).first()
+    evaluation = (
+        evaluate_request_scope(
+            spec=spec,
+            issue_type=submission.issue_type,
+            title=submission.title,
+            description=submission.description,
+            client_factory=OpenAI,
+        )
+        if spec is not None
+        else None
+    )
+
     created_issue = False
     with transaction.atomic():
         # Lock only the submission row. PostgreSQL rejects FOR UPDATE when a
@@ -236,6 +258,22 @@ def embed_submission_verify(request, token):
                 actor=user,
                 data={"source": "embed"},
             )
+            if spec is not None and evaluation is not None:
+                current_spec = ProjectSpec.objects.select_for_update().filter(
+                    pk=spec.pk,
+                    revision=spec.revision,
+                ).first()
+                if current_spec is None:
+                    evaluation = ScopeEvaluation(
+                        state=IssueScopeAssessment.State.FAILED,
+                        error_code="spec_revision_changed",
+                    )
+                record_scope_assessment(
+                    issue=issue,
+                    spec=spec,
+                    evaluation=evaluation,
+                    source="embed",
+                )
             created_issue = True
             locked.issue = issue
             locked.verified_at = timezone.now()

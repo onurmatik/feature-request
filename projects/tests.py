@@ -30,7 +30,11 @@ from .models import (
     IssueEvent,
     IssueUpvote,
     Project,
+    ProjectSpec,
+    IssueScopeAssessment,
+    ProjectSpecChangeProposal,
 )
+from .services import ScopeEvaluation
 
 
 class IssueModelsTest(TestCase):
@@ -1361,6 +1365,36 @@ class EmbedWidgetTest(TestCase):
         self.assertEqual(Issue.objects.count(), 1)
         notify_owner.assert_called_once()
 
+    @patch("projects.api._notify_owner_on_new_issue")
+    @patch("projects.views.evaluate_request_scope")
+    def test_verified_embed_uses_current_spec_revision_and_guarded_auto_decline(
+        self, evaluate, notify_owner
+    ):
+        ProjectSpec.objects.create(
+            project=self.project,
+            content=ProjectSpecApiTest.SPEC,
+            auto_decline_enabled=True,
+        )
+        evaluate.return_value = ScopeEvaluation(
+            state=IssueScopeAssessment.State.COMPLETED,
+            verdict=IssueScopeAssessment.Verdict.OUT_OF_SCOPE,
+            public_reason="This is an explicit non-goal.",
+            out_of_scope_quote="Private strategy consulting.",
+            contradicts_in_scope=False,
+            requires_owner_judgment=False,
+        )
+        raw_token, _submission = self.make_pending()
+
+        response = self.client.post(f"/embed/submissions/{raw_token}/verify/")
+
+        self.assertEqual(response.status_code, 302)
+        issue = Issue.objects.get()
+        self.assertEqual(issue.status, Issue.Status.DECLINED)
+        assessment = issue.scope_assessments.get()
+        self.assertEqual(assessment.spec_revision, 1)
+        self.assertTrue(assessment.auto_declined)
+        notify_owner.assert_called_once()
+
     def test_expired_and_invalid_verification_tokens_do_not_publish(self):
         raw_token, _submission = self.make_pending(
             expires_at=timezone.now() - timedelta(seconds=1)
@@ -1719,3 +1753,387 @@ class RequestOperatingSystemApiTest(TestCase):
         self.client.force_login(self.other_owner)
         other_feed = self.client.get("/api/me/issue-changes", {"after_id": 0})
         self.assertEqual(other_feed.json()["events"], [])
+
+
+@override_settings(OPENAI_API_KEY="")
+class ProjectSpecApiTest(TestCase):
+    SPEC = """# Purpose
+Keep public feedback focused.
+
+## Intended users
+Product teams.
+
+## In scope
+Public feature requests.
+
+## Out of scope
+Private strategy consulting.
+
+## Product principles / Constraints
+Safe and transparent defaults.
+"""
+
+    def setUp(self):
+        User = get_user_model()
+        self.owner = User.objects.create_user(
+            email="spec-owner@example.com",
+            handle="spec_owner",
+            password="test-pass-123",
+        )
+        self.author = User.objects.create_user(
+            email="spec-author@example.com",
+            handle="spec_author",
+            password="test-pass-123",
+        )
+        self.outsider = User.objects.create_user(
+            email="spec-outsider@example.com",
+            handle="spec_outsider",
+            password="test-pass-123",
+        )
+        self.project = Project.objects.create(
+            owner=self.owner,
+            name="Spec Board",
+            slug="spec-board",
+        )
+
+    def put_spec(self, *, content=None, auto_decline=False, expected_revision=0):
+        return self.client.put(
+            f"/api/projects/{self.project.id}/spec",
+            data=json.dumps(
+                {
+                    "content": content or self.SPEC,
+                    "auto_decline_enabled": auto_decline,
+                    "expected_revision": expected_revision,
+                }
+            ),
+            content_type="application/json",
+        )
+
+    def create_issue(self, title="A new request", description="Please consider this."):
+        return self.client.post(
+            f"/api/projects/{self.owner.handle}/{self.project.slug}/issues",
+            data=json.dumps(
+                {
+                    "issue_type": "feature",
+                    "title": title,
+                    "description": description,
+                    "priority": Issue.Priority.MEDIUM,
+                }
+            ),
+            content_type="application/json",
+        )
+
+    def test_spec_create_update_public_read_revision_and_summary(self):
+        self.client.force_login(self.owner)
+        created = self.put_spec(auto_decline=True)
+        self.assertEqual(created.status_code, 200)
+        self.assertEqual(created.json()["revision"], 1)
+        self.assertTrue(created.json()["auto_decline_enabled"])
+
+        public = self.client.get(
+            f"/api/projects/{self.owner.handle}/{self.project.slug}/spec"
+        )
+        self.assertEqual(public.status_code, 200)
+        self.assertEqual(public.json()["content"], self.SPEC.strip())
+
+        summaries = self.client.get(f"/api/owners/{self.owner.handle}/projects")
+        self.assertTrue(summaries.json()[0]["has_spec"])
+        self.assertEqual(summaries.json()[0]["spec_revision"], 1)
+        self.assertNotIn("content", summaries.json()[0])
+
+        stale = self.put_spec(expected_revision=0)
+        self.assertEqual(stale.status_code, 409)
+        updated = self.put_spec(
+            content=self.SPEC + "\n- Prefer reversible changes.\n",
+            auto_decline=True,
+            expected_revision=1,
+        )
+        self.assertEqual(updated.status_code, 200)
+        self.assertEqual(updated.json()["revision"], 2)
+
+    def test_auto_decline_requires_both_scope_sections_and_content_limit(self):
+        self.client.force_login(self.owner)
+        missing_out = self.put_spec(
+            content="# Purpose\nFocused.\n## In scope\nPublic requests.",
+            auto_decline=True,
+        )
+        self.assertEqual(missing_out.status_code, 400)
+        too_long = self.put_spec(content="x" * 10001)
+        self.assertEqual(too_long.status_code, 400)
+
+    def test_only_owner_can_write_or_delete_spec_and_delete_invalidates_pending(self):
+        self.client.force_login(self.outsider)
+        self.assertEqual(self.put_spec().status_code, 403)
+        self.client.force_login(self.owner)
+        self.assertEqual(self.put_spec().status_code, 200)
+        issue = Issue.objects.create(project=self.project, author=self.author, title="Gap")
+        proposal = ProjectSpecChangeProposal.objects.create(
+            project=self.project,
+            issue=issue,
+            base_spec_revision=1,
+            base_content=self.SPEC,
+            proposed_content=self.SPEC + "\nMore detail.",
+            summary="Clarify the boundary.",
+            created_by=self.owner,
+        )
+        self.client.force_login(self.outsider)
+        denied = self.client.delete(
+            f"/api/projects/{self.project.id}/spec",
+            data=json.dumps({"confirm_project_id": self.project.id, "expected_revision": 1}),
+            content_type="application/json",
+        )
+        self.assertEqual(denied.status_code, 403)
+        self.client.force_login(self.owner)
+        deleted = self.client.delete(
+            f"/api/projects/{self.project.id}/spec",
+            data=json.dumps({"confirm_project_id": self.project.id, "expected_revision": 1}),
+            content_type="application/json",
+        )
+        self.assertEqual(deleted.status_code, 200)
+        proposal.refresh_from_db()
+        self.assertEqual(proposal.status, ProjectSpecChangeProposal.Status.REJECTED)
+
+    @patch("projects.api.evaluate_request_scope")
+    def test_exact_out_of_scope_quote_auto_declines(self, evaluate):
+        self.client.force_login(self.owner)
+        self.assertEqual(self.put_spec(auto_decline=True).status_code, 200)
+        evaluate.return_value = ScopeEvaluation(
+            state=IssueScopeAssessment.State.COMPLETED,
+            verdict=IssueScopeAssessment.Verdict.OUT_OF_SCOPE,
+            public_reason="This request conflicts with an explicit non-goal.",
+            out_of_scope_quote="Private strategy consulting.",
+            contradicts_in_scope=False,
+            requires_owner_judgment=False,
+        )
+        self.client.force_login(self.author)
+        response = self.create_issue("Private strategy", "Please advise our strategy.")
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["status"], Issue.Status.DECLINED)
+        assessment = IssueScopeAssessment.objects.get(issue_id=response.json()["id"])
+        self.assertTrue(assessment.auto_declined)
+
+    @patch("projects.api.evaluate_request_scope")
+    def test_ambiguous_or_conflicting_out_of_scope_result_stays_open(self, evaluate):
+        self.client.force_login(self.owner)
+        self.put_spec(auto_decline=True)
+        evaluate.return_value = ScopeEvaluation(
+            state=IssueScopeAssessment.State.COMPLETED,
+            verdict=IssueScopeAssessment.Verdict.OUT_OF_SCOPE,
+            public_reason="Owner review is needed.",
+            out_of_scope_quote="Private strategy consulting.",
+            contradicts_in_scope=True,
+            requires_owner_judgment=False,
+        )
+        self.client.force_login(self.author)
+        response = self.create_issue()
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["status"], Issue.Status.OPEN)
+
+    @patch("projects.api.evaluate_request_scope")
+    def test_out_of_scope_result_stays_open_when_auto_decline_is_off(self, evaluate):
+        ProjectSpec.objects.create(project=self.project, content=self.SPEC)
+        evaluate.return_value = ScopeEvaluation(
+            state=IssueScopeAssessment.State.COMPLETED,
+            verdict=IssueScopeAssessment.Verdict.OUT_OF_SCOPE,
+            public_reason="Explicit non-goal.",
+            out_of_scope_quote="Private strategy consulting.",
+            contradicts_in_scope=False,
+            requires_owner_judgment=False,
+        )
+        self.client.force_login(self.author)
+        response = self.create_issue()
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["status"], Issue.Status.OPEN)
+
+    def test_provider_failure_fails_open_and_is_owner_only(self):
+        self.client.force_login(self.owner)
+        self.put_spec()
+        self.client.force_login(self.author)
+        response = self.create_issue()
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["status"], Issue.Status.OPEN)
+        issue_id = response.json()["id"]
+        self.client.force_login(self.outsider)
+        self.assertEqual(
+            self.client.get(f"/api/issues/{issue_id}/scope-assessment").status_code,
+            404,
+        )
+        self.client.force_login(self.owner)
+        private = self.client.get(f"/api/issues/{issue_id}/scope-assessment")
+        self.assertEqual(private.status_code, 200)
+        self.assertEqual(private.json()["state"], IssueScopeAssessment.State.FAILED)
+        self.assertEqual(private.json()["error_code"], "dependency_unavailable")
+
+    @override_settings(OPENAI_API_KEY="test-key")
+    @patch("projects.api._moderate_issue_submission")
+    @patch("projects.api.OpenAI")
+    def test_malformed_scope_output_fails_open_without_raw_output_storage(
+        self, openai_client, _moderation
+    ):
+        ProjectSpec.objects.create(project=self.project, content=self.SPEC)
+        openai_client.return_value.responses.create.return_value.output_text = "{malformed model output"
+        self.client.force_login(self.author)
+        response = self.create_issue()
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["status"], Issue.Status.OPEN)
+        assessment = IssueScopeAssessment.objects.get(issue_id=response.json()["id"])
+        self.assertEqual(assessment.error_code, "invalid_output")
+        serialized = json.dumps(
+            {
+                field.name: getattr(assessment, field.name)
+                for field in assessment._meta.fields
+                if field.name != "created_at"
+            },
+            default=str,
+        )
+        self.assertNotIn("malformed model output", serialized)
+
+    def test_declined_author_can_comment_but_only_owner_can_reopen(self):
+        issue = Issue.objects.create(
+            project=self.project,
+            author=self.author,
+            title="Declined request",
+            status=Issue.Status.DECLINED,
+        )
+        self.client.force_login(self.author)
+        comment = self.client.post(
+            f"/api/issues/{issue.id}/comments",
+            data=json.dumps({"body": "Please reconsider this boundary."}),
+            content_type="application/json",
+        )
+        self.assertEqual(comment.status_code, 201)
+        denied = self.client.patch(
+            f"/api/issues/{issue.id}",
+            data=json.dumps({"status": Issue.Status.OPEN}),
+            content_type="application/json",
+        )
+        self.assertEqual(denied.status_code, 403)
+        self.client.force_login(self.owner)
+        reopened = self.client.patch(
+            f"/api/issues/{issue.id}",
+            data=json.dumps({"status": Issue.Status.OPEN}),
+            content_type="application/json",
+        )
+        self.assertEqual(reopened.status_code, 200)
+
+    def test_active_filter_excludes_declined(self):
+        Issue.objects.create(
+            project=self.project,
+            author=self.author,
+            title="Open request",
+            status=Issue.Status.OPEN,
+        )
+        declined = Issue.objects.create(
+            project=self.project,
+            author=self.author,
+            title="Declined request",
+            status=Issue.Status.DECLINED,
+        )
+        response = self.client.get(
+            f"/api/projects/{self.owner.handle}/{self.project.slug}/issues",
+            {"status": "active"},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn(declined.id, [item["id"] for item in response.json()])
+
+    @patch("projects.api.generate_spec_change_proposal")
+    def test_private_proposal_accept_and_stale_revision_conflict(self, generate):
+        spec = ProjectSpec.objects.create(project=self.project, content=self.SPEC)
+        issue = Issue.objects.create(project=self.project, author=self.author, title="Integration gap")
+        IssueScopeAssessment.objects.create(
+            issue=issue,
+            spec_revision=spec.revision,
+            state=IssueScopeAssessment.State.COMPLETED,
+            verdict=IssueScopeAssessment.Verdict.SPEC_GAP,
+            public_reason="The spec does not define integrations.",
+            spec_gap_summary="Clarify integrations.",
+            evaluator_version="test-v1",
+        )
+        proposed = self.SPEC.replace("Public feature requests.", "Public feature requests and integrations.")
+        generate.return_value = (proposed, "Clarify integration support.")
+        self.client.force_login(self.owner)
+        created = self.client.post(f"/api/issues/{issue.id}/spec-change-proposals")
+        self.assertEqual(created.status_code, 201)
+        proposal_id = created.json()["id"]
+        self.assertIn("integrations", created.json()["diff"])
+
+        self.client.force_login(self.outsider)
+        self.assertEqual(
+            self.client.get(f"/api/projects/{self.project.id}/spec-change-proposals").status_code,
+            403,
+        )
+        self.client.force_login(self.owner)
+        spec.content += "\nA concurrent edit."
+        spec.revision += 1
+        spec.save()
+        stale = self.client.patch(
+            f"/api/spec-change-proposals/{proposal_id}",
+            data=json.dumps({"decision": "accept", "expected_revision": 1}),
+            content_type="application/json",
+        )
+        self.assertEqual(stale.status_code, 409)
+        self.assertEqual(
+            ProjectSpecChangeProposal.objects.get(id=proposal_id).status,
+            ProjectSpecChangeProposal.Status.PENDING,
+        )
+
+    def test_spec_proposal_generation_failure_creates_no_draft(self):
+        spec = ProjectSpec.objects.create(project=self.project, content=self.SPEC)
+        issue = Issue.objects.create(project=self.project, author=self.author, title="Unresolved gap")
+        IssueScopeAssessment.objects.create(
+            issue=issue,
+            spec_revision=spec.revision,
+            state=IssueScopeAssessment.State.COMPLETED,
+            verdict=IssueScopeAssessment.Verdict.SPEC_GAP,
+            public_reason="Undefined boundary.",
+            spec_gap_summary="Clarify it.",
+            evaluator_version="test-v1",
+        )
+        self.client.force_login(self.owner)
+        response = self.client.post(f"/api/issues/{issue.id}/spec-change-proposals")
+        self.assertEqual(response.status_code, 503)
+        self.assertFalse(ProjectSpecChangeProposal.objects.exists())
+
+    def test_proposal_accept_publishes_spec_event_and_reject_is_private(self):
+        spec = ProjectSpec.objects.create(project=self.project, content=self.SPEC)
+        accepted_issue = Issue.objects.create(project=self.project, author=self.author, title="Accepted gap")
+        accepted = ProjectSpecChangeProposal.objects.create(
+            project=self.project,
+            issue=accepted_issue,
+            base_spec_revision=1,
+            base_content=self.SPEC,
+            proposed_content=self.SPEC + "\n- Clarified from a request.",
+            summary="Clarify one boundary.",
+            created_by=self.owner,
+        )
+        self.client.force_login(self.owner)
+        response = self.client.patch(
+            f"/api/spec-change-proposals/{accepted.id}",
+            data=json.dumps({"decision": "accept", "expected_revision": 1}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        spec.refresh_from_db()
+        self.assertEqual(spec.revision, 2)
+        self.assertEqual(
+            accepted_issue.events.get().event_type,
+            IssueEvent.Type.SPEC_UPDATED,
+        )
+
+        rejected_issue = Issue.objects.create(project=self.project, author=self.author, title="Rejected gap")
+        rejected = ProjectSpecChangeProposal.objects.create(
+            project=self.project,
+            issue=rejected_issue,
+            base_spec_revision=2,
+            base_content=spec.content,
+            proposed_content=spec.content + "\nRejected detail.",
+            summary="A rejected change.",
+            created_by=self.owner,
+        )
+        rejected_response = self.client.patch(
+            f"/api/spec-change-proposals/{rejected.id}",
+            data=json.dumps({"decision": "reject", "expected_revision": 2}),
+            content_type="application/json",
+        )
+        self.assertEqual(rejected_response.status_code, 200)
+        self.assertFalse(rejected_issue.events.exists())

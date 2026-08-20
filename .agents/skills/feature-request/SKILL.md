@@ -10,8 +10,8 @@ with a deterministic flow, but normative agent semantics live only in `agent/con
 Tool schemas, scopes, capabilities, ownership, approvals, errors, side effects, and retry rules
 must be referenced or mechanically projected from that Contract rather than redefined here.
 
-Agent Contract 1.0.0 names `get_account_capabilities` as the bootstrap tool. The repository now
-implements its exact 23-tool projection, while MCP production conformance is `pending`
+Agent Contract 1.1.0 names `get_account_capabilities` as the bootstrap tool. The repository now
+implements its exact 30-tool projection, while MCP production conformance is `pending`
 until the immutable MCP release, PostgreSQL concurrency, deployment, observation, and real-client
 acceptance gates pass. The MCP and API sections below document that release-preparation handoff.
 
@@ -86,9 +86,9 @@ Operate on board data via API:
   - request: `issue_type`, `title`, `description`, `priority`.
   - comment: `body`.
   - optional filters: `issue_type`, `status`, `priority`, `limit`.
-  - `status=active` is a list-only filter that excludes `done` and `closed`.
+  - `status=active` is a list-only filter that excludes `done`, `closed`, and `declined`.
 
-### MCP/OAuth 1.0 Repository Runtime (Production Conformance Pending)
+### MCP/OAuth 1.1 Repository Runtime (Production Conformance Pending)
 - Transport: Streamable HTTP at `/mcp`.
 - Authentication: MCP OAuth discovery, public clients, PKCE S256, exact resource binding.
 - Permission model:
@@ -110,6 +110,14 @@ Operate on board data via API:
   - `create_project`
   - `update_project`
   - `delete_project`
+- Product Spec and scope tools:
+  - `get_project_spec`
+  - `update_project_spec`
+  - `get_request_scope_assessment`
+  - `reassess_request_scope`
+  - `propose_project_spec_update`
+  - `list_project_spec_proposals`
+  - `resolve_project_spec_proposal`
 - P1 request and evidence tools:
   - `list_requests`
   - `get_request`
@@ -131,6 +139,11 @@ Operate on board data via API:
 - `delete_project` is destructive: call `get_project` first, require explicit user direction,
   and pass the same project id as `confirm_project_id`.
 - Keep status transitions separate from content/priority updates.
+- Treat scope assessments as evidence. Automatic `declined` is allowed only when the guarded
+  Contract rule matches an exact `Out of scope` quote without contradiction or ambiguity.
+- Assessment failures fail open and remain owner-only. Pending spec proposals are owner-private;
+  acceptance requires the unchanged base spec revision and rejection creates no public event.
+- Only the project owner may transition into or out of `declined`; authors may still comment.
 - Do not transition a request to `done` or `closed` without explicit user direction
   and delivery evidence that the calling agent has inspected.
 - Intentionally not exposed through MCP: token create/revoke, billing/checkout, bulk close,
@@ -156,6 +169,15 @@ Operate on board data via API:
   - `GET /api/projects/{project_id}`
   - `PATCH /api/projects/{project_id}`
   - `DELETE /api/projects/{project_id}`
+- Product Spec and owner proposal workflow:
+  - `GET /api/projects/{owner_handle}/{project_slug}/spec`
+  - `PUT /api/projects/{project_id}/spec`
+  - `DELETE /api/projects/{project_id}/spec`
+  - `GET /api/issues/{issue_id}/scope-assessment`
+  - `POST /api/issues/{issue_id}/scope-assessment/retry`
+  - `POST /api/issues/{issue_id}/spec-change-proposals`
+  - `GET /api/projects/{project_id}/spec-change-proposals?status=pending`
+  - `PATCH /api/spec-change-proposals/{proposal_id}`
 - Read issues:
   - `GET /api/owners/{owner_handle}/issues`
   - `GET /api/projects/{owner_handle}/{project_slug}/issues`

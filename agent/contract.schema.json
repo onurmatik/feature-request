@@ -54,7 +54,8 @@
         "request_collaboration",
         "duplicate_evidence",
         "delivery_evidence",
-        "activity_feed"
+        "activity_feed",
+        "project_specification"
       ],
       "properties": {
         "project_management": {"$ref": "#/$defs/capability"},
@@ -62,7 +63,8 @@
         "request_collaboration": {"$ref": "#/$defs/capability"},
         "duplicate_evidence": {"$ref": "#/$defs/capability"},
         "delivery_evidence": {"$ref": "#/$defs/capability"},
-        "activity_feed": {"$ref": "#/$defs/capability"}
+        "activity_feed": {"$ref": "#/$defs/capability"},
+        "project_specification": {"$ref": "#/$defs/capability"}
       }
     },
     "limits": {"$ref": "#/$defs/limits"},

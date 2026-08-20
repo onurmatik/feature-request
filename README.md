@@ -211,6 +211,13 @@ Project responses include `open_issues_count`, which counts issues with status `
 - `GET /api/projects/{project_id}`
 - `PATCH /api/projects/{project_id}`
 - `DELETE /api/projects/{project_id}`
+- `GET /api/projects/{owner_handle}/{project_slug}/spec`
+- `PUT|DELETE /api/projects/{project_id}/spec`
+- `GET /api/issues/{issue_id}/scope-assessment`
+- `POST /api/issues/{issue_id}/scope-assessment/retry`
+- `POST /api/issues/{issue_id}/spec-change-proposals`
+- `GET /api/projects/{project_id}/spec-change-proposals`
+- `PATCH /api/spec-change-proposals/{proposal_id}`
 - `GET /api/billing/plans`
 - `POST /api/billing/checkout`
 - `POST /api/owners/{owner_handle}/messages`
@@ -218,9 +225,9 @@ Project responses include `open_issues_count`, which counts issues with status `
 
 ## MCP Server
 
-FeatureRequest includes an explicit Python `MCPServer[None]` exposing the Agent Contract 1.0.0
+FeatureRequest includes an explicit Python `MCPServer[None]` exposing the Agent Contract 1.1.0
 request operating workflow over stateless Streamable HTTP. It implements modern MCP 2026-07-28
-`server/discover`, per-request protocol headers, and a deterministic 23-tool registry. FastMCP,
+`server/discover`, per-request protocol headers, and a deterministic 30-tool registry. FastMCP,
 loopback HTTP API forwarding, and legacy initialize transport are not used.
 
 `/mcp` is protected by OAuth 2.1 Authorization Code + PKCE S256. Client ID Metadata Documents
@@ -303,6 +310,16 @@ Project tools:
 - `create_project`
 - `update_project`
 - `delete_project` (destructive; requires `get_project`, explicit user direction, and a matching confirmation id)
+
+Product Spec and scope tools:
+
+- `get_project_spec`
+- `update_project_spec`
+- `get_request_scope_assessment`
+- `reassess_request_scope`
+- `propose_project_spec_update`
+- `list_project_spec_proposals`
+- `resolve_project_spec_proposal`
 
 Request and evidence tools:
 

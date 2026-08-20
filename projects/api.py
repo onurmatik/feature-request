@@ -35,11 +35,15 @@ from .models import (
     IssueComment,
     IssueDeliveryArtifact,
     IssueEvent,
+    IssueScopeAssessment,
     IssueUpvote,
     Project,
+    ProjectSpec,
+    ProjectSpecChangeProposal,
 )
 from .services import (
     DomainRuleError,
+    ScopeEvaluation,
     annotated_issue_queryset as _shared_annotated_issue_queryset,
     apply_issue_changes,
     apply_project_changes,
@@ -47,14 +51,25 @@ from .services import (
     create_comment_resource,
     create_issue_resource,
     create_project_resource,
+    create_spec_change_proposal_resource,
+    delete_project_spec_resource,
     delivery_artifact_to_dict as _shared_delivery_artifact_to_dict,
     duplicate_candidate_dict as _shared_duplicate_candidate_dict,
     issue_event_to_dict as _shared_issue_event_to_dict,
     issue_to_dict as _shared_issue_to_dict,
+    evaluate_request_scope,
+    generate_spec_change_proposal,
     link_delivery_resource,
     link_duplicate_resource,
     moderate_board_content,
+    moderate_project_spec,
     project_to_dict as _shared_project_to_dict,
+    project_spec_to_dict,
+    record_scope_assessment,
+    resolve_spec_change_proposal_resource,
+    save_project_spec_resource,
+    scope_assessment_to_dict,
+    spec_change_proposal_to_dict,
     unlink_delivery_resource,
     unlink_duplicate_resource,
     update_comment_resource,
@@ -94,6 +109,8 @@ class ProjectOut(Schema):
     url: str
     favicon_url: str
     open_issues_count: int
+    has_spec: bool
+    spec_revision: int
     revision: int
     created_at: str
     updated_at: str
@@ -121,11 +138,41 @@ class ProjectUpdateIn(Schema):
     url: Optional[str] = None
 
 
+class ProjectSpecUpsertIn(Schema):
+    content: str
+    auto_decline_enabled: bool = False
+    expected_revision: int
+
+
+class ProjectSpecDeleteIn(Schema):
+    confirm_project_id: int
+    expected_revision: int
+
+
+class ProjectSpecOut(Schema):
+    project_id: int
+    owner_handle: str
+    project_slug: str
+    content: str
+    revision: int
+    auto_decline_enabled: bool
+    created_at: str
+    updated_at: str
+
+
+class ProjectSpecDeleteOut(Schema):
+    project_id: int
+    deleted: bool
+    deleted_revision: int
+
+
 class IssueUpdateIn(Schema):
     title: Optional[str] = None
     description: Optional[str] = None
     status: Optional[str] = None
     priority: Optional[int] = None
+    public_reason: Optional[str] = None
+    scope_assessment_id: Optional[int] = None
 
 
 class IssueOut(Schema):
@@ -148,6 +195,41 @@ class IssueOut(Schema):
     revision: int
     created_at: str
     updated_at: str
+
+
+class ScopeAssessmentOut(Schema):
+    id: int
+    issue_id: int
+    spec_revision: int
+    state: str
+    verdict: str
+    public_reason: str
+    out_of_scope_quote: str
+    spec_gap_summary: str
+    evaluator_version: str
+    auto_declined: bool
+    error_code: Optional[str] = None
+    created_at: str
+
+
+class SpecChangeProposalOut(Schema):
+    id: int
+    project_id: int
+    issue_id: int
+    base_spec_revision: int
+    proposed_content: str
+    summary: str
+    diff: str
+    status: str
+    created_by_id: int
+    reviewed_by_id: Optional[int]
+    created_at: str
+    updated_at: str
+
+
+class SpecChangeProposalDecisionIn(Schema):
+    decision: str
+    expected_revision: int
 
 
 class UpvoteToggleOut(Schema):
@@ -262,7 +344,7 @@ def _filter_issues_by_status(queryset, status: Optional[str]):
         return queryset
     if status == "active":
         return queryset.exclude(
-            status__in=[Issue.Status.DONE, Issue.Status.CLOSED]
+            status__in=[Issue.Status.DONE, Issue.Status.CLOSED, Issue.Status.DECLINED]
         )
     _validate_status(status)
     return queryset.filter(status=status)
@@ -299,6 +381,17 @@ def _can_manage_issue(user, issue: Issue):
 
 def _can_manage_project(user, project: Project):
     return user.id == project.owner_id
+
+
+def _raise_domain_http_error(exc: DomainRuleError):
+    status = {
+        "not_found": 404,
+        "revision_conflict": 409,
+        "invalid_state": 409,
+        "dependency_unavailable": 503,
+        "moderation_rejected": 400,
+    }.get(exc.code, 400)
+    raise HttpError(status, exc.message) from exc
 
 
 def _clean_non_empty(value: str, field_name: str):
@@ -901,7 +994,7 @@ def _notify_owner_on_new_comment(request, comment: IssueComment):
 
 def _get_project(owner_handle: str, project_slug: str):
     return get_object_or_404(
-        Project.objects.select_related("owner"),
+        Project.objects.select_related("owner", "spec"),
         owner__handle=owner_handle.lower(),
         slug=project_slug,
     )
@@ -937,7 +1030,7 @@ _get_annotated_issue_queryset = _shared_annotated_issue_queryset
 def list_my_projects(request):
     user = _require_auth_user(request)
     projects = _order_projects_by_last_request(
-        _annotate_open_issues_count(Project.objects.select_related("owner").filter(owner=user))
+        _annotate_open_issues_count(Project.objects.select_related("owner", "spec").filter(owner=user))
     )
     return [_project_to_dict(project) for project in projects]
 
@@ -975,7 +1068,7 @@ def create_project(request, payload: ProjectCreateIn):
             url=url,
             favicon_url=favicon_url,
         )
-    project = Project.objects.select_related("owner").get(id=project.id)
+    project = Project.objects.select_related("owner", "spec").get(id=project.id)
     return 201, _project_to_dict(project)
 
 
@@ -983,7 +1076,7 @@ def create_project(request, payload: ProjectCreateIn):
 def get_my_project(request, project_id: int):
     user = _require_auth_user(request)
     project = get_object_or_404(
-        Project.objects.select_related("owner"),
+        Project.objects.select_related("owner", "spec"),
         id=project_id,
         owner=user,
     )
@@ -1040,11 +1133,84 @@ def delete_project(request, project_id: int):
     return 204, None
 
 
+@router.get(
+    "/projects/{owner_handle}/{project_slug}/spec",
+    response=ProjectSpecOut,
+)
+def get_public_project_spec(request, owner_handle: str, project_slug: str):
+    project = _get_project(owner_handle, project_slug)
+    spec = get_object_or_404(
+        ProjectSpec.objects.select_related("project__owner"),
+        project=project,
+    )
+    return project_spec_to_dict(spec)
+
+
+@router.put("/projects/{project_id}/spec", response=ProjectSpecOut)
+def upsert_project_spec(request, project_id: int, payload: ProjectSpecUpsertIn):
+    user = _require_auth_user(request)
+    if payload.expected_revision < 0:
+        raise HttpError(400, "expected_revision cannot be negative.")
+    try:
+        moderate_project_spec(payload.content, client_factory=OpenAI)
+    except DomainRuleError as exc:
+        _raise_domain_http_error(exc)
+
+    with transaction.atomic():
+        project = get_object_or_404(
+            Project.objects.select_for_update().select_related("owner"),
+            id=project_id,
+        )
+        if not _can_manage_project(user, project):
+            raise HttpError(403, "Not allowed to update this project spec.")
+        try:
+            spec, _ = save_project_spec_resource(
+                project=project,
+                content=payload.content,
+                auto_decline_enabled=payload.auto_decline_enabled,
+                expected_revision=payload.expected_revision,
+            )
+        except DomainRuleError as exc:
+            _raise_domain_http_error(exc)
+    spec = ProjectSpec.objects.select_related("project__owner").get(pk=spec.pk)
+    return project_spec_to_dict(spec)
+
+
+@router.delete("/projects/{project_id}/spec", response=ProjectSpecDeleteOut)
+def delete_project_spec(
+    request,
+    project_id: int,
+    payload: ProjectSpecDeleteIn,
+):
+    user = _require_auth_user(request)
+    if payload.confirm_project_id != project_id:
+        raise HttpError(400, "confirm_project_id must match project_id.")
+    with transaction.atomic():
+        project = get_object_or_404(
+            Project.objects.select_for_update(),
+            id=project_id,
+        )
+        if not _can_manage_project(user, project):
+            raise HttpError(403, "Not allowed to delete this project spec.")
+        try:
+            deleted_revision = delete_project_spec_resource(
+                project=project,
+                expected_revision=payload.expected_revision,
+            )
+        except DomainRuleError as exc:
+            _raise_domain_http_error(exc)
+    return {
+        "project_id": project_id,
+        "deleted": True,
+        "deleted_revision": deleted_revision,
+    }
+
+
 @router.get("/owners/{owner_handle}/projects", response=list[ProjectOut])
 def list_owner_projects(request, owner_handle: str):
     owner = _get_owner(owner_handle)
     projects = _order_projects_by_last_request(
-        _annotate_open_issues_count(Project.objects.select_related("owner").filter(owner=owner))
+        _annotate_open_issues_count(Project.objects.select_related("owner", "spec").filter(owner=owner))
     )
     return [_project_to_dict(project) for project in projects]
 
@@ -1062,7 +1228,7 @@ def _project_latest_interaction_at(project):
 def list_owner_interacted_projects(request, owner_handle: str):
     owner = _get_owner(owner_handle)
     projects = _annotate_open_issues_count(
-        Project.objects.select_related("owner")
+        Project.objects.select_related("owner", "spec")
         .exclude(owner=owner)
         .filter(
             Q(issues__author=owner)
@@ -1222,6 +1388,18 @@ def create_issue(request, owner_handle: str, project_slug: str, payload: IssueCr
     title = _clean_non_empty(payload.title, "Issue title")
     description = payload.description.strip()
     _moderate_issue_submission(payload.issue_type, title, description)
+    spec = ProjectSpec.objects.filter(project=project).first()
+    evaluation = (
+        evaluate_request_scope(
+            spec=spec,
+            issue_type=payload.issue_type,
+            title=title,
+            description=description,
+            client_factory=OpenAI,
+        )
+        if spec is not None
+        else None
+    )
     with transaction.atomic():
         issue = create_issue_resource(
             project=project,
@@ -1232,6 +1410,22 @@ def create_issue(request, owner_handle: str, project_slug: str, payload: IssueCr
             priority=payload.priority,
             source="api",
         )
+        if spec is not None and evaluation is not None:
+            current_spec = ProjectSpec.objects.select_for_update().filter(
+                pk=spec.pk,
+                revision=spec.revision,
+            ).first()
+            if current_spec is None:
+                evaluation = ScopeEvaluation(
+                    state=IssueScopeAssessment.State.FAILED,
+                    error_code="spec_revision_changed",
+                )
+            record_scope_assessment(
+                issue=issue,
+                spec=spec,
+                evaluation=evaluation,
+                source="api",
+            )
     _notify_owner_on_new_issue(request, issue, user)
     issue = _get_annotated_issue_queryset().get(id=issue.id)
     return 201, _issue_to_dict(issue)
@@ -1295,15 +1489,212 @@ def get_issue(request, issue_id: int):
     return _issue_to_dict(issue)
 
 
+@router.get(
+    "/issues/{issue_id}/scope-assessment",
+    response=ScopeAssessmentOut,
+)
+def get_issue_scope_assessment(request, issue_id: int):
+    issue = get_object_or_404(Issue.objects.select_related("project"), id=issue_id)
+    is_owner = request.user.is_authenticated and request.user.id == issue.project.owner_id
+    assessments = issue.scope_assessments.all()
+    if not is_owner:
+        assessments = assessments.filter(state=IssueScopeAssessment.State.COMPLETED)
+    assessment = assessments.order_by("-created_at", "-id").first()
+    if assessment is None:
+        raise HttpError(404, "Scope assessment not found.")
+    return scope_assessment_to_dict(assessment, include_private=is_owner)
+
+
+@router.post(
+    "/issues/{issue_id}/scope-assessment/retry",
+    response=ScopeAssessmentOut,
+)
+def retry_issue_scope_assessment(request, issue_id: int):
+    user = _require_auth_user(request)
+    issue = get_object_or_404(
+        Issue.objects.select_related("project"),
+        id=issue_id,
+    )
+    if user.id != issue.project.owner_id:
+        raise HttpError(403, "Only the project owner can reassess request scope.")
+    spec = get_object_or_404(ProjectSpec, project=issue.project)
+    evaluation = evaluate_request_scope(
+        spec=spec,
+        issue_type=issue.issue_type,
+        title=issue.title,
+        description=issue.description,
+        client_factory=OpenAI,
+    )
+    with transaction.atomic():
+        issue = get_object_or_404(
+            Issue.objects.select_for_update().select_related("project"),
+            id=issue_id,
+        )
+        current_spec = ProjectSpec.objects.select_for_update().filter(
+            pk=spec.pk,
+            revision=spec.revision,
+        ).first()
+        if current_spec is None:
+            evaluation = ScopeEvaluation(
+                state=IssueScopeAssessment.State.FAILED,
+                error_code="spec_revision_changed",
+            )
+        assessment = record_scope_assessment(
+            issue=issue,
+            spec=spec,
+            evaluation=evaluation,
+            source="api_retry",
+        )
+    return scope_assessment_to_dict(assessment, include_private=True)
+
+
+@router.post(
+    "/issues/{issue_id}/spec-change-proposals",
+    response={201: SpecChangeProposalOut},
+)
+def create_issue_spec_change_proposal(request, issue_id: int):
+    user = _require_auth_user(request)
+    issue = get_object_or_404(
+        Issue.objects.select_related("project"),
+        id=issue_id,
+    )
+    if user.id != issue.project.owner_id:
+        raise HttpError(403, "Only the project owner can propose a spec update.")
+    spec = get_object_or_404(ProjectSpec, project=issue.project)
+    latest = issue.scope_assessments.order_by("-created_at", "-id").first()
+    if latest is None or latest.verdict != IssueScopeAssessment.Verdict.SPEC_GAP:
+        raise HttpError(409, "The latest scope assessment is not a spec gap.")
+    if latest.spec_revision != spec.revision:
+        raise HttpError(409, "The project spec changed after scope assessment.")
+    if ProjectSpecChangeProposal.objects.filter(
+        issue=issue,
+        base_spec_revision=spec.revision,
+        status=ProjectSpecChangeProposal.Status.PENDING,
+    ).exists():
+        raise HttpError(409, "A pending spec proposal already exists for this request.")
+    try:
+        proposed_content, summary = generate_spec_change_proposal(
+            spec=spec,
+            issue=issue,
+            client_factory=OpenAI,
+        )
+    except DomainRuleError as exc:
+        _raise_domain_http_error(exc)
+    with transaction.atomic():
+        issue = get_object_or_404(
+            Issue.objects.select_for_update().select_related("project"),
+            id=issue_id,
+        )
+        current_spec = get_object_or_404(
+            ProjectSpec.objects.select_for_update(),
+            project=issue.project,
+        )
+        if current_spec.revision != spec.revision:
+            raise HttpError(409, "The project spec changed while generating the proposal.")
+        try:
+            proposal = create_spec_change_proposal_resource(
+                project=issue.project,
+                issue=issue,
+                actor=user,
+                spec=current_spec,
+                proposed_content=proposed_content,
+                summary=summary,
+            )
+        except DomainRuleError as exc:
+            _raise_domain_http_error(exc)
+    return 201, spec_change_proposal_to_dict(proposal)
+
+
+@router.get(
+    "/projects/{project_id}/spec-change-proposals",
+    response=list[SpecChangeProposalOut],
+)
+def list_project_spec_change_proposals(
+    request,
+    project_id: int,
+    status: str = ProjectSpecChangeProposal.Status.PENDING,
+):
+    user = _require_auth_user(request)
+    project = get_object_or_404(Project, id=project_id)
+    if user.id != project.owner_id:
+        raise HttpError(403, "Only the project owner can view spec proposals.")
+    if status not in ProjectSpecChangeProposal.Status.values:
+        raise HttpError(400, "Invalid proposal status.")
+    proposals = ProjectSpecChangeProposal.objects.filter(
+        project=project,
+        status=status,
+    ).select_related("created_by", "reviewed_by")
+    return [spec_change_proposal_to_dict(proposal) for proposal in proposals]
+
+
+@router.patch(
+    "/spec-change-proposals/{proposal_id}",
+    response=SpecChangeProposalOut,
+)
+def resolve_project_spec_change_proposal(
+    request,
+    proposal_id: int,
+    payload: SpecChangeProposalDecisionIn,
+):
+    user = _require_auth_user(request)
+    decisions = {
+        "accept": ProjectSpecChangeProposal.Status.ACCEPTED,
+        "accepted": ProjectSpecChangeProposal.Status.ACCEPTED,
+        "reject": ProjectSpecChangeProposal.Status.REJECTED,
+        "rejected": ProjectSpecChangeProposal.Status.REJECTED,
+    }
+    decision = decisions.get(payload.decision)
+    if decision is None:
+        raise HttpError(400, "Decision must be accept or reject.")
+    with transaction.atomic():
+        proposal = get_object_or_404(
+            ProjectSpecChangeProposal.objects.select_for_update().select_related(
+                "project", "issue", "created_by", "reviewed_by"
+            ),
+            id=proposal_id,
+        )
+        if user.id != proposal.project.owner_id:
+            raise HttpError(403, "Only the project owner can resolve spec proposals.")
+        spec = get_object_or_404(
+            ProjectSpec.objects.select_for_update(),
+            project=proposal.project,
+        )
+        try:
+            proposal, _ = resolve_spec_change_proposal_resource(
+                proposal=proposal,
+                spec=spec,
+                actor=user,
+                decision=decision,
+                expected_spec_revision=payload.expected_revision,
+            )
+        except DomainRuleError as exc:
+            _raise_domain_http_error(exc)
+    return spec_change_proposal_to_dict(proposal)
+
+
 @router.patch("/issues/{issue_id}", response=IssueOut)
 def update_issue(request, issue_id: int, payload: IssueUpdateIn):
     user = _require_auth_user(request)
+    if payload.status == Issue.Status.DECLINED and payload.public_reason:
+        _moderate_board_content(
+            "Decline reason",
+            payload.public_reason.strip(),
+            issue_type=None,
+        )
     with transaction.atomic():
         issue = get_object_or_404(
             Issue.objects.select_for_update().select_related("project"), id=issue_id
         )
         if not _can_manage_issue(user, issue):
             raise HttpError(403, "Not allowed to update this issue.")
+        if payload.status is not None and (
+            payload.status == Issue.Status.DECLINED
+            or issue.status == Issue.Status.DECLINED
+        ) and user.id != issue.project.owner_id:
+            raise HttpError(
+                403,
+                "Only the project owner can decline or reopen a declined request.",
+            )
         values = {}
         if payload.title is not None:
             values["title"] = _clean_non_empty(payload.title, "Issue title")
@@ -1311,10 +1702,62 @@ def update_issue(request, issue_id: int, payload: IssueUpdateIn):
             values["description"] = payload.description.strip()
         if payload.status is not None:
             _validate_status(payload.status)
+            if payload.status == Issue.Status.DECLINED:
+                assessment = None
+                if payload.scope_assessment_id is not None:
+                    assessment = IssueScopeAssessment.objects.filter(
+                        id=payload.scope_assessment_id,
+                        issue=issue,
+                        state=IssueScopeAssessment.State.COMPLETED,
+                        verdict=IssueScopeAssessment.Verdict.OUT_OF_SCOPE,
+                    ).first()
+                    if assessment is None:
+                        raise HttpError(400, "Invalid scope_assessment_id.")
+                reason = (payload.public_reason or "").strip()
+                if assessment is None and not reason:
+                    raise HttpError(
+                        400,
+                        "Declining a request requires public_reason or scope_assessment_id.",
+                    )
+                if assessment is None:
+                    spec_revision = (
+                        ProjectSpec.objects.filter(project=issue.project)
+                        .values_list("revision", flat=True)
+                        .first()
+                        or 0
+                    )
+                    assessment = IssueScopeAssessment.objects.create(
+                        issue=issue,
+                        spec_revision=spec_revision,
+                        state=IssueScopeAssessment.State.COMPLETED,
+                        verdict=IssueScopeAssessment.Verdict.OUT_OF_SCOPE,
+                        public_reason=reason,
+                        evaluator_version="owner_manual_v1",
+                    )
+                    record_issue_event(
+                        issue=issue,
+                        event_type=IssueEvent.Type.SCOPE_ASSESSED,
+                        actor=user,
+                        data={
+                            "assessment_id": assessment.pk,
+                            "spec_revision": assessment.spec_revision,
+                            "verdict": assessment.verdict,
+                            "public_reason": assessment.public_reason,
+                            "source": "owner_manual",
+                        },
+                    )
             values["status"] = payload.status
         if payload.priority is not None:
             _validate_priority(payload.priority)
             values["priority"] = payload.priority
+        if payload.status is not None and (
+            payload.status == Issue.Status.DECLINED
+            or issue.status == Issue.Status.DECLINED
+        ):
+            logger.info(
+                "scope_owner_override transition=%s",
+                "decline" if payload.status == Issue.Status.DECLINED else "reopen",
+            )
         apply_issue_changes(issue, actor=user, source=None, **values)
 
     issue = _get_annotated_issue_queryset().get(id=issue.id)
@@ -1335,7 +1778,13 @@ def get_request_queue(request, project_id: Optional[int] = None, limit: int = 10
     queryset = (
         _get_annotated_issue_queryset()
         .filter(project__in=projects)
-        .exclude(status__in=[Issue.Status.DONE, Issue.Status.CLOSED])
+        .exclude(
+            status__in=[
+                Issue.Status.DONE,
+                Issue.Status.CLOSED,
+                Issue.Status.DECLINED,
+            ]
+        )
         .order_by("-priority", "-updated_at", "-id")
     )
     active_requests_count = queryset.count()

@@ -45,7 +45,7 @@ It applies to all files unless a deeper `AGENTS.md` exists in a subfolder.
 
 - Use `agent/contract.yaml` for normative agent scope and authorization semantics; use
   `agents.json` only to resolve the current API/MCP environment and implemented adapter surface.
-- The repository implements the Agent Contract 1.0.0 MCP projection, including
+- The repository implements the Agent Contract 1.1.0 MCP projection, including
   `get_account_capabilities`, but production runtime conformance is `pending` until the immutable
   release, PostgreSQL concurrency, real-client acceptance, deployment, and observation gates pass.
   Do not claim public production availability before those gates complete.

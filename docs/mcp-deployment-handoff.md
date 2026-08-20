@@ -1,10 +1,10 @@
 # FeatureRequest MCP deployment handoff
 
-This is a runtime-requirements document, not a deployment contract. Agentic
-implementation and distribution must not create or edit Fabric/fabfiles,
-deployment workflows, Docker/OCI files, systemd units, reverse-proxy config,
-environment/secrets wiring, migration order, backups, schedulers, health checks
-or rollback procedures.
+StageOps `app.yaml` owns the FeatureRequest MCP process, exact `/mcp` nginx
+routing, OAuth-safe access logging, bounded cleanup and cleanup-health timers.
+The native `.deploy` task only restarts and verifies those units after the app
+release; it does not create infrastructure or introduce Docker/OCI, database
+backups, migration-order changes or rollback infrastructure.
 
 ## Runtime requirements
 
@@ -24,6 +24,7 @@ python manage.py cleanup_mcp_oauth
 python manage.py check_mcp_oauth_health
 ```
 
-Production activation is a separate explicit deployment task. After that task,
-verify unauthenticated `/mcp` discovery, OAuth code/refresh/revoke, client-native
-`tools/list`, the read-only bootstrap tool and credential-safe audit output.
+Every deployment restarts the StageOps-owned MCP process and verifies the
+unauthenticated `/mcp` Bearer challenge. Release acceptance additionally verifies
+OAuth code/refresh/revoke, client-native `tools/list`, the read-only bootstrap
+tool and credential-safe audit output.

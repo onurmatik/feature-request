@@ -112,7 +112,7 @@ class MCPReleaseRepositoryGateTests(unittest.TestCase):
     def test_dependency_lock_keeps_required_exact_versions(self):
         mcp_release.validate_dependencies()
 
-    def test_agentic_lifecycle_preserves_the_native_deployment_contract(self):
+    def test_native_deploy_consumes_stageops_mcp_without_owning_infrastructure(self):
         deploy_source = (mcp_release.ROOT / ".deploy" / "fabfile.py").read_text()
         settings_source = (mcp_release.ROOT / "config" / "settings.py").read_text()
         expected_steps = (
@@ -125,17 +125,27 @@ class MCPReleaseRepositoryGateTests(unittest.TestCase):
         )
         for expected in expected_steps:
             self.assertIn(expected, deploy_source)
+        for expected in (
+            "restart_mcp_runtime",
+            "MCP_SERVICE",
+            "systemctl cat",
+            "systemctl is-enabled --quiet",
+            "FeatureRequest public MCP discovery smoke",
+        ):
+            self.assertIn(expected, deploy_source)
         for forbidden in (
             "pgbackrest",
             "take_database_backup",
-            "install_systemd_contract",
-            "install_nginx_contract",
-            "MCP_SERVICE",
             "Dockerfile",
+            "systemctl reload nginx",
+            "install_mcp_runtime",
         ):
             self.assertNotIn(forbidden, deploy_source)
-        self.assertFalse((mcp_release.ROOT / "deploy" / "mcp" / "README.md").exists())
+        self.assertFalse(any((mcp_release.ROOT / ".deploy" / "systemd").glob("*")))
+        self.assertFalse(any((mcp_release.ROOT / ".deploy" / "nginx").glob("*")))
         self.assertTrue((mcp_release.ROOT / "docs" / "mcp-deployment-handoff.md").is_file())
+        handoff = (mcp_release.ROOT / "docs" / "mcp-deployment-handoff.md").read_text()
+        self.assertIn("StageOps `app.yaml` owns", handoff)
         self.assertIn('"REFRESH_TOKEN_REUSE_PROTECTION": True', settings_source)
 
     def test_release_descriptor_binds_source_and_dependency_lock(self):

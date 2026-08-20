@@ -6,9 +6,9 @@
   "agent_contract": {
     "source": "agent/contract.yaml",
     "schema": "agent/contract.schema.json",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "role": "canonical_semantic_source",
-    "conformance_bundle": "agent/conformance/1.0.0/",
+    "conformance_bundle": "agent/conformance/1.1.0/",
     "projection_role": "This file describes environment bindings and the observed implementation surface; it does not redefine Agent Contract semantics.",
     "bootstrap_target": "get_account_capabilities",
     "runtime_conformance": {
@@ -195,19 +195,19 @@
   },
   "mcp": {
     "name": "feature-request",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "transport": "streamable_http",
     "path": "/mcp",
     "implementation": "Python MCPServer",
     "contract_projection": {
       "source": "agent/contract.yaml",
-      "mapping_snapshot": "agent/mappings/mcp-1.0.0.json",
+      "mapping_snapshot": "agent/mappings/mcp-1.1.0.json",
       "conformance_status": "pending",
       "bootstrap_target": "get_account_capabilities",
       "bootstrap_runtime_status": "pending",
       "notes": [
         "The repository runtime registry below is a deterministic projection, not the normative Agent Contract catalog.",
-        "get_account_capabilities and all 23 Contract tools are implemented in the repository; public production use remains pending the release gates.",
+        "get_account_capabilities and all 30 Contract tools are implemented in the repository; public production use remains pending the release gates.",
         "Tool schemas, scopes, capabilities, ownership, approvals, errors, side effects, and retry semantics are projected from agent/contract.yaml."
       ]
     },
@@ -231,7 +231,7 @@
         "name": "get_account_capabilities",
         "api_operation": null,
         "read_only": true,
-        "semantics": "Returns the six Contract capabilities plus current project_count usage and plan limit."
+        "semantics": "Returns the seven Contract capabilities plus current project_count usage and plan limit."
       },
       {
         "name": "list_projects",
@@ -244,6 +244,11 @@
         "read_only": true
       },
       {
+        "name": "get_project_spec",
+        "api_operation": "get_project_spec",
+        "read_only": true
+      },
+      {
         "name": "create_project",
         "api_operation": "create_project",
         "read_only": false
@@ -251,6 +256,11 @@
       {
         "name": "update_project",
         "api_operation": "update_project",
+        "read_only": false
+      },
+      {
+        "name": "update_project_spec",
+        "api_operation": "update_project_spec",
         "read_only": false
       },
       {
@@ -271,6 +281,11 @@
       {
         "name": "get_request",
         "api_operation": "get_issue",
+        "read_only": true
+      },
+      {
+        "name": "get_request_scope_assessment",
+        "api_operation": "get_issue_scope_assessment",
         "read_only": true
       },
       {
@@ -306,8 +321,29 @@
         "read_only": true
       },
       {
+        "name": "list_project_spec_proposals",
+        "api_operation": "list_project_spec_proposals",
+        "read_only": true
+      },
+      {
         "name": "create_request",
         "api_operation": "create_issue",
+        "read_only": false
+      },
+      {
+        "name": "reassess_request_scope",
+        "api_operation": "retry_issue_scope_assessment",
+        "read_only": false,
+        "destructive": true
+      },
+      {
+        "name": "propose_project_spec_update",
+        "api_operation": "create_project_spec_proposal",
+        "read_only": false
+      },
+      {
+        "name": "resolve_project_spec_proposal",
+        "api_operation": "resolve_project_spec_proposal",
         "read_only": false
       },
       {
@@ -346,7 +382,9 @@
         "name": "transition_request",
         "api_operation": "update_issue",
         "allowed_fields": [
-          "status"
+          "status",
+          "public_reason",
+          "scope_assessment_id"
         ],
         "read_only": false,
         "destructive": true,
@@ -516,6 +554,27 @@
       "description": "Delete owned project."
     },
     {
+      "name": "get_project_spec",
+      "method": "GET",
+      "path": "/api/projects/{owner_handle}/{project_slug}/spec",
+      "auth": "none",
+      "description": "Read the published public Product Spec."
+    },
+    {
+      "name": "update_project_spec",
+      "method": "PUT",
+      "path": "/api/projects/{project_id}/spec",
+      "auth": "session_or_token",
+      "description": "Owner-only create or full replacement using the independent expected spec revision."
+    },
+    {
+      "name": "delete_project_spec",
+      "method": "DELETE",
+      "path": "/api/projects/{project_id}/spec",
+      "auth": "session_or_token",
+      "description": "Owner-confirmed spec deletion; disables automation and invalidates pending proposals."
+    },
+    {
       "name": "list_owner_projects",
       "method": "GET",
       "path": "/api/owners/{owner_handle}/projects",
@@ -544,7 +603,7 @@
       "description": "List issues for an owner, optional filters: project_slug, issue_type, status, priority, limit.",
       "notes": [
         "Issue/project-specific filters are validated by enum/range.",
-        "Use status=active to exclude issues whose status is done or closed.",
+        "Use status=active to exclude issues whose status is done, closed, or declined.",
         "Optional limit must be between 1 and 100."
       ]
     },
@@ -553,7 +612,7 @@
       "method": "GET",
       "path": "/api/projects/{owner_handle}/{project_slug}/issues",
       "auth": "none",
-      "description": "List issues for owner/project with optional issue_type, status, priority, and limit filters. Use status=active to exclude done and closed issues; limit must be between 1 and 100."
+      "description": "List issues for owner/project with optional issue_type, status, priority, and limit filters. Use status=active to exclude done, closed, and declined issues; limit must be between 1 and 100."
     },
     {
       "name": "find_duplicate_candidates",
@@ -612,11 +671,46 @@
       "description": "Get issue detail by id."
     },
     {
+      "name": "get_issue_scope_assessment",
+      "method": "GET",
+      "path": "/api/issues/{issue_id}/scope-assessment",
+      "auth": "none",
+      "description": "Read the latest public completed scope assessment; failed details are owner-only."
+    },
+    {
+      "name": "retry_issue_scope_assessment",
+      "method": "POST",
+      "path": "/api/issues/{issue_id}/scope-assessment/retry",
+      "auth": "session_or_token",
+      "description": "Owner-only reassessment against the current spec revision."
+    },
+    {
+      "name": "create_project_spec_proposal",
+      "method": "POST",
+      "path": "/api/issues/{issue_id}/spec-change-proposals",
+      "auth": "session_or_token",
+      "description": "Generate an owner-private full-replacement proposal for a current spec gap."
+    },
+    {
+      "name": "list_project_spec_proposals",
+      "method": "GET",
+      "path": "/api/projects/{project_id}/spec-change-proposals",
+      "auth": "session_or_token",
+      "description": "Owner-only proposal list, normally filtered to pending."
+    },
+    {
+      "name": "resolve_project_spec_proposal",
+      "method": "PATCH",
+      "path": "/api/spec-change-proposals/{proposal_id}",
+      "auth": "session_or_token",
+      "description": "Owner-only accept or reject with current expected spec revision."
+    },
+    {
       "name": "update_issue",
       "method": "PATCH",
       "path": "/api/issues/{issue_id}",
       "auth": "session_or_token",
-      "description": "Update issue title/description/status/priority. Only owner or author."
+      "description": "Update issue title/description/status/priority. Declined transitions are owner-only and require public_reason or scope_assessment_id."
     },
     {
       "name": "get_request_queue",

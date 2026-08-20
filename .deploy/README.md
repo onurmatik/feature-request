@@ -14,8 +14,10 @@ The task:
 4. creates the existing native virtualenv and runs frozen production dependency
    sync;
 5. runs `collectstatic`, Django migrations and `check --deploy`;
-6. restarts the existing `app@{PROJECT_NAME}.socket`; and
-7. performs a read-only public homepage smoke check.
+6. verifies and restarts the StageOps-managed FeatureRequest MCP service;
+7. verifies the StageOps-managed OAuth cleanup and health timers;
+8. restarts the existing `app@{PROJECT_NAME}.socket`; and
+9. performs read-only homepage plus MCP discovery smoke checks.
 
 Local configuration:
 
@@ -23,6 +25,8 @@ Local configuration:
 - `deploy.env`: `PROJECT_NAME`, `DOMAIN`, `GITHUB_APP_REPO`, `DEPLOY_HOST`,
   `KEY_FILENAME`, `DEPLOY_USER` and `APP_USER`.
 
-These local environment files are ignored by Git. This deployment contract
-does not provision Docker, systemd units, nginx routes, MCP processes, database
-backups, schedulers or rollback infrastructure.
+These local environment files are ignored by Git. StageOps owns the native MCP
+unit, OAuth maintenance timers, exact `/mcp` nginx routing and OAuth-safe access
+logging. This deployment contract consumes that infrastructure; it does not
+create or mutate systemd/nginx configuration, Docker, database backups or
+rollback infrastructure.

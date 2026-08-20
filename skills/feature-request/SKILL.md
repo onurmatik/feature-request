@@ -13,8 +13,9 @@ or follow up on requests stored in FeatureRequest.
 - This skill is a downstream operational adapter. `agent/contract.yaml` is the sole semantic
   source for tool schemas, scopes, capabilities, ownership, approvals, errors, side effects,
   idempotency, and retry behavior.
-- Agent Contract 1.0.0 defines `get_account_capabilities` as the implemented bootstrap tool.
-- The repository implements the full 23-tool Contract projection, including the bootstrap.
+- Agent Contract 1.1.0 defines `get_account_capabilities` as the implemented bootstrap tool.
+- The repository implements the full 30-tool Contract projection, including public Product Spec
+  reads, owner-controlled spec updates, scope reassessment, and private proposal resolution.
   MCP production conformance is `pending` until the immutable MCP release and real-client
   acceptance gates pass; do not present the public service as released before then.
 - The flows below describe the downstream repository adapter and must not reinterpret the Contract.
@@ -69,6 +70,14 @@ or follow up on requests stored in FeatureRequest.
 - Use focused `create_project`, `get_project`, and `update_project` tools.
 - `delete_project` is destructive. Call `get_project` first, require explicit user direction,
   and pass the same id as `confirm_project_id`.
+- Use `get_project_spec` to read the public one-page Product Spec. Use `update_project_spec`
+  only with explicit owner intent and the current independent spec revision.
+- Scope verdicts are evidence, not a replacement for owner judgment. Automatic decline is valid
+  only for an exact `Out of scope` quote with no in-scope contradiction or ambiguity.
+- Failed assessments stay owner-only and fail open. Owners can call `reassess_request_scope`.
+- For a current-revision `spec_gap`, owners may generate a private full-replacement proposal,
+  inspect its deterministic diff, and explicitly accept or reject it. Never expose pending drafts.
+- Only project owners may transition into or out of `declined`; request authors may still comment.
 
 ## Follow-up
 

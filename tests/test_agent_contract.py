@@ -16,8 +16,8 @@ ROOT = Path(__file__).resolve().parents[1]
 class AgentContractRepositoryTests(unittest.TestCase):
     def test_canonical_contract_passes_full_gate(self) -> None:
         contract, vectors = agent_contract.validate_contract()
-        self.assertEqual("1.0.0", contract["agent_contract_version"])
-        self.assertEqual(23, len(contract["tools"]))
+        self.assertEqual("1.1.0", contract["agent_contract_version"])
+        self.assertEqual(30, len(contract["tools"]))
         self.assertTrue(vectors["vectors"])
 
     def test_checked_in_mapping_is_exact_deterministic_projection(self) -> None:

@@ -1,4 +1,5 @@
 from django.conf import settings
+from django.core.validators import MaxLengthValidator
 from django.db import models
 from slugify import slugify
 
@@ -57,6 +58,26 @@ class Project(models.Model):
         super().save(*args, **kwargs)
 
 
+class ProjectSpec(models.Model):
+    MAX_CONTENT_LENGTH = 10_000
+
+    project = models.OneToOneField(
+        Project,
+        related_name="spec",
+        on_delete=models.CASCADE,
+    )
+    content = models.TextField(
+        validators=[MaxLengthValidator(MAX_CONTENT_LENGTH)],
+    )
+    revision = models.PositiveBigIntegerField(default=1)
+    auto_decline_enabled = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Spec for {self.project} (r{self.revision})"
+
+
 class Issue(models.Model):
     class Type(models.TextChoices):
         FEATURE = "feature", "Feature"
@@ -68,6 +89,7 @@ class Issue(models.Model):
         IN_PROGRESS = "in_progress", "In progress"
         DONE = "done", "Done"
         CLOSED = "closed", "Closed"
+        DECLINED = "declined", "Declined"
 
     class Priority(models.IntegerChoices):
         LOW = 1, "Low"
@@ -126,6 +148,109 @@ class Issue(models.Model):
 
     def __str__(self):
         return f"{self.project} - {self.title}"
+
+
+class IssueScopeAssessment(models.Model):
+    class State(models.TextChoices):
+        COMPLETED = "completed", "Completed"
+        FAILED = "failed", "Failed"
+
+    class Verdict(models.TextChoices):
+        IN_SCOPE = "in_scope", "In scope"
+        OUT_OF_SCOPE = "out_of_scope", "Out of scope"
+        SPEC_GAP = "spec_gap", "Spec gap"
+        NEEDS_REVIEW = "needs_review", "Needs review"
+
+    issue = models.ForeignKey(
+        Issue,
+        related_name="scope_assessments",
+        on_delete=models.CASCADE,
+    )
+    spec_revision = models.PositiveBigIntegerField()
+    state = models.CharField(
+        max_length=16,
+        choices=State.choices,
+        default=State.COMPLETED,
+        db_index=True,
+    )
+    verdict = models.CharField(
+        max_length=24,
+        choices=Verdict.choices,
+        blank=True,
+        db_index=True,
+    )
+    public_reason = models.CharField(max_length=500, blank=True)
+    out_of_scope_quote = models.CharField(max_length=1000, blank=True)
+    spec_gap_summary = models.CharField(max_length=1000, blank=True)
+    evaluator_version = models.CharField(max_length=64, default="spec_scope_v1")
+    auto_declined = models.BooleanField(default=False)
+    error_code = models.CharField(max_length=64, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        indexes = [
+            models.Index(
+                fields=["issue", "-created_at"],
+                name="scope_assess_issue_at_idx",
+            )
+        ]
+
+    def __str__(self):
+        outcome = self.verdict or self.state
+        return f"{outcome} for issue #{self.issue_id} at spec r{self.spec_revision}"
+
+
+class ProjectSpecChangeProposal(models.Model):
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        ACCEPTED = "accepted", "Accepted"
+        REJECTED = "rejected", "Rejected"
+
+    project = models.ForeignKey(
+        Project,
+        related_name="spec_change_proposals",
+        on_delete=models.CASCADE,
+    )
+    issue = models.ForeignKey(
+        Issue,
+        related_name="spec_change_proposals",
+        on_delete=models.CASCADE,
+    )
+    base_spec_revision = models.PositiveBigIntegerField()
+    base_content = models.TextField(
+        validators=[MaxLengthValidator(ProjectSpec.MAX_CONTENT_LENGTH)],
+    )
+    proposed_content = models.TextField(
+        validators=[MaxLengthValidator(ProjectSpec.MAX_CONTENT_LENGTH)],
+    )
+    summary = models.CharField(max_length=1000)
+    status = models.CharField(
+        max_length=16,
+        choices=Status.choices,
+        default=Status.PENDING,
+        db_index=True,
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="created_spec_change_proposals",
+        on_delete=models.CASCADE,
+    )
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="reviewed_spec_change_proposals",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+
+    def __str__(self):
+        return f"Spec proposal #{self.pk} for {self.project}"
 
 
 class IssueUpvote(models.Model):
@@ -225,6 +350,9 @@ class IssueEvent(models.Model):
         DUPLICATE_UNLINKED = "duplicate_unlinked", "Duplicate unlinked"
         DELIVERY_LINKED = "delivery_linked", "Delivery linked"
         DELIVERY_UNLINKED = "delivery_unlinked", "Delivery unlinked"
+        SCOPE_ASSESSED = "scope_assessed", "Scope assessed"
+        AUTO_DECLINED = "auto_declined", "Automatically declined"
+        SPEC_UPDATED = "spec_updated", "Project spec updated"
 
     issue = models.ForeignKey(
         Issue,
