@@ -3,6 +3,7 @@ from datetime import timedelta
 from threading import Barrier, Lock, Thread
 from unittest import skipUnless
 from unittest.mock import MagicMock, Mock, patch
+from uuid import uuid4
 
 from django.contrib.auth import get_user_model
 from django.contrib.staticfiles import finders
@@ -34,7 +35,11 @@ from .models import (
     IssueScopeAssessment,
     ProjectSpecChangeProposal,
 )
-from .services import ScopeEvaluation
+from .services import (
+    EmbedFeedbackEvaluation,
+    ScopeEvaluation,
+    evaluate_embed_feedback,
+)
 
 
 class IssueModelsTest(TestCase):
@@ -1089,11 +1094,8 @@ class EmbedWidgetTest(TestCase):
 
     def payload(self, **overrides):
         payload = {
-            "display_name": "Visitor Name",
-            "email": "visitor@example.com",
-            "issue_type": Issue.Type.FEATURE,
-            "title": "Add a compact mode",
-            "description": "It would help on smaller screens.",
+            "feedback": "The compact layout is difficult to use on smaller screens.",
+            "submission_id": str(uuid4()),
             "turnstile_token": "turnstile-response",
         }
         payload.update(overrides)
@@ -1105,7 +1107,7 @@ class EmbedWidgetTest(TestCase):
             project=self.project,
             display_name="Visitor Name",
             email=email,
-            email_fingerprint=email_fingerprint(email),
+            submitter_fingerprint=email_fingerprint(email),
             issue_type=Issue.Type.BUG,
             title="A verified browser issue",
             description="Steps to reproduce the problem.",
@@ -1131,8 +1133,14 @@ class EmbedWidgetTest(TestCase):
         self.assertContains(response, "disabled")
         self.assertNotContains(response, "challenges.cloudflare.com/turnstile")
         self.assertContains(response, "View requests")
-        self.assertContains(response, "Submit")
-        self.assertNotContains(response, "Send verification link")
+        self.assertContains(response, "Send feedback")
+        self.assertContains(
+            response,
+            "Anything here feel off, need fixing, or could be better?",
+        )
+        self.assertContains(response, 'name="feedback"', count=1)
+        self.assertNotContains(response, 'name="email"')
+        self.assertNotContains(response, 'name="title"')
         self.assertContains(response, "--fr-accent: #FF00AA")
 
     def test_embed_route_returns_404_for_unknown_project(self):
@@ -1172,41 +1180,85 @@ class EmbedWidgetTest(TestCase):
 
         self.assertEqual(response.status_code, 404)
 
-    @patch("projects.embed.send_mail", return_value=1)
+    @patch("projects.api._notify_owner_on_new_issue")
     @patch("projects.api.validate_turnstile")
-    def test_submission_sends_verification_without_creating_issue(
+    def test_submission_creates_anonymous_issue_and_returns_link(
+        self, validate_turnstile, notify_owner
+    ):
+        payload = self.payload()
+        response = self.post_submission(payload)
+
+        self.assertEqual(response.status_code, 201)
+        response_payload = response.json()
+        issue = Issue.objects.get()
+        self.assertEqual(response_payload["status"], "created")
+        self.assertEqual(response_payload["issue_id"], issue.id)
+        self.assertEqual(
+            response_payload["issue_url"],
+            f"http://testserver/{self.owner.handle}/{self.project.slug}/issues/{issue.id}/",
+        )
+        validate_turnstile.assert_called_once()
+        self.assertEqual(issue.description, payload["feedback"])
+        self.assertEqual(issue.title, payload["feedback"])
+        self.assertEqual(issue.issue_type, Issue.Type.FEATURE)
+        self.assertEqual(issue.priority, Issue.Priority.MEDIUM)
+        self.assertEqual(issue.author.display_name, "Website visitor")
+        self.assertTrue(issue.author.handle.startswith("visitor_"))
+        self.assertTrue(issue.author.email.endswith("@anonymous.featurerequest.invalid"))
+        self.assertFalse(issue.author.has_usable_password())
+        self.assertNotIn("_auth_user_id", self.client.session)
+        receipt = EmbeddedIssueSubmission.objects.get()
+        self.assertEqual(str(receipt.client_submission_id), payload["submission_id"])
+        self.assertEqual(receipt.issue, issue)
+        self.assertEqual(receipt.email, "")
+        self.assertEqual(receipt.title, "")
+        self.assertIsNotNone(receipt.verified_at)
+        notify_owner.assert_called_once_with(
+            response.wsgi_request,
+            issue,
+            issue.author,
+            include_actor_email=False,
+        )
+
+    @patch("projects.api.send_mail", return_value=1)
+    @patch("projects.api.validate_turnstile")
+    def test_owner_notification_hides_anonymous_internal_email(
         self, validate_turnstile, send_mail
     ):
         response = self.post_submission()
 
-        self.assertEqual(response.status_code, 202)
-        self.assertEqual(response.json(), {"status": "verification_sent"})
-        validate_turnstile.assert_called_once()
-        send_mail.assert_called_once()
+        self.assertEqual(response.status_code, 201)
+        plain_text = send_mail.call_args.args[1]
+        self.assertIn("Website visitor posted a new request", plain_text)
+        self.assertNotIn("anonymous.featurerequest.invalid", plain_text)
+
+    @patch("projects.api.validate_turnstile")
+    def test_short_feedback_is_rejected_before_turnstile(self, validate_turnstile):
+        response = self.post_submission(self.payload(feedback="x" * 19))
+
+        self.assertEqual(response.status_code, 400)
+        validate_turnstile.assert_not_called()
+        self.assertEqual(EmbeddedIssueSubmission.objects.count(), 0)
         self.assertEqual(Issue.objects.count(), 0)
-        pending = EmbeddedIssueSubmission.objects.get()
-        self.assertEqual(pending.email, "visitor@example.com")
-        self.assertIn("/embed/submissions/", send_mail.call_args.args[1])
-        self.assertIn("/verify/", send_mail.call_args.args[1])
 
     @patch("projects.api.validate_turnstile")
-    def test_invalid_email_is_rejected_before_turnstile(self, validate_turnstile):
-        response = self.post_submission(self.payload(email="not-an-email"))
+    def test_whitespace_feedback_is_rejected_before_turnstile(self, validate_turnstile):
+        response = self.post_submission(self.payload(feedback="   "))
 
         self.assertEqual(response.status_code, 400)
         validate_turnstile.assert_not_called()
         self.assertEqual(EmbeddedIssueSubmission.objects.count(), 0)
 
     @patch("projects.api.validate_turnstile")
-    def test_empty_description_is_rejected_before_turnstile(self, validate_turnstile):
-        response = self.post_submission(self.payload(description="   "))
+    def test_feedback_over_maximum_is_rejected_before_turnstile(self, validate_turnstile):
+        response = self.post_submission(self.payload(feedback="x" * 5001))
 
         self.assertEqual(response.status_code, 400)
         validate_turnstile.assert_not_called()
-        self.assertEqual(EmbeddedIssueSubmission.objects.count(), 0)
+        self.assertEqual(Issue.objects.count(), 0)
 
     @patch("projects.api.validate_turnstile")
-    def test_turnstile_failure_is_returned_without_pending_submission(
+    def test_turnstile_failure_is_returned_without_issue(
         self, validate_turnstile
     ):
         validate_turnstile.side_effect = EmbedSubmissionError(
@@ -1217,13 +1269,11 @@ class EmbedWidgetTest(TestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(EmbeddedIssueSubmission.objects.count(), 0)
+        self.assertEqual(Issue.objects.count(), 0)
 
     @override_settings(OPENAI_API_KEY="test-openai-key")
-    @patch("projects.embed.send_mail", return_value=1)
     @patch("projects.api.validate_turnstile")
-    def test_moderation_rejection_does_not_send_email(
-        self, validate_turnstile, send_mail
-    ):
+    def test_moderation_rejection_does_not_create_issue(self, validate_turnstile):
         mocked_client = Mock()
         mocked_client.responses.create.return_value = Mock(output_text="REJECT: spam")
 
@@ -1232,15 +1282,12 @@ class EmbedWidgetTest(TestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["detail"], "Issue rejected by moderation: spam")
-        send_mail.assert_not_called()
         self.assertEqual(EmbeddedIssueSubmission.objects.count(), 0)
+        self.assertEqual(Issue.objects.count(), 0)
 
     @override_settings(OPENAI_API_KEY="test-openai-key")
-    @patch("projects.embed.send_mail", return_value=1)
     @patch("projects.api.validate_turnstile")
-    def test_moderation_failure_returns_503_without_email(
-        self, validate_turnstile, send_mail
-    ):
+    def test_moderation_failure_returns_503_without_issue(self, validate_turnstile):
         mocked_client = Mock()
         mocked_client.responses.create.side_effect = RuntimeError("moderation timeout")
 
@@ -1248,29 +1295,162 @@ class EmbedWidgetTest(TestCase):
             response = self.post_submission()
 
         self.assertEqual(response.status_code, 503)
-        send_mail.assert_not_called()
         self.assertEqual(EmbeddedIssueSubmission.objects.count(), 0)
+        self.assertEqual(Issue.objects.count(), 0)
 
-    @patch("projects.embed.send_mail", side_effect=RuntimeError("mail unavailable"))
+    @patch("projects.api._notify_owner_on_new_issue")
+    @patch("projects.api.evaluate_embed_feedback")
     @patch("projects.api.validate_turnstile")
-    def test_email_failure_removes_pending_submission(
-        self, validate_turnstile, send_mail
+    def test_ai_enrichment_sets_title_and_type_without_rewriting_feedback(
+        self, validate_turnstile, evaluate, notify_owner
     ):
-        response = self.post_submission()
+        evaluate.return_value = EmbedFeedbackEvaluation(
+            title="Compact layout breaks on phones",
+            issue_type=Issue.Type.BUG,
+        )
+        payload = self.payload()
 
-        self.assertEqual(response.status_code, 502)
-        self.assertEqual(EmbeddedIssueSubmission.objects.count(), 0)
+        response = self.post_submission(payload)
 
-    @patch("projects.embed.send_mail", return_value=1)
+        self.assertEqual(response.status_code, 201)
+        issue = Issue.objects.get()
+        self.assertEqual(issue.title, "Compact layout breaks on phones")
+        self.assertEqual(issue.issue_type, Issue.Type.BUG)
+        self.assertEqual(issue.description, payload["feedback"])
+        evaluate.assert_called_once()
+        notify_owner.assert_called_once()
+
+    @override_settings(OPENAI_API_KEY="test-openai-key")
+    def test_embed_feedback_evaluator_returns_structured_metadata(self):
+        mocked_client = Mock()
+        mocked_client.responses.create.return_value = Mock(
+            output_text=json.dumps(
+                {
+                    "title": "Mobile filters do not open",
+                    "issue_type": Issue.Type.BUG,
+                }
+            )
+        )
+
+        result = evaluate_embed_feedback(
+            feedback="The filters do not open when I tap them on my phone.",
+            spec=None,
+            client_factory=Mock(return_value=mocked_client),
+        )
+
+        self.assertEqual(result.title, "Mobile filters do not open")
+        self.assertEqual(result.issue_type, Issue.Type.BUG)
+        self.assertIsNone(result.scope_evaluation)
+
+    @override_settings(OPENAI_API_KEY="test-openai-key")
+    def test_embed_feedback_evaluator_falls_back_on_invalid_output(self):
+        spec = ProjectSpec.objects.create(
+            project=self.project,
+            content=ProjectSpecApiTest.SPEC,
+        )
+        mocked_client = Mock()
+        mocked_client.responses.create.return_value = Mock(output_text="not-json")
+        feedback = "Please add a much more compact mobile layout for this page."
+
+        result = evaluate_embed_feedback(
+            feedback=feedback,
+            spec=spec,
+            client_factory=Mock(return_value=mocked_client),
+        )
+
+        self.assertEqual(result.title, feedback)
+        self.assertEqual(result.issue_type, Issue.Type.FEATURE)
+        self.assertEqual(
+            result.scope_evaluation.state,
+            IssueScopeAssessment.State.FAILED,
+        )
+        self.assertEqual(result.scope_evaluation.error_code, "invalid_output")
+
+    @patch("projects.api._notify_owner_on_new_issue")
     @patch("projects.api.validate_turnstile")
-    def test_submission_is_throttled_after_three_emails_per_hour(
-        self, validate_turnstile, send_mail
+    def test_same_submission_id_is_idempotent(self, validate_turnstile, notify_owner):
+        payload = self.payload()
+
+        first = self.post_submission(payload)
+        second = self.post_submission(payload)
+
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(first.json(), second.json())
+        self.assertEqual(Issue.objects.count(), 1)
+        self.assertEqual(EmbeddedIssueSubmission.objects.count(), 1)
+        validate_turnstile.assert_called_once()
+        notify_owner.assert_called_once()
+
+    @patch("projects.api._notify_owner_on_new_issue")
+    @patch("projects.api.validate_turnstile")
+    def test_reused_submission_id_with_different_feedback_conflicts(
+        self, validate_turnstile, notify_owner
+    ):
+        payload = self.payload()
+        first = self.post_submission(payload)
+        changed = self.payload(
+            submission_id=payload["submission_id"],
+            feedback="A different feedback message that is long enough to submit.",
+        )
+
+        second = self.post_submission(changed)
+
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(second.status_code, 409)
+        self.assertEqual(Issue.objects.count(), 1)
+        validate_turnstile.assert_called_once()
+        notify_owner.assert_called_once()
+
+    @patch("projects.api._notify_owner_on_new_issue")
+    @patch("projects.api.validate_turnstile")
+    def test_submission_is_throttled_after_three_issues_per_hour(
+        self, validate_turnstile, notify_owner
     ):
         responses = [self.post_submission() for _ in range(4)]
 
-        self.assertEqual([response.status_code for response in responses], [202, 202, 202, 429])
+        self.assertEqual(
+            [response.status_code for response in responses],
+            [201, 201, 201, 429],
+        )
+        self.assertEqual(Issue.objects.count(), 3)
         self.assertEqual(EmbeddedIssueSubmission.objects.count(), 3)
-        self.assertEqual(send_mail.call_count, 3)
+        self.assertEqual(validate_turnstile.call_count, 4)
+        self.assertEqual(notify_owner.call_count, 3)
+
+    @patch("projects.api._notify_owner_on_new_issue")
+    @patch("projects.api.evaluate_embed_feedback")
+    @patch("projects.api.validate_turnstile")
+    def test_direct_embed_records_scope_and_guarded_auto_decline(
+        self, validate_turnstile, evaluate, notify_owner
+    ):
+        ProjectSpec.objects.create(
+            project=self.project,
+            content=ProjectSpecApiTest.SPEC,
+            auto_decline_enabled=True,
+        )
+        evaluate.return_value = EmbedFeedbackEvaluation(
+            title="Request private strategy consulting",
+            issue_type=Issue.Type.FEATURE,
+            scope_evaluation=ScopeEvaluation(
+                state=IssueScopeAssessment.State.COMPLETED,
+                verdict=IssueScopeAssessment.Verdict.OUT_OF_SCOPE,
+                public_reason="This is an explicit non-goal.",
+                out_of_scope_quote="Private strategy consulting.",
+                contradicts_in_scope=False,
+                requires_owner_judgment=False,
+            ),
+        )
+
+        response = self.post_submission()
+
+        self.assertEqual(response.status_code, 201)
+        issue = Issue.objects.get()
+        self.assertEqual(issue.status, Issue.Status.DECLINED)
+        assessment = issue.scope_assessments.get()
+        self.assertTrue(assessment.auto_declined)
+        self.assertEqual(assessment.spec_revision, 1)
+        notify_owner.assert_called_once()
 
     def test_verification_get_only_reviews_and_does_not_publish(self):
         raw_token, _submission = self.make_pending()
@@ -1498,7 +1678,7 @@ class EmbedVerificationPostgreSQLConcurrencyTest(TransactionTestCase):
             project=self.project,
             display_name="Concurrent Visitor",
             email="pg-embed-visitor@example.com",
-            email_fingerprint=email_fingerprint("pg-embed-visitor@example.com"),
+            submitter_fingerprint=email_fingerprint("pg-embed-visitor@example.com"),
             issue_type=Issue.Type.BUG,
             title="Concurrent verification",
             description="Publish this pending request exactly once.",

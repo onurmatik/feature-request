@@ -391,7 +391,9 @@ class EmbeddedIssueSubmission(models.Model):
     )
     display_name = models.CharField(max_length=120, blank=True)
     email = models.EmailField(blank=True)
-    email_fingerprint = models.CharField(max_length=64, db_index=True)
+    submitter_fingerprint = models.CharField(max_length=64, db_index=True)
+    client_submission_id = models.UUIDField(null=True, blank=True, unique=True)
+    payload_hash = models.CharField(max_length=64, blank=True)
     issue_type = models.CharField(
         max_length=16,
         choices=Issue.Type.choices,
@@ -415,8 +417,8 @@ class EmbeddedIssueSubmission(models.Model):
         ordering = ["-created_at"]
         indexes = [
             models.Index(
-                fields=["project", "email_fingerprint", "created_at"],
-                name="embed_proj_email_created_idx",
+                fields=["project", "submitter_fingerprint", "created_at"],
+                name="embed_proj_actor_created_idx",
             )
         ]
 

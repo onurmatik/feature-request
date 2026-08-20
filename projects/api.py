@@ -1,8 +1,10 @@
 import logging
 import re
+import secrets
 import ssl
 from html.parser import HTMLParser
 from typing import Any, Optional
+from uuid import UUID
 from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin, urlparse
 from urllib.request import Request, urlopen
@@ -12,7 +14,7 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.core.mail import send_mail
-from django.core.validators import URLValidator, validate_email
+from django.core.validators import URLValidator
 from django.db import transaction
 from django.db.models import Count, F, Max, Q
 from django.db.models.functions import Coalesce
@@ -25,12 +27,19 @@ from openai import OpenAI
 from accounts.models import gravatar_url_for_email
 
 from .embed import (
+    SUBMISSION_MAX_LENGTH,
+    SUBMISSION_MIN_LENGTH,
     EmbedSubmissionError,
-    create_pending_submission,
+    create_anonymous_embed_user,
+    enforce_direct_submission_rate_limit,
+    feedback_payload_hash,
+    submitter_fingerprint,
+    token_digest,
     validate_turnstile,
 )
 from .events import record_issue_event
 from .models import (
+    EmbeddedIssueSubmission,
     Issue,
     IssueComment,
     IssueDeliveryArtifact,
@@ -57,7 +66,9 @@ from .services import (
     duplicate_candidate_dict as _shared_duplicate_candidate_dict,
     issue_event_to_dict as _shared_issue_event_to_dict,
     issue_to_dict as _shared_issue_to_dict,
+    evaluate_embed_feedback,
     evaluate_request_scope,
+    fallback_embed_title,
     generate_spec_change_proposal,
     link_delivery_resource,
     link_duplicate_resource,
@@ -87,16 +98,15 @@ class IssueCreateIn(Schema):
 
 
 class EmbedSubmissionIn(Schema):
-    display_name: str
-    email: str
-    issue_type: str = Issue.Type.FEATURE
-    title: str
-    description: str = ""
+    feedback: str
+    submission_id: UUID
     turnstile_token: str
 
 
 class EmbedSubmissionOut(Schema):
     status: str
+    issue_id: int
+    issue_url: str
 
 
 class ProjectOut(Schema):
@@ -893,14 +903,29 @@ def _issue_board_url(request, issue):
     return request.build_absolute_uri(f"/{issue.project.owner.handle}/{issue.project.slug}/")
 
 
-def _notify_owner_on_new_issue(request, issue: Issue, actor):
+def _issue_detail_url(request, issue):
+    return request.build_absolute_uri(
+        f"/{issue.project.owner.handle}/{issue.project.slug}/issues/{issue.id}/"
+    )
+
+
+def _notify_owner_on_new_issue(
+    request,
+    issue: Issue,
+    actor,
+    *,
+    include_actor_email: bool = True,
+):
     if actor.id == issue.project.owner_id:
         return
 
     subject = f"New request on {issue.project.owner.handle}/{issue.project.slug}: {issue.title}"
     board_url = _issue_board_url(request, issue)
+    actor_label = _owner_display_name(actor)
+    if include_actor_email:
+        actor_label = f"{actor_label} ({actor.email})"
     plain_text = (
-        f"{_owner_display_name(actor)} ({actor.email}) posted a new request for @{issue.project.owner.handle}.\n\n"
+        f"{actor_label} posted a new request for @{issue.project.owner.handle}.\n\n"
         f"Title: {issue.title}\n"
         f"Type: {issue.get_issue_type_display()}\n"
         f"Priority: {issue.get_priority_display()}\n"
@@ -1433,7 +1458,7 @@ def create_issue(request, owner_handle: str, project_slug: str, payload: IssueCr
 
 @router.post(
     "/embed/projects/{owner_handle}/{project_slug}/submissions",
-    response={202: EmbedSubmissionOut},
+    response={200: EmbedSubmissionOut, 201: EmbedSubmissionOut},
     tags=["embed"],
 )
 def create_embed_submission(
@@ -1443,44 +1468,147 @@ def create_embed_submission(
     payload: EmbedSubmissionIn,
 ):
     project = _get_project(owner_handle, project_slug)
-    display_name = _clean_non_empty(payload.display_name, "Display name")
-    email = str(payload.email or "").strip().lower()
-    title = _clean_non_empty(payload.title, "Issue title")
-    description = _clean_non_empty(payload.description, "Description")
+    feedback = str(payload.feedback or "").strip()
+    if len(feedback) < SUBMISSION_MIN_LENGTH:
+        raise HttpError(
+            400,
+            f"Feedback must be at least {SUBMISSION_MIN_LENGTH} characters.",
+        )
+    if len(feedback) > SUBMISSION_MAX_LENGTH:
+        raise HttpError(
+            400,
+            f"Feedback must be {SUBMISSION_MAX_LENGTH} characters or fewer.",
+        )
 
-    if len(display_name) > 120:
-        raise HttpError(400, "Display name must be 120 characters or fewer.")
-    try:
-        validate_email(email)
-    except ValidationError:
-        raise HttpError(400, "Please provide a valid email address.")
-    if len(title) > 200:
-        raise HttpError(400, "Issue title must be 200 characters or fewer.")
-    if len(description) > 5000:
-        raise HttpError(400, "Description must be 5000 characters or fewer.")
-    _validate_issue_type(payload.issue_type)
+    payload_digest = feedback_payload_hash(feedback)
+    existing = (
+        EmbeddedIssueSubmission.objects.select_related("issue__project__owner")
+        .filter(client_submission_id=payload.submission_id)
+        .first()
+    )
+    if existing is not None:
+        if (
+            existing.project_id != project.id
+            or existing.payload_hash != payload_digest
+            or existing.issue_id is None
+        ):
+            raise HttpError(409, "Submission ID was already used for different feedback.")
+        return 200, {
+            "status": "created",
+            "issue_id": existing.issue_id,
+            "issue_url": _issue_detail_url(request, existing.issue),
+        }
 
+    fingerprint = submitter_fingerprint(request)
     try:
         validate_turnstile(request, payload.turnstile_token)
-        _moderate_issue_submission(payload.issue_type, title, description)
-        create_pending_submission(
-            request,
-            project,
-            display_name=display_name,
-            email=email,
-            issue_type=payload.issue_type,
-            title=title,
-            description=description,
+        enforce_direct_submission_rate_limit(project, fingerprint)
+        _moderate_issue_submission(
+            Issue.Type.FEATURE,
+            fallback_embed_title(feedback),
+            feedback,
         )
     except EmbedSubmissionError as exc:
         raise HttpError(exc.status_code, exc.message)
     except HttpError:
         raise
-    except Exception:
-        logger.exception("Embed submission verification email failed.")
-        raise HttpError(502, "The verification email could not be sent.")
 
-    return 202, {"status": "verification_sent"}
+    spec = ProjectSpec.objects.filter(project=project).first()
+    evaluation = evaluate_embed_feedback(
+        feedback=feedback,
+        spec=spec,
+        client_factory=OpenAI,
+    )
+    created = False
+    with transaction.atomic():
+        locked_project = Project.objects.select_for_update().select_related("owner").get(
+            pk=project.pk
+        )
+        existing = (
+            EmbeddedIssueSubmission.objects.select_for_update()
+            .select_related("issue__project__owner")
+            .filter(client_submission_id=payload.submission_id)
+            .first()
+        )
+        if existing is not None:
+            if (
+                existing.project_id != locked_project.id
+                or existing.payload_hash != payload_digest
+                or existing.issue_id is None
+            ):
+                raise HttpError(
+                    409,
+                    "Submission ID was already used for different feedback.",
+                )
+            issue = existing.issue
+        else:
+            try:
+                enforce_direct_submission_rate_limit(locked_project, fingerprint)
+            except EmbedSubmissionError as exc:
+                raise HttpError(exc.status_code, exc.message) from exc
+            actor, _actor_created = create_anonymous_embed_user(
+                payload.submission_id
+            )
+            issue = create_issue_resource(
+                project=locked_project,
+                author=actor,
+                issue_type=evaluation.issue_type,
+                title=evaluation.title,
+                description=feedback,
+                priority=Issue.Priority.MEDIUM,
+                source="embed",
+            )
+            if spec is not None and evaluation.scope_evaluation is not None:
+                scope_evaluation = evaluation.scope_evaluation
+                current_spec = ProjectSpec.objects.select_for_update().filter(
+                    pk=spec.pk,
+                    revision=spec.revision,
+                ).first()
+                if current_spec is None:
+                    scope_evaluation = ScopeEvaluation(
+                        state=IssueScopeAssessment.State.FAILED,
+                        error_code="spec_revision_changed",
+                    )
+                record_scope_assessment(
+                    issue=issue,
+                    spec=spec,
+                    evaluation=scope_evaluation,
+                    source="embed",
+                )
+            now = timezone.now()
+            EmbeddedIssueSubmission.objects.create(
+                project=locked_project,
+                display_name="",
+                email="",
+                submitter_fingerprint=fingerprint,
+                client_submission_id=payload.submission_id,
+                payload_hash=payload_digest,
+                issue_type="",
+                title="",
+                description="",
+                token_hash=token_digest(secrets.token_urlsafe(32)),
+                expires_at=now,
+                verified_at=now,
+                issue=issue,
+            )
+            created = True
+
+    if created:
+        try:
+            _notify_owner_on_new_issue(
+                request,
+                issue,
+                issue.author,
+                include_actor_email=False,
+            )
+        except Exception:
+            logger.exception("Owner notification failed for embed issue %s.", issue.id)
+
+    return (201 if created else 200), {
+        "status": "created",
+        "issue_id": issue.id,
+        "issue_url": _issue_detail_url(request, issue),
+    }
 
 
 @router.get("/issues/{issue_id}", response=IssueOut)

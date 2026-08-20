@@ -5,8 +5,23 @@
   const form = panel.querySelector("[data-fr-form]");
   const feedback = panel.querySelector("[data-fr-feedback]");
   const success = panel.querySelector("[data-fr-success]");
+  const feedbackField = form?.querySelector('textarea[name="feedback"]');
+  const issueLink = success?.querySelector("[data-fr-issue-link]");
   const submitButton = form?.querySelector('button[type="submit"]');
   const preview = panel.dataset.preview === "true";
+  const minimumFeedbackLength = 20;
+
+  function submissionId() {
+    if (window.crypto?.randomUUID) return window.crypto.randomUUID();
+    const values = new Uint8Array(16);
+    window.crypto.getRandomValues(values);
+    values[6] = (values[6] & 0x0f) | 0x40;
+    values[8] = (values[8] & 0x3f) | 0x80;
+    const hex = Array.from(values, (value) => value.toString(16).padStart(2, "0"));
+    return `${hex.slice(0, 4).join("")}-${hex.slice(4, 6).join("")}-${hex.slice(6, 8).join("")}-${hex.slice(8, 10).join("")}-${hex.slice(10).join("")}`;
+  }
+
+  const clientSubmissionId = submissionId();
 
   function csrfToken() {
     const part = document.cookie
@@ -28,12 +43,22 @@
     if (event.source !== window.parent) return;
     if (event.data?.source !== "feature-request-widget-host") return;
     if (event.data.type === "focus") {
-      window.setTimeout(() => form?.querySelector("input, select, textarea, button")?.focus(), 0);
+      window.setTimeout(() => feedbackField?.focus(), 0);
     }
   });
 
+  feedbackField?.addEventListener("input", () => feedbackField.setCustomValidity(""));
+
   form?.addEventListener("submit", async (event) => {
     event.preventDefault();
+    const normalizedFeedback = String(feedbackField?.value || "").trim();
+    if (normalizedFeedback.length < minimumFeedbackLength) {
+      feedbackField?.setCustomValidity(
+        `Feedback must be at least ${minimumFeedbackLength} characters.`
+      );
+    } else {
+      feedbackField?.setCustomValidity("");
+    }
     if (preview || !form.reportValidity()) return;
 
     const turnstileToken = form.querySelector('[name="cf-turnstile-response"]')?.value || "";
@@ -43,13 +68,9 @@
       return;
     }
 
-    const values = new FormData(form);
     const body = {
-      display_name: String(values.get("display_name") || "").trim(),
-      email: String(values.get("email") || "").trim(),
-      issue_type: String(values.get("issue_type") || "feature"),
-      title: String(values.get("title") || "").trim(),
-      description: String(values.get("description") || "").trim(),
+      feedback: normalizedFeedback,
+      submission_id: clientSubmissionId,
       turnstile_token: turnstileToken,
     };
 
@@ -73,6 +94,12 @@
         window.turnstile?.reset();
         return;
       }
+      if (!payload.issue_url) {
+        feedback.textContent = "The request was created, but its link is unavailable.";
+        feedback.dataset.tone = "error";
+        return;
+      }
+      issueLink.href = payload.issue_url;
       form.hidden = true;
       success.hidden = false;
       message("submitted");
@@ -82,7 +109,7 @@
       window.turnstile?.reset();
     } finally {
       submitButton.disabled = false;
-      submitButton.textContent = "Submit";
+      submitButton.textContent = "Send feedback";
     }
   });
 

@@ -68,10 +68,11 @@ example, or copy the generated snippet from settings:
 
 The widget uses an icon-only conversation-bubble launcher and accepts `left` or `right`
 placement plus a six-digit hex accent color. It never
-receives an API token and only submits to the FeatureRequest origin. A request remains
-pending until the visitor opens the email link and confirms publication with the CSRF-
-protected **Publish request** form. Published widget requests use server-assigned Medium
-priority.
+receives an API token and only submits to the FeatureRequest origin. The panel asks one
+public-feedback question and creates an anonymous issue immediately after deterministic
+validation, Turnstile, moderation, and AI metadata enrichment. The response returns the
+public issue URL. Widget requests use server-assigned Medium priority and an opaque
+`Website visitor` author without collecting a name or email address.
 
 For a host site with a strict Content Security Policy, add the FeatureRequest/static origin
 to `script-src` and `style-src`, and the FeatureRequest application origin to `frame-src`.
@@ -86,14 +87,19 @@ frame-src https://featurerequest.io
 Set both `TURNSTILE_SITEKEY` and `TURNSTILE_SECRETKEY`. The Turnstile widget hostname must
 match the FeatureRequest deployment hostname because the challenge runs inside the iframe.
 Every submission is validated server-side against Cloudflare Siteverify with the
-`embed_submission` action before moderation or email delivery.
+`embed_submission` action before rate limiting, moderation, enrichment, or issue creation.
+The browser sends `feedback`, a client-generated UUID `submission_id`, and the Turnstile
+token. Repeating the same UUID with the same feedback returns the existing issue; reusing it
+with different feedback is rejected.
 
 Public widget routes:
 
 - `GET /embed/{owner_handle}/{project_slug}/`
 - `POST /api/embed/projects/{owner_handle}/{project_slug}/submissions`
-- `GET|POST /embed/submissions/{token}/verify/`
 - `/static/projects/embed-widget.js`
+
+`GET|POST /embed/submissions/{token}/verify/` remains available only so verification links
+created by older widget versions can finish their original flow.
 
 ## Environment Notes
 

@@ -30,6 +30,8 @@ SUBMISSION_EXPIRY = timedelta(minutes=30)
 SUBMISSION_RATE_WINDOW = timedelta(hours=1)
 SUBMISSION_RATE_LIMIT = 3
 SUBMISSION_RETENTION = timedelta(days=30)
+SUBMISSION_MIN_LENGTH = 20
+SUBMISSION_MAX_LENGTH = 5000
 SITEVERIFY_SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
 
 
@@ -54,7 +56,25 @@ def email_fingerprint(email: str) -> str:
 
 
 def _client_ip(request) -> str:
-    return str(request.META.get("REMOTE_ADDR", "")).strip()
+    direct = str(request.META.get("REMOTE_ADDR", "")).strip()[:64]
+    if direct in settings.FEATURE_REQUEST_TRUSTED_PROXY_IPS:
+        forwarded = str(request.META.get("HTTP_X_FORWARDED_FOR", "")).strip()
+        if forwarded:
+            return forwarded.split(",", 1)[0].strip()[:64]
+    return direct
+
+
+def submitter_fingerprint(request) -> str:
+    source = _client_ip(request) or "unknown-source"
+    return hmac.new(
+        settings.SECRET_KEY.encode("utf-8"),
+        f"embed-ip:{source}".encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def feedback_payload_hash(feedback: str) -> str:
+    return hashlib.sha256(str(feedback or "").encode("utf-8")).hexdigest()
 
 
 def validate_turnstile(request, token: str) -> None:
@@ -185,7 +205,7 @@ def create_pending_submission(
         Project.objects.select_for_update().only("pk").get(pk=project.pk)
         recent_count = EmbeddedIssueSubmission.objects.filter(
             project=project,
-            email_fingerprint=fingerprint,
+            submitter_fingerprint=fingerprint,
             created_at__gte=now - SUBMISSION_RATE_WINDOW,
         ).count()
         if recent_count >= SUBMISSION_RATE_LIMIT:
@@ -198,7 +218,7 @@ def create_pending_submission(
             project=project,
             display_name=display_name,
             email=email,
-            email_fingerprint=fingerprint,
+            submitter_fingerprint=fingerprint,
             issue_type=issue_type,
             title=title,
             description=description,
@@ -211,6 +231,51 @@ def create_pending_submission(
         submission.delete()
         raise
     return submission
+
+
+def enforce_direct_submission_rate_limit(
+    project: Project,
+    fingerprint: str,
+    *,
+    now=None,
+) -> None:
+    current_time = now or timezone.now()
+    _purge_old_submissions(current_time)
+    recent_count = EmbeddedIssueSubmission.objects.filter(
+        project=project,
+        submitter_fingerprint=fingerprint,
+        client_submission_id__isnull=False,
+        issue__isnull=False,
+        created_at__gte=current_time - SUBMISSION_RATE_WINDOW,
+    ).count()
+    if recent_count >= SUBMISSION_RATE_LIMIT:
+        raise EmbedSubmissionError(
+            429,
+            "Too many feedback requests were submitted. Please try again later.",
+        )
+
+
+def create_anonymous_embed_user(submission_id):
+    User = get_user_model()
+    opaque_id = submission_id.hex
+    email = f"visitor+{opaque_id}@anonymous.featurerequest.invalid"
+    existing = User.objects.filter(email=email).first()
+    if existing is not None:
+        return existing, False
+
+    try:
+        with transaction.atomic():
+            user = User.objects.create_user(
+                email=email,
+                handle=f"visitor_{opaque_id[:24]}",
+                display_name="Website visitor",
+            )
+        return user, True
+    except IntegrityError:
+        existing = User.objects.filter(email=email).first()
+        if existing is None:
+            raise
+        return existing, False
 
 
 def get_or_create_embed_user(email: str, display_name: str):

@@ -132,7 +132,7 @@
         "method": "POST",
         "path": "/api/embed/projects/{owner_handle}/{project_slug}/submissions",
         "agent_access": false,
-        "description": "Widget-only intake endpoint. Requires a browser Turnstile token and email verification; agents must continue to use the authenticated create_issue endpoint."
+        "description": "Widget-only anonymous intake endpoint. Requires a browser Turnstile token and creates an issue directly after moderation and enrichment; agents must continue to use the authenticated create_issue endpoint."
       }
     ]
   },
@@ -648,20 +648,19 @@
       "audience": "browser_only",
       "agent_access": false,
       "required_body": {
-        "display_name": "string",
-        "email": "string",
-        "issue_type": "string",
-        "title": "string",
-        "description": "string",
+        "feedback": "string (20-5000 characters after trimming)",
+        "submission_id": "UUID",
         "turnstile_token": "string"
       },
       "success": {
-        "status": 202,
+        "status": 201,
         "body": {
-          "status": "verification_sent"
+          "status": "created",
+          "issue_id": "integer",
+          "issue_url": "absolute URL"
         }
       },
-      "description": "Browser widget intake only. Creates a pending email-verification record, never an issue directly. Agents must use create_issue instead."
+      "description": "Browser widget intake only. Creates an anonymous issue directly and returns its public link. Same-payload idempotent replay returns 200. Agents must use create_issue instead."
     },
     {
       "name": "get_issue",
