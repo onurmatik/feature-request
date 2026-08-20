@@ -9,8 +9,6 @@
 /scripts/mcp_release.py @onurmatik
 /tests/test_mcp_release.py @onurmatik
 /.deploy/ @onurmatik
-/.github/workflows/agent-contract.yml @onurmatik
-/.github/workflows/mcp-oauth.yml @onurmatik
 /config/settings.py @onurmatik
 /config/urls.py @onurmatik
 /projects/models.py @onurmatik
