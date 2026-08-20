@@ -142,14 +142,16 @@ def enforce_rate_limit(
                 try:
                     with transaction.atomic():
                         bucket, _ = (
-                            RateLimitBucket.objects.select_for_update().get_or_create(
+                            RateLimitBucket.objects.select_for_update(
+                                of=("self",)
+                            ).get_or_create(
                                 bucket_key=key,
                                 window_start=window,
                                 defaults={"count": 0},
                             )
                         )
                 except IntegrityError:
-                    bucket = RateLimitBucket.objects.select_for_update().get(
+                    bucket = RateLimitBucket.objects.select_for_update(of=("self",)).get(
                         bucket_key=key,
                         window_start=window,
                     )
@@ -225,7 +227,7 @@ def load_pending_authorization(request, handle: str, *, consume: bool = False) -
         raise OAuthProtocolError("invalid_request", "Invalid authorization resume handle.")
     queryset = PendingAuthorization.objects
     if consume:
-        queryset = queryset.select_for_update()
+        queryset = queryset.select_for_update(of=("self",))
     pending = queryset.filter(handle_digest=credential_digest(handle)).first()
     now = timezone.now()
     if (
@@ -484,7 +486,7 @@ def exchange_authorization_code(
     result = None
     with transaction.atomic():
         grant = (
-            OAuthGrant.objects.select_for_update()
+            OAuthGrant.objects.select_for_update(of=("self",))
             .select_related("user", "application")
             .filter(code_digest=digest)
             .first()
@@ -494,7 +496,9 @@ def exchange_authorization_code(
         if grant.consumed_at is not None:
             grant.replayed_at = timezone.now()
             grant.save(update_fields=["replayed_at"])
-            for family in OAuthRefreshFamily.objects.select_for_update().filter(
+            for family in OAuthRefreshFamily.objects.select_for_update(
+                of=("self",)
+            ).filter(
                 authorization_code_digest=grant.code_digest,
                 revoked_at__isnull=True,
             ):
@@ -578,8 +582,12 @@ def rotate_refresh_token(
         )
         if member is None:
             raise OAuthProtocolError("invalid_grant", "Refresh token is invalid.")
-        family = OAuthRefreshFamily.objects.select_for_update().get(pk=member.family_id)
-        member = OAuthRefreshToken.objects.select_for_update().get(pk=member.pk)
+        family = OAuthRefreshFamily.objects.select_for_update(of=("self",)).get(
+            pk=member.family_id
+        )
+        member = OAuthRefreshToken.objects.select_for_update(of=("self",)).get(
+            pk=member.pk
+        )
         if member.consumed_at is not None or member.revoked is not None:
             _revoke_family(family, replay=True)
             rejection = OAuthProtocolError(
@@ -638,7 +646,9 @@ def revoke_presented_token(*, token: str, client_id: str, resource: str) -> dict
             .first()
         )
         if refresh is not None and refresh.application.client_id == client_id:
-            family = OAuthRefreshFamily.objects.select_for_update().get(pk=refresh.family_id)
+            family = OAuthRefreshFamily.objects.select_for_update(of=("self",)).get(
+                pk=refresh.family_id
+            )
             _revoke_family(family)
             return {
                 "actor_id": str(refresh.user_id),
@@ -646,7 +656,7 @@ def revoke_presented_token(*, token: str, client_id: str, resource: str) -> dict
                 "family_digest": credential_digest(str(family.pk)),
             }
         access = (
-            OAuthAccessToken.objects.select_for_update()
+            OAuthAccessToken.objects.select_for_update(of=("self",))
             .filter(token_checksum=checksum)
             .first()
         )
@@ -665,7 +675,7 @@ def revoke_consent_credentials(consent: OAuthConsent) -> None:
 
     now = timezone.now()
     with transaction.atomic():
-        locked = OAuthConsent.objects.select_for_update().get(pk=consent.pk)
+        locked = OAuthConsent.objects.select_for_update(of=("self",)).get(pk=consent.pk)
         if locked.revoked_at is None:
             locked.revoked_at = now
             locked.save(update_fields=["revoked_at", "updated_at"])
@@ -679,7 +689,7 @@ def revoke_consent_credentials(consent: OAuthConsent) -> None:
             application=locked.application,
             revoked_at__isnull=True,
         ).update(revoked_at=now)
-        families = OAuthRefreshFamily.objects.select_for_update().filter(
+        families = OAuthRefreshFamily.objects.select_for_update(of=("self",)).filter(
             user=locked.user,
             application=locked.application,
             revoked_at__isnull=True,
@@ -693,7 +703,9 @@ def revoke_application_credentials(application: OAuthApplication) -> None:
 
     now = timezone.now()
     with transaction.atomic():
-        locked = OAuthApplication.objects.select_for_update().get(pk=application.pk)
+        locked = OAuthApplication.objects.select_for_update(of=("self",)).get(
+            pk=application.pk
+        )
         if locked.revoked_at is None:
             locked.revoked_at = now
             locked.save(update_fields=["revoked_at", "updated"])
@@ -705,7 +717,7 @@ def revoke_application_credentials(application: OAuthApplication) -> None:
             application=locked,
             revoked_at__isnull=True,
         ).update(revoked_at=now)
-        for family in OAuthRefreshFamily.objects.select_for_update().filter(
+        for family in OAuthRefreshFamily.objects.select_for_update(of=("self",)).filter(
             application=locked,
             revoked_at__isnull=True,
         ):

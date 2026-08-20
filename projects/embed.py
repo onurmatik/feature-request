@@ -202,7 +202,7 @@ def create_pending_submission(
     fingerprint = email_fingerprint(email)
     raw_token = secrets.token_urlsafe(32)
     with transaction.atomic():
-        Project.objects.select_for_update().only("pk").get(pk=project.pk)
+        Project.objects.select_for_update(of=("self",)).only("pk").get(pk=project.pk)
         recent_count = EmbeddedIssueSubmission.objects.filter(
             project=project,
             submitter_fingerprint=fingerprint,

@@ -355,7 +355,9 @@ def save_project_spec_resource(
         content,
         auto_decline_enabled=auto_decline_enabled,
     )
-    spec = ProjectSpec.objects.select_for_update().filter(project=project).first()
+    spec = ProjectSpec.objects.select_for_update(of=("self",)).filter(
+        project=project
+    ).first()
     if spec is None:
         if expected_revision != 0:
             raise DomainRuleError("revision_conflict", "Project spec revision changed.")
@@ -385,7 +387,9 @@ def delete_project_spec_resource(
     project: Project,
     expected_revision: int,
 ) -> int:
-    spec = ProjectSpec.objects.select_for_update().filter(project=project).first()
+    spec = ProjectSpec.objects.select_for_update(of=("self",)).filter(
+        project=project
+    ).first()
     if spec is None:
         raise DomainRuleError("not_found", "Project spec not found.")
     if spec.revision != expected_revision:

@@ -48,7 +48,7 @@ def execute_idempotent(*, context, tool_name: str, arguments: dict, operation):
     now = timezone.now()
     with transaction.atomic():
         existing = (
-            AgentIdempotencyRecord.objects.select_for_update()
+            AgentIdempotencyRecord.objects.select_for_update(of=("self",))
             .filter(
                 actor=context.user,
                 tool_name=tool_name,
@@ -95,7 +95,7 @@ def execute_idempotent(*, context, tool_name: str, arguments: dict, operation):
                         expires_at=now + timedelta(hours=24),
                     )
             except IntegrityError:
-                record = AgentIdempotencyRecord.objects.select_for_update().get(
+                record = AgentIdempotencyRecord.objects.select_for_update(of=("self",)).get(
                     actor=context.user,
                     tool_name=tool_name,
                     key_digest=key_digest,

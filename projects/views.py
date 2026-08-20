@@ -221,7 +221,7 @@ def embed_submission_verify(request, token):
         # Lock only the submission row. PostgreSQL rejects FOR UPDATE when a
         # nullable select_related() join (issue) is included in the lock set.
         # Related objects are resolved after the authoritative row is locked.
-        locked = EmbeddedIssueSubmission.objects.select_for_update().get(
+        locked = EmbeddedIssueSubmission.objects.select_for_update(of=("self",)).get(
             pk=submission.pk
         )
         if locked.issue_id:
@@ -259,7 +259,7 @@ def embed_submission_verify(request, token):
                 data={"source": "embed"},
             )
             if spec is not None and evaluation is not None:
-                current_spec = ProjectSpec.objects.select_for_update().filter(
+                current_spec = ProjectSpec.objects.select_for_update(of=("self",)).filter(
                     pk=spec.pk,
                     revision=spec.revision,
                 ).first()

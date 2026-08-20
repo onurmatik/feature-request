@@ -1078,7 +1078,9 @@ def create_project(request, payload: ProjectCreateIn):
         favicon_debug = []
 
     with transaction.atomic():
-        locked_user = get_user_model().objects.select_for_update().get(pk=user.pk)
+        locked_user = get_user_model().objects.select_for_update(of=("self",)).get(
+            pk=user.pk
+        )
         if locked_user.has_project_limit(
             Project.objects.filter(owner=locked_user).count()
         ):
@@ -1113,7 +1115,7 @@ def update_project(request, project_id: int, payload: ProjectUpdateIn):
     user = _require_auth_user(request)
     with transaction.atomic():
         project = get_object_or_404(
-            Project.objects.select_for_update().select_related("owner"),
+            Project.objects.select_for_update(of=("self",)).select_related("owner"),
             id=project_id,
         )
         if not _can_manage_project(user, project):
@@ -1183,7 +1185,7 @@ def upsert_project_spec(request, project_id: int, payload: ProjectSpecUpsertIn):
 
     with transaction.atomic():
         project = get_object_or_404(
-            Project.objects.select_for_update().select_related("owner"),
+            Project.objects.select_for_update(of=("self",)).select_related("owner"),
             id=project_id,
         )
         if not _can_manage_project(user, project):
@@ -1212,7 +1214,7 @@ def delete_project_spec(
         raise HttpError(400, "confirm_project_id must match project_id.")
     with transaction.atomic():
         project = get_object_or_404(
-            Project.objects.select_for_update(),
+            Project.objects.select_for_update(of=("self",)),
             id=project_id,
         )
         if not _can_manage_project(user, project):
@@ -1436,7 +1438,7 @@ def create_issue(request, owner_handle: str, project_slug: str, payload: IssueCr
             source="api",
         )
         if spec is not None and evaluation is not None:
-            current_spec = ProjectSpec.objects.select_for_update().filter(
+            current_spec = ProjectSpec.objects.select_for_update(of=("self",)).filter(
                 pk=spec.pk,
                 revision=spec.revision,
             ).first()
@@ -1521,11 +1523,13 @@ def create_embed_submission(
     )
     created = False
     with transaction.atomic():
-        locked_project = Project.objects.select_for_update().select_related("owner").get(
-            pk=project.pk
+        locked_project = (
+            Project.objects.select_for_update(of=("self",))
+            .select_related("owner")
+            .get(pk=project.pk)
         )
         existing = (
-            EmbeddedIssueSubmission.objects.select_for_update()
+            EmbeddedIssueSubmission.objects.select_for_update(of=("self",))
             .select_related("issue__project__owner")
             .filter(client_submission_id=payload.submission_id)
             .first()
@@ -1560,7 +1564,7 @@ def create_embed_submission(
             )
             if spec is not None and evaluation.scope_evaluation is not None:
                 scope_evaluation = evaluation.scope_evaluation
-                current_spec = ProjectSpec.objects.select_for_update().filter(
+                current_spec = ProjectSpec.objects.select_for_update(of=("self",)).filter(
                     pk=spec.pk,
                     revision=spec.revision,
                 ).first()
@@ -1655,10 +1659,10 @@ def retry_issue_scope_assessment(request, issue_id: int):
     )
     with transaction.atomic():
         issue = get_object_or_404(
-            Issue.objects.select_for_update().select_related("project"),
+            Issue.objects.select_for_update(of=("self",)).select_related("project"),
             id=issue_id,
         )
-        current_spec = ProjectSpec.objects.select_for_update().filter(
+        current_spec = ProjectSpec.objects.select_for_update(of=("self",)).filter(
             pk=spec.pk,
             revision=spec.revision,
         ).first()
@@ -1710,11 +1714,11 @@ def create_issue_spec_change_proposal(request, issue_id: int):
         _raise_domain_http_error(exc)
     with transaction.atomic():
         issue = get_object_or_404(
-            Issue.objects.select_for_update().select_related("project"),
+            Issue.objects.select_for_update(of=("self",)).select_related("project"),
             id=issue_id,
         )
         current_spec = get_object_or_404(
-            ProjectSpec.objects.select_for_update(),
+            ProjectSpec.objects.select_for_update(of=("self",)),
             project=issue.project,
         )
         if current_spec.revision != spec.revision:
@@ -1776,7 +1780,7 @@ def resolve_project_spec_change_proposal(
         raise HttpError(400, "Decision must be accept or reject.")
     with transaction.atomic():
         proposal = get_object_or_404(
-            ProjectSpecChangeProposal.objects.select_for_update().select_related(
+            ProjectSpecChangeProposal.objects.select_for_update(of=("self",)).select_related(
                 "project", "issue", "created_by", "reviewed_by"
             ),
             id=proposal_id,
@@ -1784,7 +1788,7 @@ def resolve_project_spec_change_proposal(
         if user.id != proposal.project.owner_id:
             raise HttpError(403, "Only the project owner can resolve spec proposals.")
         spec = get_object_or_404(
-            ProjectSpec.objects.select_for_update(),
+            ProjectSpec.objects.select_for_update(of=("self",)),
             project=proposal.project,
         )
         try:
@@ -1811,7 +1815,7 @@ def update_issue(request, issue_id: int, payload: IssueUpdateIn):
         )
     with transaction.atomic():
         issue = get_object_or_404(
-            Issue.objects.select_for_update().select_related("project"), id=issue_id
+            Issue.objects.select_for_update(of=("self",)).select_related("project"), id=issue_id
         )
         if not _can_manage_issue(user, issue):
             raise HttpError(403, "Not allowed to update this issue.")
@@ -1984,7 +1988,7 @@ def link_issue_duplicate(request, issue_id: int, payload: DuplicateLinkIn):
     user = _require_auth_user(request)
     with transaction.atomic():
         issue = get_object_or_404(
-            Issue.objects.select_for_update().select_related("project"), id=issue_id
+            Issue.objects.select_for_update(of=("self",)).select_related("project"), id=issue_id
         )
         if not _can_manage_issue(user, issue):
             raise HttpError(403, "Not allowed to classify this issue as a duplicate.")
@@ -2006,7 +2010,7 @@ def unlink_issue_duplicate(request, issue_id: int):
     user = _require_auth_user(request)
     with transaction.atomic():
         issue = get_object_or_404(
-            Issue.objects.select_for_update().select_related("project"), id=issue_id
+            Issue.objects.select_for_update(of=("self",)).select_related("project"), id=issue_id
         )
         if not _can_manage_issue(user, issue):
             raise HttpError(403, "Not allowed to remove this duplicate link.")
@@ -2051,7 +2055,7 @@ def link_issue_delivery_artifact(
 
     with transaction.atomic():
         issue = get_object_or_404(
-            Issue.objects.select_for_update().select_related("project"), id=issue_id
+            Issue.objects.select_for_update(of=("self",)).select_related("project"), id=issue_id
         )
         if not _can_manage_issue(user, issue):
             raise HttpError(403, "Not allowed to link delivery evidence to this issue.")
@@ -2078,7 +2082,7 @@ def unlink_issue_delivery_artifact(request, issue_id: int, artifact_id: int):
     user = _require_auth_user(request)
     with transaction.atomic():
         issue = get_object_or_404(
-            Issue.objects.select_for_update().select_related("project"), id=issue_id
+            Issue.objects.select_for_update(of=("self",)).select_related("project"), id=issue_id
         )
         if not _can_manage_issue(user, issue):
             raise HttpError(403, "Not allowed to unlink delivery evidence from this issue.")
@@ -2164,7 +2168,7 @@ def update_issue_comment(request, issue_id: int, comment_id: int, payload: Comme
 
     with transaction.atomic():
         comment = get_object_or_404(
-            IssueComment.objects.select_for_update().select_related(
+            IssueComment.objects.select_for_update(of=("self",)).select_related(
                 "author", "issue__project__owner"
             ),
             id=comment_id,

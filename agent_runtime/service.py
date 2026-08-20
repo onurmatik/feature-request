@@ -639,7 +639,9 @@ class FeatureRequestAgentService:
         }
 
         def operation():
-            user = type(context.user).objects.select_for_update().get(pk=context.user.pk)
+            user = type(context.user).objects.select_for_update(of=("self",)).get(
+                pk=context.user.pk
+            )
             used = Project.objects.filter(owner=user).count()
             if used >= user.project_limit:
                 raise app_error(
@@ -681,7 +683,12 @@ class FeatureRequestAgentService:
         )
 
         def operation():
-            project = Project.objects.select_for_update().select_related("owner").filter(pk=project_id).first()
+            project = (
+                Project.objects.select_for_update(of=("self",))
+                .select_related("owner")
+                .filter(pk=project_id)
+                .first()
+            )
             if project is None:
                 self._not_found(context)
             if project.owner_id != context.user.pk:
@@ -734,7 +741,9 @@ class FeatureRequestAgentService:
             )
 
         def operation():
-            project = Project.objects.select_for_update().filter(pk=project_id).first()
+            project = Project.objects.select_for_update(of=("self",)).filter(
+                pk=project_id
+            ).first()
             if project is None:
                 self._not_found(context)
             if project.owner_id != context.user.pk:
@@ -799,14 +808,14 @@ class FeatureRequestAgentService:
         }
 
         def operation():
-            locked_project = Project.objects.select_for_update().filter(
+            locked_project = Project.objects.select_for_update(of=("self",)).filter(
                 pk=project_id
             ).first()
             if locked_project is None:
                 self._not_found(context)
             if locked_project.owner_id != context.user.pk:
                 self._deny(context)
-            locked_spec = ProjectSpec.objects.select_for_update().filter(
+            locked_spec = ProjectSpec.objects.select_for_update(of=("self",)).filter(
                 project=locked_project
             ).first()
             locked_revision = locked_spec.revision if locked_spec is not None else 0
@@ -883,7 +892,7 @@ class FeatureRequestAgentService:
         )
 
         def operation():
-            locked_issue = Issue.objects.select_for_update().select_related(
+            locked_issue = Issue.objects.select_for_update(of=("self",)).select_related(
                 "project"
             ).filter(pk=issue_id).first()
             if locked_issue is None:
@@ -891,7 +900,7 @@ class FeatureRequestAgentService:
             if locked_issue.project.owner_id != context.user.pk:
                 self._deny(context)
             self._revision(context, locked_issue, expected_revision)
-            current_spec = ProjectSpec.objects.select_for_update().filter(
+            current_spec = ProjectSpec.objects.select_for_update(of=("self",)).filter(
                 pk=spec.pk,
                 revision=spec.revision,
             ).first()
@@ -984,14 +993,14 @@ class FeatureRequestAgentService:
         )
 
         def operation():
-            locked_issue = Issue.objects.select_for_update().select_related(
+            locked_issue = Issue.objects.select_for_update(of=("self",)).select_related(
                 "project"
             ).filter(pk=issue_id).first()
             if locked_issue is None:
                 self._not_found(context)
             if locked_issue.project.owner_id != context.user.pk:
                 self._deny(context)
-            current_spec = ProjectSpec.objects.select_for_update().filter(
+            current_spec = ProjectSpec.objects.select_for_update(of=("self",)).filter(
                 project=locked_issue.project
             ).first()
             if current_spec is None:
@@ -1040,7 +1049,7 @@ class FeatureRequestAgentService:
 
         def operation():
             proposal = (
-                ProjectSpecChangeProposal.objects.select_for_update()
+                ProjectSpecChangeProposal.objects.select_for_update(of=("self",))
                 .select_related("project", "issue")
                 .filter(pk=proposal_id)
                 .first()
@@ -1049,7 +1058,7 @@ class FeatureRequestAgentService:
                 self._not_found(context)
             if proposal.project.owner_id != context.user.pk:
                 self._deny(context)
-            spec = ProjectSpec.objects.select_for_update().filter(
+            spec = ProjectSpec.objects.select_for_update(of=("self",)).filter(
                 project=proposal.project
             ).first()
             if spec is None:
@@ -1152,7 +1161,7 @@ class FeatureRequestAgentService:
                 source="mcp",
             )
             if spec is not None and evaluation is not None:
-                current_spec = ProjectSpec.objects.select_for_update().filter(
+                current_spec = ProjectSpec.objects.select_for_update(of=("self",)).filter(
                     pk=spec.pk,
                     revision=spec.revision,
                 ).first()
@@ -1196,7 +1205,12 @@ class FeatureRequestAgentService:
         }
 
         def operation():
-            issue = Issue.objects.select_for_update().select_related("project").filter(pk=issue_id).first()
+            issue = (
+                Issue.objects.select_for_update(of=("self",))
+                .select_related("project")
+                .filter(pk=issue_id)
+                .first()
+            )
             if issue is None:
                 self._not_found(context)
             if context.user.pk not in {issue.author_id, issue.project.owner_id}:
@@ -1229,7 +1243,12 @@ class FeatureRequestAgentService:
         }
 
         def operation():
-            issue = Issue.objects.select_for_update().select_related("project").filter(pk=issue_id).first()
+            issue = (
+                Issue.objects.select_for_update(of=("self",))
+                .select_related("project")
+                .filter(pk=issue_id)
+                .first()
+            )
             if issue is None:
                 self._not_found(context)
             if context.user.pk not in {issue.author_id, issue.project.owner_id}:
@@ -1260,7 +1279,12 @@ class FeatureRequestAgentService:
         }
 
         def operation():
-            issue = Issue.objects.select_for_update().select_related("project").filter(pk=issue_id).first()
+            issue = (
+                Issue.objects.select_for_update(of=("self",))
+                .select_related("project")
+                .filter(pk=issue_id)
+                .first()
+            )
             if issue is None:
                 self._not_found(context)
             if context.user.pk not in {issue.author_id, issue.project.owner_id}:
@@ -1307,7 +1331,12 @@ class FeatureRequestAgentService:
         }
 
         def operation():
-            issue = Issue.objects.select_for_update().select_related("project").filter(pk=issue_id).first()
+            issue = (
+                Issue.objects.select_for_update(of=("self",))
+                .select_related("project")
+                .filter(pk=issue_id)
+                .first()
+            )
             if issue is None:
                 self._not_found(context)
             if context.user.pk not in {issue.author_id, issue.project.owner_id}:
@@ -1358,7 +1387,12 @@ class FeatureRequestAgentService:
         )
 
         def operation():
-            issue = Issue.objects.select_for_update().select_related("project").filter(pk=issue_id).first()
+            issue = (
+                Issue.objects.select_for_update(of=("self",))
+                .select_related("project")
+                .filter(pk=issue_id)
+                .first()
+            )
             if issue is None:
                 self._not_found(context)
             if context.user.pk not in {issue.author_id, issue.project.owner_id}:
@@ -1433,7 +1467,12 @@ class FeatureRequestAgentService:
             }
 
         def operation():
-            issue = Issue.objects.select_for_update().select_related("project").filter(pk=issue_id).first()
+            issue = (
+                Issue.objects.select_for_update(of=("self",))
+                .select_related("project")
+                .filter(pk=issue_id)
+                .first()
+            )
             if issue is None:
                 self._not_found(context)
             if context.user.pk not in {issue.author_id, issue.project.owner_id}:
@@ -1538,7 +1577,9 @@ class FeatureRequestAgentService:
         context.audit_extra["approval_evidence"] = {"owner": "agent", "current_turn": True}
 
         def operation():
-            locked_issue = Issue.objects.select_for_update().filter(pk=issue_id).first()
+            locked_issue = Issue.objects.select_for_update(of=("self",)).filter(
+                pk=issue_id
+            ).first()
             if locked_issue is None:
                 self._not_found(context)
             comment = create_comment_resource(
@@ -1602,7 +1643,7 @@ class FeatureRequestAgentService:
 
         def operation():
             locked = (
-                IssueComment.objects.select_for_update()
+                IssueComment.objects.select_for_update(of=("self",))
                 .select_related("issue__project")
                 .filter(pk=comment_id, issue_id=issue_id)
                 .first()
