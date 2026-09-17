@@ -15,9 +15,8 @@ The task:
    sync;
 5. runs `collectstatic`, Django migrations and `check --deploy`;
 6. verifies and restarts the StageOps-managed FeatureRequest MCP service;
-7. verifies the StageOps-managed OAuth cleanup and health timers;
-8. restarts the existing `app@{PROJECT_NAME}.socket`; and
-9. performs read-only homepage plus MCP discovery smoke checks.
+7. restarts the existing `app@{PROJECT_NAME}.socket`; and
+8. performs read-only homepage plus MCP discovery smoke checks.
 
 Local configuration:
 
@@ -26,7 +25,10 @@ Local configuration:
   `KEY_FILENAME`, `DEPLOY_USER` and `APP_USER`.
 
 These local environment files are ignored by Git. StageOps owns the native MCP
-unit, OAuth maintenance timers, exact `/mcp` nginx routing and OAuth-safe access
-logging. This deployment contract consumes that infrastructure; it does not
-create or mutate systemd/nginx configuration, Docker, database backups or
-rollback infrastructure.
+service, plain cron entries for OAuth cleanup/health checks, exact `/mcp` nginx
+routing and OAuth-safe access logging. Cron invocations write per-job logs under
+`/var/log/featurerequest/` and latest state under
+`/var/lib/stageops/cron/featurerequest/`; the StageOps full health check monitors
+them. The deploy holds the shared cron/deploy lock while the mutable checkout is
+updated. This contract does not create or mutate systemd/nginx configuration,
+Docker, database backups or rollback infrastructure.

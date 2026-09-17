@@ -3193,6 +3193,7 @@ Describe the people or teams this product serves.
       render();
       return;
     }
+    state.selectedProjectSlug = "";
     state.projectNameDraft = "";
     state.projectTaglineDraft = "";
     state.projectUrlDraft = "";

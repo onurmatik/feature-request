@@ -51,17 +51,7 @@ PYTHON_BIN = f"{VENV_DIR}/bin/python"
 ENV_FILE = f"{PROJECT_DIR}/.env"
 UV_VERSION = "0.9.26"
 MCP_SERVICE = "feature-request-mcp.service"
-MCP_CLEANUP_SERVICE = "feature-request-oauth-cleanup.service"
-MCP_CLEANUP_TIMER = "feature-request-oauth-cleanup.timer"
-MCP_HEALTH_SERVICE = "feature-request-oauth-health.service"
-MCP_HEALTH_TIMER = "feature-request-oauth-health.timer"
-MCP_SYSTEMD_UNITS = (
-    MCP_SERVICE,
-    MCP_CLEANUP_SERVICE,
-    MCP_CLEANUP_TIMER,
-    MCP_HEALTH_SERVICE,
-    MCP_HEALTH_TIMER,
-)
+STAGEOPS_CRON_LOCK = f"/run/lock/stageops-{PROJECT_NAME}-deploy.lock"
 
 
 def debug(message: str) -> None:
@@ -82,6 +72,35 @@ def timed_step(label: str):
 
 def quote(value: str) -> str:
     return shlex.quote(value)
+
+
+@contextmanager
+def pause_stageops_cron(connection: Connection):
+    """Prevent StageOps cron commands from overlapping a mutable deploy."""
+
+    connection.open()
+    channel = connection.client.get_transport().open_session()
+    channel.settimeout(15)
+    try:
+        channel.exec_command(
+            f"flock -n {quote(STAGEOPS_CRON_LOCK)} "
+            + quote("sh")
+            + " -c "
+            + quote("printf 'LOCKED\\n'; cat >/dev/null")
+        )
+        received = b""
+        while b"\n" not in received:
+            block = channel.recv(32)
+            if not block:
+                raise RuntimeError(
+                    "A StageOps cron job is running, or the cron/deploy lock could not be acquired"
+                )
+            received += block
+        if received != b"LOCKED\n":
+            raise RuntimeError("Could not acquire the StageOps cron/deploy lock")
+        yield
+    finally:
+        channel.close()
 
 
 def run_as_app_user(
@@ -259,25 +278,19 @@ def run_django_release(connection: Connection) -> None:
 
 
 def restart_mcp_runtime(connection: Connection) -> None:
-    for unit in MCP_SYSTEMD_UNITS:
-        result = connection.sudo(
-            f"systemctl cat {quote(unit)}",
-            warn=True,
-            hide=True,
+    result = connection.sudo(
+        f"systemctl cat {quote(MCP_SERVICE)}",
+        warn=True,
+        hide=True,
+    )
+    if result.failed:
+        raise RuntimeError(
+            f"StageOps-managed unit is missing: {MCP_SERVICE}. "
+            "Apply the featurerequest app in StageOps before deploying."
         )
-        if result.failed:
-            raise RuntimeError(
-                f"StageOps-managed unit is missing: {unit}. "
-                "Apply the featurerequest app in StageOps before deploying."
-            )
 
     connection.sudo(f"systemctl restart {quote(MCP_SERVICE)}")
     connection.sudo(f"systemctl is-active --quiet {quote(MCP_SERVICE)}")
-
-    for timer in (MCP_CLEANUP_TIMER, MCP_HEALTH_TIMER):
-        connection.sudo(f"systemctl is-enabled --quiet {quote(timer)}")
-        connection.sudo(f"systemctl restart {quote(timer)}")
-        connection.sudo(f"systemctl is-active --quiet {quote(timer)}")
 
 
 def restart_web(connection: Connection) -> None:
@@ -324,20 +337,21 @@ def deploy(_context):
         },
     )
 
-    with timed_step("Repository update"):
-        ensure_checkout(connection, source_url=source_url, token=token)
-    with timed_step("Environment upload"):
-        upload_environment(connection)
-    with timed_step("Production dependency sync"):
-        install_dependencies(connection)
-    with timed_step("Django release steps"):
-        run_django_release(connection)
-    with timed_step("StageOps-managed MCP restart"):
-        restart_mcp_runtime(connection)
-    with timed_step("Web service restart"):
-        restart_web(connection)
-    with timed_step("Public smoke"):
-        public_smoke(connection)
+    with pause_stageops_cron(connection):
+        with timed_step("Repository update"):
+            ensure_checkout(connection, source_url=source_url, token=token)
+        with timed_step("Environment upload"):
+            upload_environment(connection)
+        with timed_step("Production dependency sync"):
+            install_dependencies(connection)
+        with timed_step("Django release steps"):
+            run_django_release(connection)
+        with timed_step("StageOps-managed MCP restart"):
+            restart_mcp_runtime(connection)
+        with timed_step("Web service restart"):
+            restart_web(connection)
+        with timed_step("Public smoke"):
+            public_smoke(connection)
 
 
 ns = Collection(deploy)

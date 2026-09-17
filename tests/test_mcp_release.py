@@ -129,10 +129,12 @@ class MCPReleaseRepositoryGateTests(unittest.TestCase):
             "restart_mcp_runtime",
             "MCP_SERVICE",
             "systemctl cat",
-            "systemctl is-enabled --quiet",
+            "stageops-{PROJECT_NAME}-deploy.lock",
             "FeatureRequest public MCP discovery smoke",
         ):
             self.assertIn(expected, deploy_source)
+        self.assertNotIn("MCP_CLEANUP_TIMER", deploy_source)
+        self.assertNotIn("systemctl is-enabled --quiet", deploy_source)
         for forbidden in (
             "pgbackrest",
             "take_database_backup",

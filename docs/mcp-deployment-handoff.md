@@ -1,8 +1,9 @@
 # FeatureRequest MCP deployment handoff
 
 StageOps `app.yaml` owns the FeatureRequest MCP process, exact `/mcp` nginx
-routing, OAuth-safe access logging, bounded cleanup and cleanup-health timers.
-The native `.deploy` task only restarts and verifies those units after the app
+routing, OAuth-safe access logging, and observable cron schedules for bounded
+cleanup and cleanup-health checks.
+The native `.deploy` task only restarts and verifies the MCP service after the app
 release; it does not create infrastructure or introduce Docker/OCI, database
 backups, migration-order changes or rollback infrastructure.
 
