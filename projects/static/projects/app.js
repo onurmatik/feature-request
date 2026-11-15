@@ -121,6 +121,11 @@ Describe the people or teams this product serves.
   const PROJECT_AGENT_PROMPT_PRESETS = new Set(["project-triage", "project-implementation"]);
   const HANDLE_REGEX = /^[a-z0-9_]+$/;
   const SETTINGS_SECTIONS = new Set(["general", "api", "connect-agent"]);
+  const PROJECT_SETTINGS_TABS = [
+    { value: "general", label: "General" },
+    { value: "spec", label: "Product spec" },
+    { value: "widget", label: "Widget theme" },
+  ];
 
   const ADMIN_PATH = (() => {
     const raw = typeof window.__FR_ADMIN_PATH__ === "string" ? window.__FR_ADMIN_PATH__ : "/admin/";
@@ -222,6 +227,7 @@ Describe the people or teams this product serves.
     projectUrlDraft: "",
     projectFeedback: "",
     projectFeedbackTone: "",
+    projectSettingsTab: "general",
     projectSpec: null,
     projectSpecDraft: PROJECT_SPEC_TEMPLATE,
     projectSpecAutoDecline: false,
@@ -1279,6 +1285,9 @@ Describe the people or teams this product serves.
   function render() {
     const activeElement = document.activeElement;
     const focusKey = activeElement?.dataset?.bind || "";
+    const focusedSettingsTab = activeElement?.dataset?.action === "select-project-settings-tab"
+      ? activeElement.dataset.tab
+      : "";
     const preservedScrollPositions = [...root.querySelectorAll("[data-preserve-scroll]")].map((element) => ({
       key: element.dataset.preserveScroll,
       top: element.scrollTop,
@@ -1314,6 +1323,9 @@ Describe the people or teams this product serves.
           }
         }
       }
+    }
+    if (focusedSettingsTab) {
+      document.getElementById(`project-settings-tab-${focusedSettingsTab}`)?.focus({ preventScroll: true });
     }
     ensureSelectedIssueComments(state.isIssueDetailOpen ? computed.selectedIssue : null);
   }
@@ -2261,35 +2273,83 @@ Describe the people or teams this product serves.
 
   function renderProductSpecView(computed) {
     const project = computed.selectedProject;
-    return `<div class="flex-1 bg-white overflow-y-auto" data-preserve-scroll="product-spec"><div class="mx-auto w-full max-w-3xl px-6 py-10 md:px-8"><div class="mb-8 flex flex-wrap items-start justify-between gap-4"><div><p class="text-[10px] font-mono font-bold uppercase tracking-widest text-[#06B6D4]">Public Product Spec</p><h1 class="mt-2 text-3xl font-bold text-[#111827]">${escapeHtml(project?.name || "Product Spec")}</h1>${state.projectSpec ? `<p class="mt-2 text-xs text-[#6b7280]">Revision ${Number(state.projectSpec.revision)} · updated ${formatRelativeDate(state.projectSpec.updated_at)}</p>` : ""}</div><div class="flex gap-2"><a href="${boardUrl(state.selectedProjectSlug)}" data-action="back-to-project-board" class="rounded-sm-ds border border-[#e5e7eb] px-3 py-2 text-xs font-bold text-[#6b7280] hover:bg-[#f3f4f6]">Requests</a>${computed.isOwnerViewer ? `<button type="button" data-action="open-project-settings" data-slug="${escapeAttr(state.selectedProjectSlug)}" class="rounded-sm-ds bg-[#111827] px-3 py-2 text-xs font-bold text-white">Edit spec</button>` : ""}</div></div>${state.isProjectSpecLoading ? `<p class="text-sm text-[#6b7280]">Loading Product Spec…</p>` : state.projectSpec ? `<article class="rounded-md-ds border border-[#e5e7eb] bg-white p-6 md:p-8">${markdownContent(state.projectSpec.content)}</article>` : `<div class="rounded-md-ds border border-dashed border-[#d1d5db] bg-[#f9fafb] p-8 text-center"><p class="text-sm font-bold text-[#111827]">No Product Spec published yet</p><p class="mt-2 text-xs text-[#6b7280]">Requests continue through the normal moderation and intake flow.</p></div>`}</div></div>`;
+    return `<div class="flex-1 bg-white overflow-y-auto" data-preserve-scroll="product-spec"><div class="mx-auto w-full max-w-3xl px-6 py-10 md:px-8"><div class="mb-8 flex flex-wrap items-start justify-between gap-4"><div><p class="text-[10px] font-mono font-bold uppercase tracking-widest text-[#06B6D4]">Public Product Spec</p><h1 class="mt-2 text-3xl font-bold text-[#111827]">${escapeHtml(project?.name || "Product Spec")}</h1>${state.projectSpec ? `<p class="mt-2 text-xs text-[#6b7280]">Revision ${Number(state.projectSpec.revision)} · updated ${formatRelativeDate(state.projectSpec.updated_at)}</p>` : ""}</div><div class="flex gap-2"><a href="${boardUrl(state.selectedProjectSlug)}" data-action="back-to-project-board" class="rounded-sm-ds border border-[#e5e7eb] px-3 py-2 text-xs font-bold text-[#6b7280] hover:bg-[#f3f4f6]">Requests</a>${computed.isOwnerViewer ? `<button type="button" data-action="open-project-settings" data-tab="spec" data-slug="${escapeAttr(state.selectedProjectSlug)}" class="rounded-sm-ds bg-[#111827] px-3 py-2 text-xs font-bold text-white">Edit spec</button>` : ""}</div></div>${state.isProjectSpecLoading ? `<p class="text-sm text-[#6b7280]">Loading Product Spec…</p>` : state.projectSpec ? `<article class="rounded-md-ds border border-[#e5e7eb] bg-white p-6 md:p-8">${markdownContent(state.projectSpec.content)}</article>` : `<div class="rounded-md-ds border border-dashed border-[#d1d5db] bg-[#f9fafb] p-8 text-center"><p class="text-sm font-bold text-[#111827]">No Product Spec published yet</p><p class="mt-2 text-xs text-[#6b7280]">Requests continue through the normal moderation and intake flow.</p></div>`}</div></div>`;
   }
 
   function renderProjectSpecSettings(project, computed) {
     const disabled = !computed.isOwnerViewer || state.isProjectSpecSaving || state.isProjectSpecDeleting;
-    return `<section class="space-y-6"><div class="pb-4 border-b border-[#e5e7eb]"><div class="flex flex-wrap items-center justify-between gap-3"><div><h3 class="text-sm font-bold uppercase tracking-widest text-[#6b7280]">Product Spec</h3><p class="mt-2 text-xs text-[#6b7280]">A public one-page product boundary. Business plans, revenue targets, dates, and ordered roadmaps stay outside this document.</p></div>${state.projectSpec ? `<a href="${projectSpecUrl()}" data-action="open-product-spec" class="text-xs font-bold text-[#06B6D4] hover:underline">View public spec</a>` : ""}</div></div>${state.isProjectSpecLoading ? `<p class="text-sm text-[#6b7280]">Loading spec…</p>` : `<div class="grid grid-cols-1 lg:grid-cols-2 gap-6"><div class="space-y-3"><label class="text-[10px] font-mono font-bold uppercase text-[#6b7280]">Markdown · ${state.projectSpecDraft.length.toLocaleString()}/10,000</label><textarea data-bind="projectSpecDraft" maxlength="10000" rows="24" class="w-full rounded-sm-ds border border-[#e5e7eb] bg-white p-3 font-mono text-xs leading-relaxed outline-none focus:ring-1 focus:ring-[#06B6D4]"${disabledAttr(disabled)}>${escapeHtml(state.projectSpecDraft)}</textarea><label class="flex items-start gap-3 rounded-sm-ds border border-[#e5e7eb] bg-[#f9fafb] p-3"><input type="checkbox" data-bind="projectSpecAutoDecline" class="mt-0.5"${state.projectSpecAutoDecline ? " checked" : ""}${disabledAttr(disabled)}><span><span class="block text-xs font-bold text-[#111827]">Enable guarded auto-decline</span><span class="mt-1 block text-[10px] leading-relaxed text-[#6b7280]">Requires non-empty In scope and Out of scope sections. Only exact, unambiguous out-of-scope matches decline automatically.</span></span></label></div><div class="min-h-[28rem] rounded-sm-ds border border-[#e5e7eb] bg-[#f9fafb] p-4 overflow-auto"><p class="mb-4 text-[10px] font-mono font-bold uppercase tracking-widest text-[#9ca3af]">Safe preview</p>${markdownContent(state.projectSpecDraft, "Start from the template to preview your spec.")}</div></div><div class="flex flex-wrap items-center justify-between gap-3"><p class="text-xs ${state.projectSpecFeedbackTone === "error" ? "text-[#dc2626]" : state.projectSpecFeedbackTone === "success" ? "text-[#16a34a]" : "text-[#6b7280]"}">${escapeHtml(state.projectSpecFeedback)}</p><div class="flex gap-2">${state.projectSpec ? `<button type="button" data-action="delete-project-spec" class="rounded-sm-ds border border-rose-200 px-4 py-2 text-xs font-bold text-rose-700 disabled:opacity-45"${disabledAttr(disabled)}>Delete spec</button>` : ""}<button type="button" data-action="save-project-spec" class="rounded-sm-ds bg-[#06B6D4] px-4 py-2 text-xs font-bold text-white disabled:opacity-45"${disabledAttr(disabled || !state.projectSpecDraft.trim())}>${state.isProjectSpecSaving ? "Publishing…" : state.projectSpec ? "Publish revision" : "Publish spec"}</button></div></div>`}</section>`;
+    return `
+      <section class="space-y-6">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <p class="text-xs text-[#6b7280]">Define product boundaries. Keep business plans, targets, dates, and roadmaps outside this document.</p>
+          ${state.projectSpec ? `<a href="${projectSpecUrl()}" data-action="open-product-spec" class="shrink-0 text-xs font-bold text-[#06B6D4] hover:underline">View public spec</a>` : ""}
+        </div>
+        ${state.isProjectSpecLoading ? `<p class="text-sm text-[#6b7280]">Loading spec…</p>` : `
+          <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+            <div class="min-w-0 space-y-3">
+              <div class="flex items-center justify-between gap-3">
+                <label for="project-spec-editor" class="text-[10px] font-mono font-bold uppercase text-[#6b7280]">Markdown</label>
+                <span id="project-spec-count" class="text-[10px] font-mono text-[#9ca3af]">${state.projectSpecDraft.length.toLocaleString()}/10,000</span>
+              </div>
+              <textarea id="project-spec-editor" data-bind="projectSpecDraft" data-preserve-scroll="project-spec-editor" aria-describedby="project-spec-count" maxlength="10000" rows="24" class="w-full min-h-[28rem] rounded-sm-ds border border-[#e5e7eb] bg-white p-4 font-mono text-xs leading-relaxed outline-none focus:ring-1 focus:ring-[#06B6D4]"${disabledAttr(disabled)}>${escapeHtml(state.projectSpecDraft)}</textarea>
+            </div>
+            <div class="min-w-0 space-y-3">
+              <p class="text-[10px] font-mono font-bold uppercase text-[#6b7280]">Preview</p>
+              <div class="min-h-[28rem] max-h-[40rem] rounded-sm-ds border border-[#e5e7eb] bg-[#f9fafb] p-4 overflow-auto break-words" data-preserve-scroll="project-spec-preview">${markdownContent(state.projectSpecDraft, "Start from the template to preview your spec.")}</div>
+            </div>
+          </div>
+          <label class="flex items-start gap-3 rounded-sm-ds border border-[#e5e7eb] bg-[#f9fafb] p-3">
+            <input type="checkbox" data-bind="projectSpecAutoDecline" class="mt-0.5"${state.projectSpecAutoDecline ? " checked" : ""}${disabledAttr(disabled)}>
+            <span><span class="block text-xs font-bold text-[#111827]">Enable guarded auto-decline</span><span class="mt-1 block text-[10px] leading-relaxed text-[#6b7280]">Requires non-empty In scope and Out of scope sections. Only exact, unambiguous out-of-scope matches decline automatically.</span></span>
+          </label>
+          <div class="flex flex-wrap items-center justify-end gap-3">
+            ${state.projectSpecFeedback ? `<p role="status" class="mr-auto text-xs ${state.projectSpecFeedbackTone === "error" ? "text-[#dc2626]" : state.projectSpecFeedbackTone === "success" ? "text-[#16a34a]" : "text-[#6b7280]"}">${escapeHtml(state.projectSpecFeedback)}</p>` : ""}
+            ${state.projectSpec ? `<button type="button" data-action="delete-project-spec" class="rounded-sm-ds border border-rose-200 px-4 py-2 text-xs font-bold text-rose-700 disabled:opacity-45"${disabledAttr(disabled)}>Delete spec</button>` : ""}
+            <button type="button" data-action="save-project-spec" class="rounded-sm-ds bg-[#06B6D4] px-4 py-2 text-xs font-bold text-white disabled:opacity-45"${disabledAttr(disabled || !state.projectSpecDraft.trim())}>${state.isProjectSpecSaving ? "Publishing…" : state.projectSpec ? "Publish revision" : "Publish spec"}</button>
+          </div>`}
+      </section>`;
   }
 
   function renderProjectSettingsView(computed) {
     const project = computed.selectedProject;
+    const activeTab = state.projectSettingsTab;
     return `
-      <div class="flex-1 bg-white flex flex-col overflow-y-auto" data-preserve-scroll="project-settings">
-        <div class="max-w-3xl mx-auto w-full px-6 md:px-8 py-10 space-y-12">
-          <div><h2 class="text-2xl font-bold text-[#111827] mb-2">Project Settings</h2><p class="text-sm text-[#6b7280]">Manage your project metadata and administrative controls.</p></div>
-          <section class="space-y-6">
-            <div class="pb-4 border-b border-[#e5e7eb]"><h3 class="text-sm font-bold uppercase tracking-widest text-[#6b7280]">General Information</h3></div>
-            ${!computed.isOwnerViewer ? `<p class="text-xs text-[#6b7280]">You are viewing this board as a visitor. Only @${escapeHtml(state.ownerHandle)} can edit project settings.</p>` : ""}
-            ${project ? renderProjectFields(computed, false) : `<p class="text-sm text-[#6b7280]">Select a project from sidebar and open settings.</p>`}
-            ${state.projectFeedback ? `<p class="text-xs ${state.projectFeedbackTone === "error" ? "text-[#dc2626]" : state.projectFeedbackTone === "success" ? "text-[#16a34a]" : "text-[#6b7280]"}">${escapeHtml(state.projectFeedback)}</p>` : ""}
-            <div class="flex justify-end"><button type="button" data-action="save-project" class="px-6 py-2 bg-[#06B6D4] text-white text-sm font-bold rounded-sm-ds hover:bg-cyan-600 shadow-sm transition-all disabled:opacity-45"${disabledAttr(!project || !computed.isOwnerViewer || state.isProjectSaving)}>${state.isProjectSaving ? "Saving..." : "Save Changes"}</button></div>
-          </section>
-          ${project ? renderProjectSpecSettings(project, computed) : ""}
-          ${project ? renderEmbedWidgetSettings(project, computed) : ""}
-          <section class="space-y-6">
-            <div class="pb-4 border-b border-[#e5e7eb]"><h3 class="text-sm font-bold uppercase tracking-widest text-[#dc2626]">Danger Zone</h3></div>
-            <div class="p-4 border border-rose-100 bg-rose-50 rounded-md-ds flex flex-col md:flex-row gap-4 md:items-center md:justify-between"><div class="space-y-1"><p class="text-sm font-bold text-[#111827]">Delete this project</p><p class="text-xs text-[#6b7280]">Once deleted, all data including issues and comments will be permanently removed.</p></div><button type="button" data-action="open-delete-modal" class="px-4 py-2 bg-[#dc2626] text-white text-xs font-bold rounded-sm-ds hover:bg-red-700 transition-all shadow-sm"${disabledAttr(!project || !computed.isOwnerViewer || state.isProjectDeleting)}>Delete Project</button></div>
-          </section>
+      <div class="flex-1 min-w-0 bg-white flex flex-col overflow-hidden">
+        <div class="shrink-0 px-6 pt-8 md:px-8">
+          <h2 class="text-2xl font-bold text-[#111827] mb-6">Project Settings</h2>
+          <div role="tablist" aria-label="Project settings" class="flex gap-4 sm:gap-6 overflow-x-auto border-b border-[#e5e7eb]">
+            ${PROJECT_SETTINGS_TABS.map((tab) => `<button type="button" id="project-settings-tab-${tab.value}" role="tab" aria-selected="${activeTab === tab.value}" aria-controls="project-settings-panel" tabindex="${activeTab === tab.value ? "0" : "-1"}" data-action="select-project-settings-tab" data-tab="${tab.value}" class="shrink-0 border-b-2 pb-3 pt-1 text-xs sm:text-sm font-bold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#06B6D4] ${activeTab === tab.value ? "border-[#06B6D4] text-[#111827]" : "border-transparent text-[#6b7280] hover:text-[#111827]"}">${tab.label}</button>`).join("")}
+          </div>
+        </div>
+        <div id="project-settings-panel" role="tabpanel" aria-labelledby="project-settings-tab-${activeTab}" tabindex="0" class="flex-1 min-h-0 overflow-y-auto px-6 py-6 md:px-8 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#06B6D4]" data-preserve-scroll="project-settings-${activeTab}">
+          ${activeTab === "general" ? renderProjectGeneralSettings(project, computed) : project ? activeTab === "spec" ? renderProjectSpecSettings(project, computed) : renderEmbedWidgetSettings(project, computed) : `<p class="text-sm text-[#6b7280]">Select a project from sidebar and open settings.</p>`}
         </div>
       </div>`;
+  }
+
+  function renderProjectGeneralSettings(project, computed) {
+    return `
+      <div class="space-y-12">
+        <section class="space-y-6">
+          ${!computed.isOwnerViewer ? `<p class="text-xs text-[#6b7280]">You are viewing this board as a visitor. Only @${escapeHtml(state.ownerHandle)} can edit project settings.</p>` : ""}
+          ${project ? renderProjectFields(computed, false) : `<p class="text-sm text-[#6b7280]">Select a project from sidebar and open settings.</p>`}
+          ${state.projectFeedback ? `<p role="status" class="text-xs ${state.projectFeedbackTone === "error" ? "text-[#dc2626]" : state.projectFeedbackTone === "success" ? "text-[#16a34a]" : "text-[#6b7280]"}">${escapeHtml(state.projectFeedback)}</p>` : ""}
+          <div class="flex justify-end"><button type="button" data-action="save-project" class="px-6 py-2 bg-[#06B6D4] text-white text-sm font-bold rounded-sm-ds hover:bg-cyan-600 shadow-sm transition-all disabled:opacity-45"${disabledAttr(!project || !computed.isOwnerViewer || state.isProjectSaving)}>${state.isProjectSaving ? "Saving..." : "Save Changes"}</button></div>
+        </section>
+        <section class="space-y-4">
+          <h3 class="text-sm font-bold uppercase tracking-widest text-[#dc2626]">Danger Zone</h3>
+          <div class="p-4 border border-rose-100 bg-rose-50 rounded-md-ds flex flex-col md:flex-row gap-4 md:items-center md:justify-between"><div class="space-y-1"><p class="text-sm font-bold text-[#111827]">Delete this project</p><p class="text-xs text-[#6b7280]">Permanently deletes this project, including its requests and comments.</p></div><button type="button" data-action="open-delete-modal" class="shrink-0 px-4 py-2 bg-[#dc2626] text-white text-xs font-bold rounded-sm-ds hover:bg-red-700 transition-all shadow-sm"${disabledAttr(!project || !computed.isOwnerViewer || state.isProjectDeleting)}>Delete Project</button></div>
+        </section>
+      </div>`;
+  }
+
+  function selectProjectSettingsTab(value) {
+    if (!PROJECT_SETTINGS_TABS.some((tab) => tab.value === value)) {
+      return;
+    }
+    state.projectSettingsTab = value;
+    render();
+    document.getElementById(`project-settings-tab-${value}`)?.focus({ preventScroll: true });
   }
 
   function normalizedEmbedWidgetColor() {
@@ -2356,8 +2416,7 @@ Describe the people or teams this product serves.
     const scriptOrigin = new URL(WIDGET_SCRIPT_URL, window.location.origin).origin;
     return `
       <section class="space-y-6">
-        <div class="pb-4 border-b border-[#e5e7eb]"><h3 class="text-sm font-bold uppercase tracking-widest text-[#6b7280]">Embed Widget</h3></div>
-        <p class="text-sm text-[#6b7280]">Add a feedback launcher to any website. These options are written into the snippet and are not stored on the project.</p>
+        <p class="text-xs text-[#6b7280]">Theme options apply to the copied snippet and are not saved to the project.</p>
         <div class="grid grid-cols-1 lg:grid-cols-5 gap-8">
           <div class="lg:col-span-2 space-y-5">
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -4013,6 +4072,19 @@ Describe the people or teams this product serves.
     handleAction(action, actionElement);
   });
 
+  root.addEventListener("keydown", (event) => {
+    const tab = event.target.closest('[data-action="select-project-settings-tab"]');
+    if (!tab || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
+      return;
+    }
+    event.preventDefault();
+    const currentIndex = PROJECT_SETTINGS_TABS.findIndex((item) => item.value === tab.dataset.tab);
+    const nextIndex = event.key === "Home" ? 0
+      : event.key === "End" ? PROJECT_SETTINGS_TABS.length - 1
+        : (currentIndex + (event.key === "ArrowRight" ? 1 : -1) + PROJECT_SETTINGS_TABS.length) % PROJECT_SETTINGS_TABS.length;
+    selectProjectSettingsTab(PROJECT_SETTINGS_TABS[nextIndex].value);
+  });
+
   document.addEventListener("mousedown", (event) => {
     if (!state.isProfileMenuOpen) {
       return;
@@ -4098,9 +4170,13 @@ Describe the people or teams this product serves.
         state.selectedProjectSlug = element.dataset.slug || state.selectedProjectSlug;
         closeIssueDetailAndHistory();
         state.view = "projectSettings";
+        state.projectSettingsTab = PROJECT_SETTINGS_TABS.some((tab) => tab.value === element.dataset.tab) ? element.dataset.tab : "general";
         render();
         refreshProjectSpec();
         refreshSpecProposals();
+        break;
+      case "select-project-settings-tab":
+        selectProjectSettingsTab(element.dataset.tab);
         break;
       case "open-product-spec":
         if (!state.selectedProjectSlug) {
