@@ -65,13 +65,12 @@
     const frame = document.createElement("iframe");
     frame.className = "fr-widget__frame";
     frame.title = `Send feedback to ${project}`;
-    frame.src = `${origin}/embed/${encodeURIComponent(owner)}/${encodeURIComponent(project)}/?accent=${encodeURIComponent(color)}`;
-    frame.loading = "eager";
+    const frameUrl = `${origin}/embed/${encodeURIComponent(owner)}/${encodeURIComponent(project)}/?accent=${encodeURIComponent(color)}`;
+    let frameReady = false;
     frame.setAttribute(
       "sandbox",
       "allow-forms allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
     );
-    panel.appendChild(frame);
 
     const launcher = document.createElement("button");
     launcher.className = "fr-widget__launcher";
@@ -81,18 +80,25 @@
     launcher.setAttribute("aria-label", `Open ${label}`);
     launcher.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15a4 4 0 0 1-4 4H7l-4 4V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/></svg>';
 
+    function focusFrame() {
+      if (!frameReady || !wrapper.classList.contains("fr-widget--open")) return;
+      frame.focus({ preventScroll: true });
+      frame.contentWindow?.focus();
+      frame.contentWindow?.postMessage(
+        { source: "feature-request-widget-host", type: "focus" },
+        origin
+      );
+    }
+
     function setOpen(open) {
       wrapper.classList.toggle("fr-widget--open", open);
       launcher.setAttribute("aria-expanded", open ? "true" : "false");
       if (open) {
-        window.setTimeout(() => {
-          frame.focus({ preventScroll: true });
-          frame.contentWindow?.focus();
-          frame.contentWindow?.postMessage(
-            { source: "feature-request-widget-host", type: "focus" },
-            origin
-          );
-        }, 0);
+        if (!frame.hasAttribute("src")) {
+          frame.src = frameUrl;
+          panel.appendChild(frame);
+        }
+        focusFrame();
       } else {
         launcher.focus({ preventScroll: true });
       }
@@ -105,6 +111,10 @@
     window.addEventListener("message", (event) => {
       if (event.origin !== origin || event.source !== frame.contentWindow) return;
       if (event.data?.source !== "feature-request-widget") return;
+      if (event.data.type === "ready") {
+        frameReady = true;
+        focusFrame();
+      }
       if (event.data.type === "close") setOpen(false);
     });
 
