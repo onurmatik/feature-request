@@ -136,14 +136,22 @@ Create a `.env` file at the repository root (or set environment variables) for l
 - `ADMIN_EMAIL`
 - `STATIC_URL`, `STATIC_ROOT`
 - `CSRF_TRUSTED_ORIGINS`
-- `SECURE_HSTS_SECONDS` (production default `3600`; development always disables HSTS)
+- `SECURE_HSTS_SECONDS` (production default `31536000`; development always disables HSTS)
 
-Production HTTPS responses from Django and the MCP ASGI process include host-only
-HSTS. The initial one-hour lifetime follows Django's staged rollout guidance; it
-can be increased after HTTPS coverage is verified. `includeSubDomains` and browser
-preload remain disabled until their broader coverage is reviewed. Only the
-optional `security.W005` and `security.W021` expansion advisories are silenced;
-the missing-HSTS check and OAuth security checks remain enabled.
+Production HTTPS responses from Django and the MCP ASGI process include
+`Strict-Transport-Security: max-age=31536000; includeSubDomains; preload`.
+All Django security checks remain enabled. Existing and future web subdomains,
+including private ones, must support HTTPS. Keep the lifetime at least one year
+to remain eligible for the browser preload list. The header declares preload
+consent; inclusion in browser releases requires a separate submission.
+
+The 2026-11-15 domain audit checked the authoritative Route 53 zone and account
+zone inventory: the apex is the only web host, with no `www`, wildcard, delegated
+child zone, or private zone for this domain. The other records are email DKIM and
+DMARC records. The apex has a valid TLS certificate, HTTP redirects preserve the
+host/path/query, embedded page assets use HTTPS, and certificate renewal is
+enabled with a successful latest run. Recheck these properties when adding hosts
+and use the [official preload check](https://hstspreload.org/) before submission.
 
 OAuth redirects default to HTTPS. Native clients retain HTTP only for callbacks
 accepted by the existing exact loopback profiles; web clients cannot use this

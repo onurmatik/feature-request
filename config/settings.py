@@ -369,16 +369,13 @@ SESSION_COOKIE_SAMESITE = "Lax"
 CSRF_COOKIE_SAMESITE = "Lax"
 SECURE_SSL_REDIRECT = not DEBUG
 
-# Start with Django's recommended one-hour, host-only HSTS rollout.
-# Development HTTP and unverified subdomains must not inherit this policy.
-SECURE_HSTS_SECONDS = 0 if DEBUG else int(os.getenv("SECURE_HSTS_SECONDS", "3600"))
+# Production hosts and TLS renewal were audited before enabling domain-wide HSTS.
+# Keep the lifetime at least one year for preload eligibility; development is off.
+SECURE_HSTS_SECONDS = 0 if DEBUG else int(os.getenv("SECURE_HSTS_SECONDS", "31536000"))
 if SECURE_HSTS_SECONDS < 0:
     raise ImproperlyConfigured("SECURE_HSTS_SECONDS must be non-negative.")
-SECURE_HSTS_INCLUDE_SUBDOMAINS = False
-SECURE_HSTS_PRELOAD = False
-# These optional expansion advisories are intentional rollout decisions. Keep
-# security.W004 (missing HSTS) and all OAuth security checks enabled.
-SILENCED_SYSTEM_CHECKS = ["security.W005", "security.W021"]
+SECURE_HSTS_INCLUDE_SUBDOMAINS = not DEBUG
+SECURE_HSTS_PRELOAD = not DEBUG
 
 
 CSRF_TRUSTED_ORIGINS = env_list(

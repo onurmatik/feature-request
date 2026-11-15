@@ -1,4 +1,4 @@
-from django.http import HttpResponse
+from django.http import HttpResponse, HttpResponseRedirect
 from django.middleware.security import SecurityMiddleware
 from django.test import RequestFactory, SimpleTestCase, TestCase, override_settings
 from django.templatetags.static import static
@@ -6,21 +6,35 @@ from django.templatetags.static import static
 
 @override_settings(
     SECURE_SSL_REDIRECT=True,
-    SECURE_HSTS_SECONDS=3600,
-    SECURE_HSTS_INCLUDE_SUBDOMAINS=False,
-    SECURE_HSTS_PRELOAD=False,
+    SECURE_HSTS_SECONDS=31536000,
+    SECURE_HSTS_INCLUDE_SUBDOMAINS=True,
+    SECURE_HSTS_PRELOAD=True,
 )
 class TransportSecurityTest(SimpleTestCase):
     def setUp(self):
         self.factory = RequestFactory()
         self.middleware = SecurityMiddleware(lambda request: HttpResponse(status=404))
 
-    def test_https_responses_include_host_only_hsts_even_for_errors(self):
+    def test_https_responses_include_preload_hsts_even_for_errors(self):
         for kwargs in ({"secure": True}, {"HTTP_X_FORWARDED_PROTO": "https"}):
             with self.subTest(kwargs=kwargs):
                 response = self.middleware(self.factory.get("/missing", **kwargs))
                 self.assertEqual(response.status_code, 404)
-                self.assertEqual(response["Strict-Transport-Security"], "max-age=3600")
+                self.assertEqual(
+                    response["Strict-Transport-Security"],
+                    "max-age=31536000; includeSubDomains; preload",
+                )
+
+    def test_https_redirect_includes_hsts_before_leaving_the_host(self):
+        middleware = SecurityMiddleware(
+            lambda request: HttpResponseRedirect("https://assets.example.com/favicon.svg")
+        )
+        response = middleware(self.factory.get("/favicon.ico", secure=True))
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            response["Strict-Transport-Security"],
+            "max-age=31536000; includeSubDomains; preload",
+        )
 
     def test_http_redirect_keeps_path_and_query_without_hsts(self):
         response = self.middleware(

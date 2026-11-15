@@ -49,9 +49,9 @@ from projects.services import ScopeEvaluation
 
 @override_settings(
     DEBUG=True,
-    SECURE_HSTS_SECONDS=3600,
-    SECURE_HSTS_INCLUDE_SUBDOMAINS=False,
-    SECURE_HSTS_PRELOAD=False,
+    SECURE_HSTS_SECONDS=31536000,
+    SECURE_HSTS_INCLUDE_SUBDOMAINS=True,
+    SECURE_HSTS_PRELOAD=True,
     FEATURE_REQUEST_TRUSTED_PROXY_IPS=frozenset({"127.0.0.1", "::1"}),
 )
 class FeatureRequestHSTSTest(SimpleTestCase):
@@ -59,7 +59,10 @@ class FeatureRequestHSTSTest(SimpleTestCase):
         with TestClient(create_application(), base_url="https://127.0.0.1:8001") as client:
             response = client.get("/mcp")
         self.assertEqual(response.status_code, 401)
-        self.assertEqual(response.headers["Strict-Transport-Security"], "max-age=3600")
+        self.assertEqual(
+            response.headers["Strict-Transport-Security"],
+            "max-age=31536000; includeSubDomains; preload",
+        )
         self.assertIn("Bearer", response.headers["WWW-Authenticate"])
 
     def test_only_trusted_unambiguous_proxy_https_adds_hsts(self):
@@ -77,7 +80,10 @@ class FeatureRequestHSTSTest(SimpleTestCase):
                 with TestClient(create_application(), base_url="http://127.0.0.1:8001", client=(address, 12345)) as client:
                     response = client.get("/mcp", headers=headers)
                 self.assertEqual(response.status_code, 401)
-                self.assertEqual("Strict-Transport-Security" in response.headers, secure)
+                self.assertEqual(
+                    response.headers.get("Strict-Transport-Security"),
+                    "max-age=31536000; includeSubDomains; preload" if secure else None,
+                )
 
     @override_settings(SECURE_HSTS_SECONDS=0)
     def test_disabled_hsts_does_not_affect_development(self):
