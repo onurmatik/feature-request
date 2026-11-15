@@ -29,6 +29,7 @@ service, plain cron entries for OAuth cleanup/health checks, exact `/mcp` nginx
 routing and OAuth-safe access logging. Cron invocations write per-job logs under
 `/var/log/featurerequest/` and latest state under
 `/var/lib/stageops/cron/featurerequest/`; the StageOps full health check monitors
-them. The deploy holds the shared cron/deploy lock while the mutable checkout is
-updated. This contract does not create or mutate systemd/nginx configuration,
-Docker, database backups or rollback infrastructure.
+them. The deploy holds the shared cron/deploy lock as `APP_USER` while the mutable
+checkout is updated, matching the cron lock's ownership. This contract does not
+create or mutate systemd/nginx configuration, Docker, database backups or rollback
+infrastructure.

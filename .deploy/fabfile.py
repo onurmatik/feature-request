@@ -82,18 +82,23 @@ def pause_stageops_cron(connection: Connection):
     channel = connection.client.get_transport().open_session()
     channel.settimeout(15)
     try:
-        channel.exec_command(
+        lock_command = (
             f"flock -n {quote(STAGEOPS_CRON_LOCK)} "
             + quote("sh")
             + " -c "
             + quote("printf 'LOCKED\\n'; cat >/dev/null")
         )
+        if USER != APP_USER:
+            lock_command = f"sudo -n -H -u {quote(APP_USER)} -- {lock_command}"
+        channel.exec_command(lock_command)
         received = b""
         while b"\n" not in received:
             block = channel.recv(32)
             if not block:
+                detail = channel.recv_stderr(4096).decode("utf-8", errors="replace").strip()
                 raise RuntimeError(
                     "A StageOps cron job is running, or the cron/deploy lock could not be acquired"
+                    + (f": {detail}" if detail else "")
                 )
             received += block
         if received != b"LOCKED\n":
