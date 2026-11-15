@@ -419,6 +419,9 @@ Describe the people or teams this product serves.
     if (pathParts.length === 3 && pathParts[2] === "spec") {
       return { kind: "board", ownerHandle: first, projectSlug: String(pathParts[1] || ""), isProjectFormRoute: false, isProjectSpecRoute: true };
     }
+    if (pathParts.length === 3 && pathParts[2] === "settings") {
+      return { kind: "board", ownerHandle: first, projectSlug: String(pathParts[1] || ""), isProjectFormRoute: false, isProjectSettingsRoute: true };
+    }
     if (pathParts.length === 4 && pathParts[2] === "issues" && /^\d+$/.test(pathParts[3])) {
       return {
         kind: "board",
@@ -490,7 +493,10 @@ Describe the people or teams this product serves.
         state.priorityFilter = "";
         state.searchQuery = "";
       }
-      state.view = route.isProjectFormRoute ? "newProject" : route.isProjectSpecRoute ? "productSpec" : "issues";
+      state.view = route.isProjectFormRoute ? "newProject" : route.isProjectSpecRoute ? "productSpec" : route.isProjectSettingsRoute ? "projectSettings" : "issues";
+      if (route.isProjectSettingsRoute) {
+        state.projectSettingsTab = projectSettingsTabFromHash();
+      }
       return;
     }
     if (route.kind === "messages") {
@@ -1194,6 +1200,21 @@ Describe the people or teams this product serves.
     return normalizedOwner && normalizedSlug ? `/${normalizedOwner}/${normalizedSlug}/spec/` : projectBoardUrl(normalizedOwner, normalizedSlug);
   }
 
+  function projectSettingsUrl(ownerHandle = state.ownerHandle, projectSlug = state.selectedProjectSlug, tab = "") {
+    const normalizedOwner = normalizeHandle(ownerHandle);
+    const normalizedSlug = String(projectSlug || "").trim();
+    if (!normalizedOwner || !normalizedSlug) {
+      return projectBoardUrl(normalizedOwner, normalizedSlug);
+    }
+    const hash = PROJECT_SETTINGS_TABS.some((item) => item.value === tab) ? `#${tab}` : "";
+    return `/${normalizedOwner}/${normalizedSlug}/settings${hash}`;
+  }
+
+  function projectSettingsTabFromHash() {
+    const value = window.location.hash.slice(1);
+    return PROJECT_SETTINGS_TABS.some((tab) => tab.value === value) ? value : "general";
+  }
+
   function absoluteIssueDetailUrl(issueId) {
     return new URL(issueDetailUrl(state.ownerHandle, state.selectedProjectSlug, issueId), window.location.origin).href;
   }
@@ -1822,7 +1843,7 @@ Describe the people or teams this product serves.
         ? `<span class="shrink-0 rounded-sm-ds border border-cyan-100 bg-white px-1.5 py-0.5 text-[10px] font-mono font-bold leading-none text-[#06B6D4]">${openIssuesCount}</span>`
         : "",
       canManage
-        ? `<button type="button" data-action="open-project-settings" data-slug="${escapeAttr(slug)}" class="text-[#9ca3af] hover:text-[#111827] p-1 rounded-sm-ds transition-colors" title="Project Settings" aria-label="Project settings for ${escapeAttr(project.name)}">${icon("settings", 16)}</button>`
+        ? `<a href="${escapeAttr(projectSettingsUrl(ownerHandle, slug))}" data-action="open-project-settings" data-owner="${escapeAttr(ownerHandle)}" data-slug="${escapeAttr(slug)}" class="text-[#9ca3af] hover:text-[#111827] p-1 rounded-sm-ds transition-colors" title="Project Settings" aria-label="Project settings for ${escapeAttr(project.name)}">${icon("settings", 16)}</a>`
         : "",
       project.url
         ? `<a href="${escapeAttr(project.url)}" target="_blank" rel="noreferrer" class="text-[#9ca3af] hover:text-[#111827] p-1 rounded-sm-ds transition-colors" aria-label="Open ${escapeAttr(project.name)} website" title="Open project site">${icon("external-link", 16)}</a>`
@@ -2273,7 +2294,7 @@ Describe the people or teams this product serves.
 
   function renderProductSpecView(computed) {
     const project = computed.selectedProject;
-    return `<div class="flex-1 bg-white overflow-y-auto" data-preserve-scroll="product-spec"><div class="mx-auto w-full max-w-3xl px-6 py-10 md:px-8"><div class="mb-8 flex flex-wrap items-start justify-between gap-4"><div><p class="text-[10px] font-mono font-bold uppercase tracking-widest text-[#06B6D4]">Public Product Spec</p><h1 class="mt-2 text-3xl font-bold text-[#111827]">${escapeHtml(project?.name || "Product Spec")}</h1>${state.projectSpec ? `<p class="mt-2 text-xs text-[#6b7280]">Revision ${Number(state.projectSpec.revision)} · updated ${formatRelativeDate(state.projectSpec.updated_at)}</p>` : ""}</div><div class="flex gap-2"><a href="${boardUrl(state.selectedProjectSlug)}" data-action="back-to-project-board" class="rounded-sm-ds border border-[#e5e7eb] px-3 py-2 text-xs font-bold text-[#6b7280] hover:bg-[#f3f4f6]">Requests</a>${computed.isOwnerViewer ? `<button type="button" data-action="open-project-settings" data-tab="spec" data-slug="${escapeAttr(state.selectedProjectSlug)}" class="rounded-sm-ds bg-[#111827] px-3 py-2 text-xs font-bold text-white">Edit spec</button>` : ""}</div></div>${state.isProjectSpecLoading ? `<p class="text-sm text-[#6b7280]">Loading Product Spec…</p>` : state.projectSpec ? `<article class="rounded-md-ds border border-[#e5e7eb] bg-white p-6 md:p-8">${markdownContent(state.projectSpec.content)}</article>` : `<div class="rounded-md-ds border border-dashed border-[#d1d5db] bg-[#f9fafb] p-8 text-center"><p class="text-sm font-bold text-[#111827]">No Product Spec published yet</p><p class="mt-2 text-xs text-[#6b7280]">Requests continue through the normal moderation and intake flow.</p></div>`}</div></div>`;
+    return `<div class="flex-1 bg-white overflow-y-auto" data-preserve-scroll="product-spec"><div class="mx-auto w-full max-w-3xl px-6 py-10 md:px-8"><div class="mb-8 flex flex-wrap items-start justify-between gap-4"><div><p class="text-[10px] font-mono font-bold uppercase tracking-widest text-[#06B6D4]">Public Product Spec</p><h1 class="mt-2 text-3xl font-bold text-[#111827]">${escapeHtml(project?.name || "Product Spec")}</h1>${state.projectSpec ? `<p class="mt-2 text-xs text-[#6b7280]">Revision ${Number(state.projectSpec.revision)} · updated ${formatRelativeDate(state.projectSpec.updated_at)}</p>` : ""}</div><div class="flex gap-2"><a href="${boardUrl(state.selectedProjectSlug)}" data-action="back-to-project-board" class="rounded-sm-ds border border-[#e5e7eb] px-3 py-2 text-xs font-bold text-[#6b7280] hover:bg-[#f3f4f6]">Requests</a>${computed.isOwnerViewer ? `<a href="${escapeAttr(projectSettingsUrl(state.ownerHandle, state.selectedProjectSlug, "spec"))}" data-action="open-project-settings" data-tab="spec" data-slug="${escapeAttr(state.selectedProjectSlug)}" class="rounded-sm-ds bg-[#111827] px-3 py-2 text-xs font-bold text-white">Edit spec</a>` : ""}</div></div>${state.isProjectSpecLoading ? `<p class="text-sm text-[#6b7280]">Loading Product Spec…</p>` : state.projectSpec ? `<article class="rounded-md-ds border border-[#e5e7eb] bg-white p-6 md:p-8">${markdownContent(state.projectSpec.content)}</article>` : `<div class="rounded-md-ds border border-dashed border-[#d1d5db] bg-[#f9fafb] p-8 text-center"><p class="text-sm font-bold text-[#111827]">No Product Spec published yet</p><p class="mt-2 text-xs text-[#6b7280]">Requests continue through the normal moderation and intake flow.</p></div>`}</div></div>`;
   }
 
   function renderProjectSpecSettings(project, computed) {
@@ -2318,7 +2339,7 @@ Describe the people or teams this product serves.
         <div class="shrink-0 px-6 pt-8 md:px-8">
           <h2 class="text-2xl font-bold text-[#111827] mb-6">Project Settings</h2>
           <div role="tablist" aria-label="Project settings" class="flex gap-4 sm:gap-6 overflow-x-auto border-b border-[#e5e7eb]">
-            ${PROJECT_SETTINGS_TABS.map((tab) => `<button type="button" id="project-settings-tab-${tab.value}" role="tab" aria-selected="${activeTab === tab.value}" aria-controls="project-settings-panel" tabindex="${activeTab === tab.value ? "0" : "-1"}" data-action="select-project-settings-tab" data-tab="${tab.value}" class="shrink-0 border-b-2 pb-3 pt-1 text-xs sm:text-sm font-bold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#06B6D4] ${activeTab === tab.value ? "border-[#06B6D4] text-[#111827]" : "border-transparent text-[#6b7280] hover:text-[#111827]"}">${tab.label}</button>`).join("")}
+            ${PROJECT_SETTINGS_TABS.map((tab) => `<a href="${escapeAttr(projectSettingsUrl(state.ownerHandle, state.selectedProjectSlug, tab.value))}" id="project-settings-tab-${tab.value}" role="tab" aria-selected="${activeTab === tab.value}" aria-controls="project-settings-panel" tabindex="${activeTab === tab.value ? "0" : "-1"}" data-action="select-project-settings-tab" data-tab="${tab.value}" class="shrink-0 border-b-2 pb-3 pt-1 text-xs sm:text-sm font-bold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#06B6D4] ${activeTab === tab.value ? "border-[#06B6D4] text-[#111827]" : "border-transparent text-[#6b7280] hover:text-[#111827]"}">${tab.label}</a>`).join("")}
           </div>
         </div>
         <div id="project-settings-panel" role="tabpanel" aria-labelledby="project-settings-tab-${activeTab}" tabindex="0" class="flex-1 min-h-0 overflow-y-auto px-6 py-6 md:px-8 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#06B6D4]" data-preserve-scroll="project-settings-${activeTab}">
@@ -2343,13 +2364,19 @@ Describe the people or teams this product serves.
       </div>`;
   }
 
-  function selectProjectSettingsTab(value) {
+  function selectProjectSettingsTab(value, { updateHistory = true, focus = true } = {}) {
     if (!PROJECT_SETTINGS_TABS.some((tab) => tab.value === value)) {
       return;
     }
     state.projectSettingsTab = value;
+    const nextUrl = projectSettingsUrl(state.ownerHandle, state.selectedProjectSlug, value);
+    if (updateHistory && `${window.location.pathname}${window.location.search}${window.location.hash}` !== nextUrl) {
+      window.history.pushState({ view: "projectSettings", tab: value }, "", nextUrl);
+    }
     render();
-    document.getElementById(`project-settings-tab-${value}`)?.focus({ preventScroll: true });
+    if (focus) {
+      document.getElementById(`project-settings-tab-${value}`)?.focus({ preventScroll: true });
+    }
   }
 
   function normalizedEmbedWidgetColor() {
@@ -3758,7 +3785,9 @@ Describe the people or teams this product serves.
       state.projects = state.projects.map((item) => (item.id === data.id ? data : item));
       if (previousSlug !== data.slug) {
         state.selectedProjectSlug = data.slug;
-        const nextUrl = boardUrl(data.slug);
+        const nextUrl = state.view === "projectSettings"
+          ? projectSettingsUrl(state.ownerHandle, data.slug, window.location.hash.slice(1))
+          : boardUrl(data.slug);
         if (window.location.pathname !== nextUrl) {
           window.history.replaceState({ slug: data.slug }, "", nextUrl);
         }
@@ -4064,6 +4093,9 @@ Describe the people or teams this product serves.
       return;
     }
     const action = actionElement.dataset.action;
+    if (actionElement.matches("a[href]") && (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)) {
+      return;
+    }
     if (action !== "modal-backdrop") {
       event.preventDefault();
     } else if (event.target !== actionElement) {
@@ -4074,10 +4106,14 @@ Describe the people or teams this product serves.
 
   root.addEventListener("keydown", (event) => {
     const tab = event.target.closest('[data-action="select-project-settings-tab"]');
-    if (!tab || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
+    if (!tab || !["ArrowLeft", "ArrowRight", "Home", "End", " "].includes(event.key)) {
       return;
     }
     event.preventDefault();
+    if (event.key === " ") {
+      selectProjectSettingsTab(tab.dataset.tab);
+      return;
+    }
     const currentIndex = PROJECT_SETTINGS_TABS.findIndex((item) => item.value === tab.dataset.tab);
     const nextIndex = event.key === "Home" ? 0
       : event.key === "End" ? PROJECT_SETTINGS_TABS.length - 1
@@ -4095,10 +4131,29 @@ Describe the people or teams this product serves.
     }
   });
 
-  window.addEventListener("popstate", () => {
+  function handleRouteChange() {
+    const route = parseRoute();
+    if (route.isProjectSettingsRoute && state.view === "projectSettings" &&
+        route.ownerHandle === state.ownerHandle && route.projectSlug === state.selectedProjectSlug) {
+      const nextTab = projectSettingsTabFromHash();
+      if (nextTab !== state.projectSettingsTab) {
+        selectProjectSettingsTab(nextTab, { updateHistory: false, focus: false });
+      }
+      return;
+    }
     applyRouteToState();
     render();
-    runRouteLoads();
+    runRouteLoads().catch(() => {
+      setStatus("Workspace could not be loaded.", true);
+      render();
+    });
+  }
+
+  window.addEventListener("popstate", handleRouteChange);
+  window.addEventListener("hashchange", () => {
+    if (parseRoute().isProjectSettingsRoute) {
+      handleRouteChange();
+    }
   });
 
   function handleAction(action, element) {
@@ -4166,15 +4221,15 @@ Describe the people or teams this product serves.
       case "navigate-project":
         navigateProjectAndHistory(element.dataset.owner || state.ownerHandle, element.dataset.slug || "");
         break;
-      case "open-project-settings":
-        state.selectedProjectSlug = element.dataset.slug || state.selectedProjectSlug;
-        closeIssueDetailAndHistory();
-        state.view = "projectSettings";
-        state.projectSettingsTab = PROJECT_SETTINGS_TABS.some((tab) => tab.value === element.dataset.tab) ? element.dataset.tab : "general";
-        render();
-        refreshProjectSpec();
-        refreshSpecProposals();
+      case "open-project-settings": {
+        const nextUrl = projectSettingsUrl(element.dataset.owner || state.ownerHandle, element.dataset.slug || state.selectedProjectSlug, element.dataset.tab);
+        if (`${window.location.pathname}${window.location.search}${window.location.hash}` !== nextUrl) {
+          window.history.pushState({ view: "projectSettings" }, "", nextUrl);
+        }
+        state.isNewIssueOpen = false;
+        handleRouteChange();
         break;
+      }
       case "select-project-settings-tab":
         selectProjectSettingsTab(element.dataset.tab);
         break;
@@ -4480,6 +4535,8 @@ Describe the people or teams this product serves.
         await refreshIssues();
       } else if (!state.isRouteNotFound && state.view === "productSpec") {
         await refreshProjectSpec();
+      } else if (!state.isRouteNotFound && state.view === "projectSettings") {
+        await Promise.all([refreshProjectSpec(), refreshSpecProposals()]);
       }
       return;
     }

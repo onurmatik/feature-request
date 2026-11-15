@@ -5,6 +5,22 @@ cd .deploy/
 fab deploy
 ```
 
+For a release limited to `projects/static/` (plus this deployment contract and
+its tests), use:
+
+```bash
+fab deploy --static-only
+```
+
+This path holds the same cron/deploy lock, checks the exact incoming revision,
+requires a clean tracked server checkout, unchanged environment, and no pending
+migrations or model changes. It records `.deploy-previous-revision` before
+activation. It skips environment upload, dependency sync, and migration writes.
+If activation or verification fails, it restores that revision, republishes its
+static files, restarts the existing services, and verifies public health and
+migration consistency before reporting the failed release. Non-static changes
+are rejected before checkout mutation.
+
 The task:
 
 1. refreshes the GitHub App token when the local helper is configured;

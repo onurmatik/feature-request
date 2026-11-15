@@ -184,6 +184,7 @@ def ensure_checkout(
     *,
     source_url: str,
     token: Optional[str],
+    expected_revision: Optional[str] = None,
 ) -> None:
     connection.run(f"mkdir -p {quote(PROJECT_DIR)}")
     if USER != APP_USER:
@@ -215,6 +216,12 @@ def ensure_checkout(
         return
 
     git_command(connection, "fetch origin main --prune", cwd=PROJECT_DIR, token=token)
+    if expected_revision is not None:
+        fetched_revision = run_as_app_user(
+            connection, "git rev-parse origin/main", cwd=PROJECT_DIR, hide=True
+        ).stdout.strip()
+        if fetched_revision != expected_revision:
+            raise RuntimeError("origin/main changed after static release preflight")
     run_as_app_user(connection, "git checkout main", cwd=PROJECT_DIR)
     run_as_app_user(connection, "git reset --hard origin/main", cwd=PROJECT_DIR)
 
@@ -326,8 +333,85 @@ def public_smoke(connection: Connection) -> None:
         raise RuntimeError("FeatureRequest public MCP discovery smoke did not return a Bearer 401")
 
 
+def prepare_static_release(connection: Connection, token: Optional[str]) -> tuple[str, str]:
+    """Prove that restoring the previous checkout cannot change schema or dependencies."""
+
+    previous = run_as_app_user(
+        connection, "git rev-parse HEAD", cwd=PROJECT_DIR, hide=True
+    ).stdout.strip()
+    dirty = run_as_app_user(
+        connection, "git status --porcelain --untracked-files=no", cwd=PROJECT_DIR, hide=True
+    ).stdout.strip()
+    if dirty:
+        raise RuntimeError("Static release requires a clean server checkout")
+    git_command(connection, "fetch origin main --prune", cwd=PROJECT_DIR, token=token)
+    target = run_as_app_user(
+        connection, "git rev-parse origin/main", cwd=PROJECT_DIR, hide=True
+    ).stdout.strip()
+    changed_paths = run_as_app_user(
+        connection,
+        f"git diff --name-only {quote(previous)} {quote(target)}",
+        cwd=PROJECT_DIR,
+        hide=True,
+    ).stdout.splitlines()
+    allowed_support_files = {".deploy/fabfile.py", ".deploy/README.md", "tests/test_deploy.py"}
+    unsupported = [
+        path for path in changed_paths
+        if not path.startswith("projects/static/") and path not in allowed_support_files
+    ]
+    if unsupported:
+        raise RuntimeError("Static release contains non-static changes: " + ", ".join(unsupported))
+    source = next(
+        (path for path in (PROJECT_ROOT / ".env-prod", PROJECT_ROOT / ".env") if path.is_file()),
+        None,
+    )
+    if source is not None:
+        with connection.sftp().open(ENV_FILE, "rb") as remote_file:
+            environment_matches = remote_file.read() == source.read_bytes()
+        if not environment_matches:
+            raise RuntimeError("Static release cannot change the server environment")
+    for command in ("migrate --check", "makemigrations --check --dry-run", "check --deploy"):
+        run_as_app_user(connection, f"{quote(PYTHON_BIN)} manage.py {command}", cwd=PROJECT_DIR)
+    public_smoke(connection)
+    run_as_app_user(
+        connection,
+        f"printf '%s\\n' {quote(previous)} > .deploy-previous-revision",
+        cwd=PROJECT_DIR,
+    )
+    debug(f"Static release previous={previous} target={target}")
+    return previous, target
+
+
+def verify_revision(connection: Connection, expected: str) -> None:
+    observed = run_as_app_user(
+        connection, "git rev-parse HEAD", cwd=PROJECT_DIR, hide=True
+    ).stdout.strip()
+    if observed != expected:
+        raise RuntimeError(f"Deployed revision mismatch: expected {expected}, observed {observed}")
+    run_as_app_user(
+        connection, f"{quote(PYTHON_BIN)} manage.py migrate --check", cwd=PROJECT_DIR
+    )
+    debug(f"Verified revision {observed}; no pending migrations")
+
+
+def restore_static_release(connection: Connection, previous: str) -> None:
+    debug(f"Restoring previous static release {previous}")
+    run_as_app_user(connection, f"git reset --hard {quote(previous)}", cwd=PROJECT_DIR)
+    run_as_app_user(
+        connection, f"{quote(PYTHON_BIN)} manage.py collectstatic --noinput", cwd=PROJECT_DIR
+    )
+    run_as_app_user(
+        connection, f"{quote(PYTHON_BIN)} manage.py check --deploy", cwd=PROJECT_DIR
+    )
+    verify_revision(connection, previous)
+    restart_mcp_runtime(connection)
+    restart_web(connection)
+    public_smoke(connection)
+    debug("Previous static release restored and verified")
+
+
 @task
-def deploy(_context):
+def deploy(_context, static_only=False):
     """Deploy FeatureRequest through its existing native Django contract."""
 
     source_url = repo_url()
@@ -343,20 +427,39 @@ def deploy(_context):
     )
 
     with pause_stageops_cron(connection):
-        with timed_step("Repository update"):
-            ensure_checkout(connection, source_url=source_url, token=token)
-        with timed_step("Environment upload"):
-            upload_environment(connection)
-        with timed_step("Production dependency sync"):
-            install_dependencies(connection)
-        with timed_step("Django release steps"):
-            run_django_release(connection)
-        with timed_step("StageOps-managed MCP restart"):
-            restart_mcp_runtime(connection)
-        with timed_step("Web service restart"):
-            restart_web(connection)
-        with timed_step("Public smoke"):
-            public_smoke(connection)
+        boundary = prepare_static_release(connection, token) if static_only else None
+        try:
+            with timed_step("Repository update"):
+                ensure_checkout(
+                    connection, source_url=source_url, token=token,
+                    expected_revision=boundary[1] if boundary else None,
+                )
+            if not static_only:
+                with timed_step("Environment upload"):
+                    upload_environment(connection)
+                with timed_step("Production dependency sync"):
+                    install_dependencies(connection)
+                with timed_step("Django release steps"):
+                    run_django_release(connection)
+            else:
+                with timed_step("Static files"):
+                    run_as_app_user(
+                        connection, f"{quote(PYTHON_BIN)} manage.py collectstatic --noinput",
+                        cwd=PROJECT_DIR,
+                    )
+                verify_revision(connection, boundary[1])
+            with timed_step("StageOps-managed MCP restart"):
+                restart_mcp_runtime(connection)
+            with timed_step("Web service restart"):
+                restart_web(connection)
+            with timed_step("Public smoke"):
+                public_smoke(connection)
+            if boundary:
+                verify_revision(connection, boundary[1])
+        except Exception:
+            if boundary:
+                restore_static_release(connection, boundary[0])
+            raise
 
 
 ns = Collection(deploy)
