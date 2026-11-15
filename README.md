@@ -136,6 +136,18 @@ Create a `.env` file at the repository root (or set environment variables) for l
 - `ADMIN_EMAIL`
 - `STATIC_URL`, `STATIC_ROOT`
 - `CSRF_TRUSTED_ORIGINS`
+- `SECURE_HSTS_SECONDS` (production default `3600`; development always disables HSTS)
+
+Production HTTPS responses from Django and the MCP ASGI process include host-only
+HSTS. The initial one-hour lifetime follows Django's staged rollout guidance; it
+can be increased after HTTPS coverage is verified. `includeSubDomains` and browser
+preload remain disabled until their broader coverage is reviewed. Only the
+optional `security.W005` and `security.W021` expansion advisories are silenced;
+the missing-HSTS check and OAuth security checks remain enabled.
+
+OAuth redirects default to HTTPS. Native clients retain HTTP only for callbacks
+accepted by the existing exact loopback profiles; web clients cannot use this
+exception. Reintroducing global HTTP redirects fails the OAuth deploy check.
 
 ## Useful Commands
 

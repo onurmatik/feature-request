@@ -8,7 +8,10 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import F, Q
 from django.utils import timezone
-from django_embedded_mcp.redirects import redirect_uri_matches
+from django_embedded_mcp.redirects import (
+    redirect_uri_matches,
+    validate_registered_redirect_uri,
+)
 from django_embedded_mcp.resource import canonical_resource_equal
 from oauth2_provider.models import (
     AbstractAccessToken,
@@ -112,6 +115,18 @@ class OAuthApplication(AbstractApplication):
             )
             for registered in self.redirect_uris.split()
         )
+
+    def get_allowed_schemes(self):
+        redirects = self.redirect_uris.split()
+        if self.application_type == "native" and redirects:
+            try:
+                for uri in redirects:
+                    validate_registered_redirect_uri(uri, application_type="native")
+            except ValueError:
+                pass
+            else:
+                return ["http"]
+        return super().get_allowed_schemes()
 
     def is_usable(self, request):
         return self.is_active

@@ -45,6 +45,7 @@ from agent_runtime.contract import (  # noqa: E402
 from agent_runtime.errors import ContractApplicationError, MissingScopeError  # noqa: E402
 from agent_runtime.service import service  # noqa: E402
 from mcp_oauth.services import record_access_token_use, resolve_access_token  # noqa: E402
+from .middleware import HSTSMiddleware  # noqa: E402
 
 
 logger = logging.getLogger(__name__)
@@ -262,7 +263,7 @@ def create_application():
         host=settings.FEATURE_REQUEST_MCP_HOST,
         max_request_body_size=1024 * 1024,
     )
-    return MCPAuthCORSMiddleware(
+    app = MCPAuthCORSMiddleware(
         app,
         path="/mcp",
         allowed_origins=settings.FEATURE_REQUEST_MCP_CORS_ORIGINS,
@@ -273,3 +274,4 @@ def create_application():
         protocol_version="2026-07-28",
         authorization_decision_callback=_audit_scope_denial,
     )
+    return HSTSMiddleware(app)

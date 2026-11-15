@@ -10,12 +10,13 @@ from unittest.mock import patch
 from urllib.parse import parse_qs, urlencode, urlsplit
 
 import httpx
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core import mail
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.db import DatabaseError
-from django.test import RequestFactory, TestCase, override_settings
+from django.test import RequestFactory, SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 from django_embedded_mcp import (
@@ -28,6 +29,7 @@ from django_embedded_mcp import (
     parse_public_client_registration,
     validate_client_metadata_url,
 )
+from oauth2_provider.checks import validate_bcp_configuration
 
 from agent_runtime.models import AgentAuditEvent
 from .models import (
@@ -52,6 +54,51 @@ from .services import (
     revoke_consent_credentials,
     verify_pkce,
 )
+
+
+class OAuthRedirectSchemeTest(SimpleTestCase):
+    def test_http_exception_requires_valid_registered_native_callbacks(self):
+        callbacks = (
+            "http://127.0.0.1:43210/callback",
+            "http://[::1]:43210/callback",
+            "http://localhost:43210/callback",
+        )
+        for callback in callbacks:
+            with self.subTest(callback=callback):
+                app = OAuthApplication(application_type="native", redirect_uris=callback)
+                self.assertEqual(app.get_allowed_schemes(), ["http"])
+                self.assertTrue(app.redirect_uri_allowed(callback))
+                self.assertFalse(app.redirect_uri_allowed(callback.replace("43210", "43211")))
+                web_app = OAuthApplication(application_type="web", redirect_uris=callback)
+                self.assertEqual(web_app.get_allowed_schemes(), ["https"])
+                self.assertFalse(web_app.redirect_uri_allowed(callback))
+
+    def test_invalid_or_mixed_native_callbacks_do_not_enable_http(self):
+        for callbacks in (
+            "",
+            "http://example.com/callback",
+            "http://localhost.attacker.example:43210/callback",
+            "http://0.0.0.0:43210/callback",
+            "http://127.0.0.1:43210/callback http://example.com/callback",
+        ):
+            with self.subTest(callbacks=callbacks):
+                app = OAuthApplication(application_type="native", redirect_uris=callbacks)
+                self.assertEqual(app.get_allowed_schemes(), ["https"])
+
+    def test_web_callbacks_require_https(self):
+        uri = "https://chatgpt.com/connector/oauth/callback-1"
+        app = OAuthApplication(application_type="web", redirect_uris=uri)
+        self.assertEqual(app.get_allowed_schemes(), ["https"])
+        self.assertTrue(app.redirect_uri_allowed(uri))
+        self.assertFalse(app.redirect_uri_allowed(uri.replace("https:", "http:")))
+
+    def test_global_http_regression_is_a_deploy_error(self):
+        self.assertEqual(validate_bcp_configuration(None), [])
+        with override_settings(OAUTH2_PROVIDER={
+            **settings.OAUTH2_PROVIDER,
+            "ALLOWED_REDIRECT_URI_SCHEMES": ["https", "http"],
+        }):
+            self.assertIn("oauth2_provider.E003", {item.id for item in validate_bcp_configuration(None)})
 
 
 @override_settings(DEBUG=True)
@@ -216,6 +263,27 @@ class MetadataAndRegistrationTest(TestCase):
         )
         self.assertEqual(response.status_code, 201)
         self.assertNotIn("client_secret", response.json())
+
+    def test_registration_rejects_non_loopback_http_and_web_loopback_callbacks(self):
+        for application_type, callback in (
+            ("native", "http://example.com/callback"),
+            ("web", "http://chatgpt.com/connector/oauth/callback-1"),
+            ("web", "http://127.0.0.1:43210/callback"),
+        ):
+            with self.subTest(application_type=application_type, callback=callback):
+                response = self.client.post(
+                    "/oauth/register/",
+                    data=json.dumps({
+                        "client_name": "Invalid HTTP callback",
+                        "application_type": application_type,
+                        "redirect_uris": [callback],
+                        "token_endpoint_auth_method": "none",
+                    }),
+                    content_type="application/json",
+                    secure=True,
+                )
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(response.json()["error"], "invalid_redirect_uri")
 
     def test_cimd_fetch_bounds_json_and_identity(self):
         client_id = "https://client.example/oauth/metadata.json"
@@ -646,7 +714,7 @@ class OAuthStateMachineTest(TestCase):
         self.assertEqual(response["Referrer-Policy"], "no-referrer")
         self.assertIn("default-src 'none'", response["Content-Security-Policy"])
         self.assertIn("form-action 'self'", response["Content-Security-Policy"])
-        self.assertEqual(response.context["client_hostname"], "127.0.0.1")
+        self.assertEqual(response.context["client_hostname"], urlsplit(self.redirect_uri).hostname)
         self.assertEqual(response.context["resource"], "http://127.0.0.1:8001/mcp")
         self.assertEqual(response.context["scopes"], scope.split())
         resume = response.context["resume"]
@@ -657,6 +725,32 @@ class OAuthStateMachineTest(TestCase):
         self.assertEqual(query["state"], ["opaque-client-state"])
         self.assertEqual(query["iss"], ["http://127.0.0.1:8000"])
         return query["code"][0], verifier
+
+    def test_native_loopback_code_exchange_survives_https_global_default(self):
+        for callback in (
+            "http://127.0.0.1:43210/callback",
+            "http://[::1]:43210/callback",
+            "http://localhost:43210/callback",
+        ):
+            with self.subTest(callback=callback):
+                self.redirect_uri = callback
+                self.application.redirect_uris = callback
+                self.application.save(update_fields=["redirect_uris"])
+                code, verifier = self._authorize(scope="read")
+                response = self.client.post(
+                    "/oauth/token/",
+                    data=urlencode({
+                        "grant_type": "authorization_code",
+                        "code": code,
+                        "client_id": self.client_id,
+                        "redirect_uri": callback,
+                        "code_verifier": verifier,
+                        "resource": "http://127.0.0.1:8001/mcp",
+                    }),
+                    content_type="application/x-www-form-urlencoded",
+                )
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.json()["scope"], "read")
 
     def test_write_only_step_up_scope_can_issue_a_contract_mutation_token(self):
         code, verifier = self._authorize(scope="write")

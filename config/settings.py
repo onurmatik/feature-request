@@ -317,7 +317,8 @@ OAUTH2_PROVIDER = {
     "REQUEST_APPROVAL_PROMPT": "force",
     "PKCE_REQUIRED": True,
     "ALLOW_URI_WILDCARDS": False,
-    "ALLOWED_REDIRECT_URI_SCHEMES": ["https", "http"],
+    # Native loopback exceptions belong to the validated client, not every client.
+    "ALLOWED_REDIRECT_URI_SCHEMES": ["https"],
     "ALLOWED_SCHEMES": ["http", "https"] if DEBUG else ["https"],
     "COMPLIANT_BCP_RFC9700_IMPLICIT_GRANT": True,
     "COMPLIANT_BCP_RFC9700_PASSWORD_GRANT": True,
@@ -328,6 +329,7 @@ OAUTH2_PROVIDER = {
     "COMPLIANT_BCP_RFC9700_REFRESH_TOKEN": True,
     "REFRESH_TOKEN_REUSE_PROTECTION": True,
     "COMPLIANT_BCP_RFC9700_REDIRECT_URI_MATCHING": True,
+    "COMPLIANT_BCP_RFC9700_REDIRECT_URI_SCHEME": True,
     "COMPLIANT_BCP_RFC9700_PKCE_REQUIRED": True,
     "OIDC_ENABLED": False,
     "OIDC_ISS_ENDPOINT": OAUTH_ISSUER,
@@ -366,6 +368,17 @@ CSRF_COOKIE_SECURE = not DEBUG
 SESSION_COOKIE_SAMESITE = "Lax"
 CSRF_COOKIE_SAMESITE = "Lax"
 SECURE_SSL_REDIRECT = not DEBUG
+
+# Start with Django's recommended one-hour, host-only HSTS rollout.
+# Development HTTP and unverified subdomains must not inherit this policy.
+SECURE_HSTS_SECONDS = 0 if DEBUG else int(os.getenv("SECURE_HSTS_SECONDS", "3600"))
+if SECURE_HSTS_SECONDS < 0:
+    raise ImproperlyConfigured("SECURE_HSTS_SECONDS must be non-negative.")
+SECURE_HSTS_INCLUDE_SUBDOMAINS = False
+SECURE_HSTS_PRELOAD = False
+# These optional expansion advisories are intentional rollout decisions. Keep
+# security.W004 (missing HSTS) and all OAuth security checks enabled.
+SILENCED_SYSTEM_CHECKS = ["security.W005", "security.W021"]
 
 
 CSRF_TRUSTED_ORIGINS = env_list(

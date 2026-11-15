@@ -11,7 +11,7 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import ImproperlyConfigured
 from django.core.management.color import no_style
 from django.db import close_old_connections, connection, connections, transaction
-from django.test import TestCase, TransactionTestCase, override_settings
+from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_settings
 from jsonschema import Draft202012Validator
 from mcp import MCPError
 from mcp.server.auth.middleware.auth_context import auth_context_var
@@ -20,6 +20,7 @@ from mcp.server.auth.provider import AccessToken
 from oauth2_provider.models import AbstractApplication
 from ninja.errors import HttpError
 from starlette.testclient import TestClient
+from starlette.responses import Response
 
 from agent_runtime.contract import public_registry, registry_digest
 from agent_runtime.models import AgentAuditEvent, AgentIdempotencyRecord
@@ -30,6 +31,7 @@ from feature_request_mcp.server import (
     mcp,
     token_verifier,
 )
+from feature_request_mcp.middleware import HSTSMiddleware
 from mcp_oauth.models import OAuthApplication, OAuthConsent
 from mcp_oauth.services import _issue_tokens
 from projects.models import (
@@ -43,6 +45,50 @@ from projects.models import (
     ProjectSpecChangeProposal,
 )
 from projects.services import ScopeEvaluation
+
+
+@override_settings(
+    DEBUG=True,
+    SECURE_HSTS_SECONDS=3600,
+    SECURE_HSTS_INCLUDE_SUBDOMAINS=False,
+    SECURE_HSTS_PRELOAD=False,
+    FEATURE_REQUEST_TRUSTED_PROXY_IPS=frozenset({"127.0.0.1", "::1"}),
+)
+class FeatureRequestHSTSTest(SimpleTestCase):
+    def test_direct_https_auth_challenge_has_hsts(self):
+        with TestClient(create_application(), base_url="https://127.0.0.1:8001") as client:
+            response = client.get("/mcp")
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.headers["Strict-Transport-Security"], "max-age=3600")
+        self.assertIn("Bearer", response.headers["WWW-Authenticate"])
+
+    def test_only_trusted_unambiguous_proxy_https_adds_hsts(self):
+        cases = (
+            ("127.0.0.1", [("X-Forwarded-Proto", "https")], True),
+            ("::1", [("X-Forwarded-Proto", "https")], True),
+            ("203.0.113.1", [("X-Forwarded-Proto", "https")], False),
+            ("127.0.0.1", [], False),
+            ("127.0.0.1", [("X-Forwarded-Proto", "http")], False),
+            ("127.0.0.1", [("X-Forwarded-Proto", "https,http")], False),
+            ("127.0.0.1", [("X-Forwarded-Proto", "https"), ("X-Forwarded-Proto", "http")], False),
+        )
+        for address, headers, secure in cases:
+            with self.subTest(address=address, headers=headers):
+                with TestClient(create_application(), base_url="http://127.0.0.1:8001", client=(address, 12345)) as client:
+                    response = client.get("/mcp", headers=headers)
+                self.assertEqual(response.status_code, 401)
+                self.assertEqual("Strict-Transport-Security" in response.headers, secure)
+
+    @override_settings(SECURE_HSTS_SECONDS=0)
+    def test_disabled_hsts_does_not_affect_development(self):
+        with TestClient(create_application(), base_url="https://127.0.0.1:8001") as client:
+            response = client.get("/mcp")
+        self.assertNotIn("Strict-Transport-Security", response.headers)
+
+    def test_existing_hsts_header_is_not_duplicated(self):
+        app = HSTSMiddleware(Response(headers={"Strict-Transport-Security": "max-age=7200"}))
+        response = TestClient(app, base_url="https://localhost").get("/")
+        self.assertEqual(response.headers.get_list("Strict-Transport-Security"), ["max-age=7200"])
 
 
 class FeatureRequestMCPRegistryTest(TestCase):
