@@ -87,7 +87,7 @@ class StaticReleaseTest(TestCase):
 
     def test_changed_remote_target_is_rejected_before_checkout(self):
         self.connection.run.return_value.ok = True
-        with self.assertRaisesRegex(RuntimeError, "changed after static release preflight"):
+        with self.assertRaisesRegex(RuntimeError, "changed after release preflight"):
             deploy.ensure_checkout(
                 self.connection, source_url="https://example.test/repo.git", token=None,
                 expected_revision="c" * 40,
@@ -175,6 +175,84 @@ class StaticDeployRecoveryTest(TestCase):
         self.assertTrue(any("collectstatic --noinput" in step for step in steps if isinstance(step, str)))
         self.assertEqual(steps[-4:], [("verify", self.previous), "mcp", "web", "health"])
         self.assertFalse(any("migrate --noinput" in step for step in steps if isinstance(step, str)))
+
+
+class FullDeploySafetyTest(TestCase):
+    def setUp(self):
+        self.connection = Mock()
+        self.cron_paused = False
+        self.steps = []
+        self.connection.sudo.side_effect = self.sudo
+        patches = {
+            "Connection": Mock(return_value=self.connection),
+            "require_env": Mock(return_value="test"),
+            "repo_url": Mock(return_value="https://example.test/repo.git"),
+            "get_github_token": Mock(return_value=None),
+            "pause_stageops_cron": Mock(return_value=nullcontext()),
+            "prepare_release": Mock(return_value=("a" * 40, "b" * 40)),
+            "debug": Mock(),
+        }
+        for name in (
+            "ensure_checkout", "upload_environment", "install_dependencies",
+            "run_django_release", "verify_revision", "restart_mcp_runtime",
+            "restart_web", "public_smoke",
+        ):
+            patches[name] = Mock(side_effect=lambda *args, step=name, **kwargs: self.steps.append(step))
+        for name, value in patches.items():
+            patcher = patch.object(deploy, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def sudo(self, command, **kwargs):
+        if command.startswith("test -e"):
+            return SimpleNamespace(ok=self.cron_paused)
+        if command.startswith("test -f"):
+            return SimpleNamespace(ok=True)
+        if command == f"mv -- {deploy.STAGEOPS_CRONTAB} {deploy.PAUSED_CRONTAB}":
+            self.cron_paused = True
+            self.steps.append("pause_cron")
+        elif command == f"mv -- {deploy.PAUSED_CRONTAB} {deploy.STAGEOPS_CRONTAB}":
+            self.cron_paused = False
+            self.steps.append("resume_cron")
+        elif command.startswith("systemctl stop"):
+            for unit in (f"app@{deploy.PROJECT_NAME}.socket", f"app@{deploy.PROJECT_NAME}.service", deploy.MCP_SERVICE):
+                self.assertIn(unit, command)
+            self.steps.append("stop_runtime")
+        return SimpleNamespace(ok=True)
+
+    def test_code_and_schema_change_only_while_consumers_are_stopped(self):
+        deploy.deploy.body(None)
+        self.assertLess(self.steps.index("pause_cron"), self.steps.index("stop_runtime"))
+        self.assertLess(self.steps.index("stop_runtime"), self.steps.index("ensure_checkout"))
+        self.assertLess(self.steps.index("run_django_release"), self.steps.index("restart_mcp_runtime"))
+        self.assertLess(self.steps.index("run_django_release"), self.steps.index("restart_web"))
+        self.assertEqual(self.steps[-3:], ["public_smoke", "verify_revision", "resume_cron"])
+        self.assertFalse(self.cron_paused)
+
+    def test_migration_failure_keeps_runtime_and_cron_stopped(self):
+        deploy.run_django_release.side_effect = RuntimeError("migration failed")
+        with self.assertRaisesRegex(RuntimeError, "migration failed"):
+            deploy.deploy.body(None)
+        self.assertTrue(self.cron_paused)
+        self.assertEqual(self.steps[-1], "stop_runtime")
+        deploy.restart_mcp_runtime.assert_not_called()
+        deploy.restart_web.assert_not_called()
+
+    def test_failed_health_after_restart_stops_runtime_again(self):
+        deploy.public_smoke.side_effect = RuntimeError("unhealthy")
+        with self.assertRaisesRegex(RuntimeError, "unhealthy"):
+            deploy.deploy.body(None)
+        self.assertIn("restart_web", self.steps)
+        self.assertEqual(self.steps[-1], "stop_runtime")
+        self.assertTrue(self.cron_paused)
+
+    def test_unrecovered_release_blocks_checkout_changes(self):
+        self.cron_paused = True
+        with self.assertRaisesRegex(RuntimeError, "previous release left cron paused"):
+            deploy.deploy.body(None)
+        deploy.prepare_release.assert_not_called()
+        deploy.ensure_checkout.assert_not_called()
+        self.assertTrue(self.cron_paused)
 
 
 if __name__ == "__main__":

@@ -10,8 +10,9 @@ from django.http import HttpResponseNotFound
 from django.shortcuts import get_object_or_404, redirect, render
 from django.templatetags.static import static
 from django.utils import timezone
-from django.views.decorators.csrf import ensure_csrf_cookie
+from django.views.decorators.cache import never_cache
 from django.views.decorators.clickjacking import xframe_options_exempt
+from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_http_methods
 from openai import OpenAI
 
@@ -98,6 +99,7 @@ def _frontend_session_payload(user):
     }
 
 
+@never_cache
 @ensure_csrf_cookie
 def frontend_app(request, spa_path=""):
     first_segment = str(spa_path or "").strip("/").split("/", 1)[0]

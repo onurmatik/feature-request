@@ -195,6 +195,10 @@ USE_TZ = True
 STATIC_URL = os.getenv("STATIC_URL", "/static/")
 STATIC_ROOT = Path(os.getenv("STATIC_ROOT", str(BASE_DIR / "staticfiles")))
 
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {"BACKEND": "config.storage.ManifestStaticFilesStorage"},
+}
 
 if AWS_STORAGE_BUCKET_NAME:
     # Production / Staging (S3)
@@ -207,7 +211,7 @@ if AWS_STORAGE_BUCKET_NAME:
             },
         },
         "staticfiles": {
-            "BACKEND": "storages.backends.s3boto3.S3Boto3Storage",
+            "BACKEND": "config.storage.S3ManifestStaticFilesStorage",
             "OPTIONS": {
                 "location": "static",
                 "file_overwrite": True,

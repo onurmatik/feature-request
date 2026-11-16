@@ -101,8 +101,8 @@ class FeedbackWidgetInstallationTest(TestCase):
     def test_frontend_loads_feedback_widget_once_before_body_closes(self):
         response = self.client.get("/")
         html = response.content.decode()
-        widget_script = """    <script
-      src="https://featurerequest-assets.s3.amazonaws.com/static/projects/embed-widget.js"
+        widget_script = f"""    <script
+      src="{static('projects/embed-widget.js')}"
       data-fr-origin="https://featurerequest.io"
       data-fr-owner="onurmatik"
       data-fr-project="feature-request"
@@ -113,6 +113,14 @@ class FeedbackWidgetInstallationTest(TestCase):
 
         self.assertEqual(html.count(widget_script), 1)
         self.assertIn(f"{widget_script}\n  </body>", html)
+
+    def test_frontend_reloads_asset_references_without_cached_html(self):
+        for path in ("/", "/onurmatik/site-hits/settings"):
+            with self.subTest(path=path):
+                response = self.client.get(path)
+                self.assertEqual(response.status_code, 200)
+                self.assertIn("no-cache", response["Cache-Control"])
+                self.assertIn("no-store", response["Cache-Control"])
 
 
 class SiteHitsBrowserTrackerTest(TestCase):

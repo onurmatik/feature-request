@@ -50,6 +50,7 @@
 
     const stylesheet = document.createElement("link");
     stylesheet.rel = "stylesheet";
+    // collectstatic rewrites this dependency to its content-hashed filename.
     stylesheet.href = new URL("embed-loader.css", scriptUrl).href;
 
     const wrapper = document.createElement("div");

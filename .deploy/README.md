@@ -24,15 +24,41 @@ are rejected before checkout mutation.
 The task:
 
 1. refreshes the GitHub App token when the local helper is configured;
-2. clones or hard-resets the server checkout to `origin/main`;
-3. uploads `../.env-prod` (preferred) or `../.env` to
+2. fetches and pins `origin/main`, requires a clean tracked checkout and consistent
+   current migrations, and records `.deploy-previous-revision`;
+3. pauses only `/etc/cron.d/stageops-{PROJECT_NAME}` by moving it to the ignored
+   `.stageops-{PROJECT_NAME}-deploy-paused` filename, then stops the web socket,
+   web service and MCP service before changing the mutable checkout;
+4. hard-resets the server checkout to the pinned revision;
+5. uploads `../.env-prod` (preferred) or `../.env` to
    `/srv/apps/{PROJECT_NAME}/.env`;
-4. creates the existing native virtualenv and runs frozen production dependency
+6. creates the existing native virtualenv and runs frozen production dependency
    sync;
-5. runs `collectstatic`, Django migrations and `check --deploy`;
-6. verifies and restarts the StageOps-managed FeatureRequest MCP service;
-7. restarts the existing `app@{PROJECT_NAME}.socket`; and
-8. performs read-only homepage plus MCP discovery smoke checks.
+7. runs `collectstatic`, Django migrations and `check --deploy`;
+8. verifies the revision and absence of pending migrations, then restarts MCP and
+   the existing `app@{PROJECT_NAME}.socket`;
+9. checks homepage and MCP discovery, verifies the revision and migrations again,
+   and restores the project crontab only after these gates pass.
+
+A failed full deploy leaves web/MCP stopped and the project crontab paused, even
+after the deploy lock is released. It refuses another deploy while that paused
+crontab exists. Recover using the recorded revision only after checking its
+compatibility with the current schema, environment and dependencies; otherwise
+roll forward. Do not reverse migrations blindly. After recovery checks pass,
+restore the saved crontab to its original filename. Static-only releases retain
+their automatic previous-revision recovery and don't pause the crontab.
+
+`collectstatic` publishes content-hashed assets and a manifest for Django's
+`static` template tag. The widget loader's CSS dependency is rewritten as part of
+this step, so CSS-only changes also version the loader. S3 uploads use a one-year
+immutable cache policy for hashed files and revalidation for unversioned files
+and the manifest.
+Keep older hashed assets available for pages or third-party embeds that still
+reference them; do not use `collectstatic --clear` during a release. The manifest
+must be published successfully before services restart. Local development uses
+unhashed paths with `DEBUG=True`; production-style local runs require
+`collectstatic`. The test runner uses plain static storage except for the
+manifest integration tests.
 
 Local configuration:
 

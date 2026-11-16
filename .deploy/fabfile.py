@@ -7,7 +7,7 @@ import shlex
 import subprocess
 import sys
 import time
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from typing import Optional
 
@@ -52,6 +52,8 @@ ENV_FILE = f"{PROJECT_DIR}/.env"
 UV_VERSION = "0.9.26"
 MCP_SERVICE = "feature-request-mcp.service"
 STAGEOPS_CRON_LOCK = f"/run/lock/stageops-{PROJECT_NAME}-deploy.lock"
+STAGEOPS_CRONTAB = f"/etc/cron.d/stageops-{PROJECT_NAME}"
+PAUSED_CRONTAB = f"/etc/cron.d/.stageops-{PROJECT_NAME}-deploy-paused"
 
 
 def debug(message: str) -> None:
@@ -221,7 +223,7 @@ def ensure_checkout(
             connection, "git rev-parse origin/main", cwd=PROJECT_DIR, hide=True
         ).stdout.strip()
         if fetched_revision != expected_revision:
-            raise RuntimeError("origin/main changed after static release preflight")
+            raise RuntimeError("origin/main changed after release preflight")
     run_as_app_user(connection, "git checkout main", cwd=PROJECT_DIR)
     run_as_app_user(connection, "git reset --hard origin/main", cwd=PROJECT_DIR)
 
@@ -333,8 +335,10 @@ def public_smoke(connection: Connection) -> None:
         raise RuntimeError("FeatureRequest public MCP discovery smoke did not return a Bearer 401")
 
 
-def prepare_static_release(connection: Connection, token: Optional[str]) -> tuple[str, str]:
-    """Prove that restoring the previous checkout cannot change schema or dependencies."""
+def prepare_release(
+    connection: Connection, token: Optional[str], *, static_only: bool = False,
+) -> tuple[str, str]:
+    """Pin the incoming revision and record the previous checkout before mutation."""
 
     previous = run_as_app_user(
         connection, "git rev-parse HEAD", cwd=PROJECT_DIR, hide=True
@@ -343,7 +347,7 @@ def prepare_static_release(connection: Connection, token: Optional[str]) -> tupl
         connection, "git status --porcelain --untracked-files=no", cwd=PROJECT_DIR, hide=True
     ).stdout.strip()
     if dirty:
-        raise RuntimeError("Static release requires a clean server checkout")
+        raise RuntimeError("Release requires a clean server checkout")
     git_command(connection, "fetch origin main --prune", cwd=PROJECT_DIR, token=token)
     target = run_as_app_user(
         connection, "git rev-parse origin/main", cwd=PROJECT_DIR, hide=True
@@ -359,13 +363,13 @@ def prepare_static_release(connection: Connection, token: Optional[str]) -> tupl
         path for path in changed_paths
         if not path.startswith("projects/static/") and path not in allowed_support_files
     ]
-    if unsupported:
+    if static_only and unsupported:
         raise RuntimeError("Static release contains non-static changes: " + ", ".join(unsupported))
     source = next(
         (path for path in (PROJECT_ROOT / ".env-prod", PROJECT_ROOT / ".env") if path.is_file()),
         None,
     )
-    if source is not None:
+    if static_only and source is not None:
         with connection.sftp().open(ENV_FILE, "rb") as remote_file:
             environment_matches = remote_file.read() == source.read_bytes()
         if not environment_matches:
@@ -378,8 +382,43 @@ def prepare_static_release(connection: Connection, token: Optional[str]) -> tupl
         f"printf '%s\\n' {quote(previous)} > .deploy-previous-revision",
         cwd=PROJECT_DIR,
     )
-    debug(f"Static release previous={previous} target={target}")
+    debug(f"Release previous={previous} target={target}")
     return previous, target
+
+
+def prepare_static_release(connection: Connection, token: Optional[str]) -> tuple[str, str]:
+    """Prove that restoring the previous checkout cannot change schema or dependencies."""
+    return prepare_release(connection, token, static_only=True)
+
+
+def stop_runtime(connection: Connection) -> None:
+    units = (f"app@{PROJECT_NAME}.socket", f"app@{PROJECT_NAME}.service", MCP_SERVICE)
+    connection.sudo("systemctl stop " + " ".join(quote(unit) for unit in units))
+
+
+@contextmanager
+def quiesce_runtime(connection: Connection):
+    """Keep mutable-checkout consumers stopped across code and schema changes."""
+    # A leading dot makes cron ignore the saved file. Leave it paused on failure
+    # so releasing the deploy lock cannot launch code against an uncertain schema.
+    cron_present = connection.sudo(
+        f"test -f {quote(STAGEOPS_CRONTAB)}", warn=True, hide=True,
+    ).ok
+    if cron_present:
+        connection.sudo(f"mv -- {quote(STAGEOPS_CRONTAB)} {quote(PAUSED_CRONTAB)}")
+    try:
+        stop_runtime(connection)
+        yield
+        if cron_present:
+            connection.sudo(f"mv -- {quote(PAUSED_CRONTAB)} {quote(STAGEOPS_CRONTAB)}")
+    except BaseException:
+        stop_runtime(connection)
+        debug(
+            "Release failed: web and MCP remain stopped, and project cron remains paused. "
+            "Check schema/config compatibility before recovery; the previous revision is "
+            "recorded in .deploy-previous-revision."
+        )
+        raise
 
 
 def verify_revision(connection: Connection, expected: str) -> None:
@@ -427,37 +466,44 @@ def deploy(_context, static_only=False):
     )
 
     with pause_stageops_cron(connection):
-        boundary = prepare_static_release(connection, token) if static_only else None
+        if not static_only and connection.sudo(
+            f"test -e {quote(PAUSED_CRONTAB)}", warn=True, hide=True,
+        ).ok:
+            raise RuntimeError("A previous release left cron paused; recover it before deploying")
+        boundary = (
+            prepare_static_release(connection, token)
+            if static_only else prepare_release(connection, token)
+        )
         try:
-            with timed_step("Repository update"):
-                ensure_checkout(
-                    connection, source_url=source_url, token=token,
-                    expected_revision=boundary[1] if boundary else None,
-                )
-            if not static_only:
-                with timed_step("Environment upload"):
-                    upload_environment(connection)
-                with timed_step("Production dependency sync"):
-                    install_dependencies(connection)
-                with timed_step("Django release steps"):
-                    run_django_release(connection)
-            else:
-                with timed_step("Static files"):
-                    run_as_app_user(
-                        connection, f"{quote(PYTHON_BIN)} manage.py collectstatic --noinput",
-                        cwd=PROJECT_DIR,
+            with nullcontext() if static_only else quiesce_runtime(connection):
+                with timed_step("Repository update"):
+                    ensure_checkout(
+                        connection, source_url=source_url, token=token,
+                        expected_revision=boundary[1],
                     )
+                if not static_only:
+                    with timed_step("Environment upload"):
+                        upload_environment(connection)
+                    with timed_step("Production dependency sync"):
+                        install_dependencies(connection)
+                    with timed_step("Django release steps"):
+                        run_django_release(connection)
+                else:
+                    with timed_step("Static files"):
+                        run_as_app_user(
+                            connection, f"{quote(PYTHON_BIN)} manage.py collectstatic --noinput",
+                            cwd=PROJECT_DIR,
+                        )
                 verify_revision(connection, boundary[1])
-            with timed_step("StageOps-managed MCP restart"):
-                restart_mcp_runtime(connection)
-            with timed_step("Web service restart"):
-                restart_web(connection)
-            with timed_step("Public smoke"):
-                public_smoke(connection)
-            if boundary:
+                with timed_step("StageOps-managed MCP restart"):
+                    restart_mcp_runtime(connection)
+                with timed_step("Web service restart"):
+                    restart_web(connection)
+                with timed_step("Public smoke"):
+                    public_smoke(connection)
                 verify_revision(connection, boundary[1])
         except Exception:
-            if boundary:
+            if static_only:
                 restore_static_release(connection, boundary[0])
             raise
 
