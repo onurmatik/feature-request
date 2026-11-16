@@ -1,6 +1,6 @@
 {
   "agent_contract_version": "1.1.0",
-  "contract_sha256": "bdb6a31f7991a68d214c603ce6bd7c85ae116a4ef0c707776656e1779f4c8849",
+  "contract_sha256": "867a2809886a16f109cf68ece4db5351a7a7a62ba155872f7d862bf3c66ba103",
   "mapping": "agent/mappings/mcp-1.1.0.json",
   "runtime_conformance": "pending"
 }

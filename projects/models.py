@@ -74,8 +74,12 @@ class ProjectSpec(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    class Meta:
+        verbose_name = "product scope"
+        verbose_name_plural = "product scopes"
+
     def __str__(self):
-        return f"Spec for {self.project} (r{self.revision})"
+        return f"Scope for {self.project} (r{self.revision})"
 
 
 class Issue(models.Model):
@@ -158,7 +162,7 @@ class IssueScopeAssessment(models.Model):
     class Verdict(models.TextChoices):
         IN_SCOPE = "in_scope", "In scope"
         OUT_OF_SCOPE = "out_of_scope", "Out of scope"
-        SPEC_GAP = "spec_gap", "Spec gap"
+        SPEC_GAP = "spec_gap", "Scope gap"
         NEEDS_REVIEW = "needs_review", "Needs review"
 
     issue = models.ForeignKey(
@@ -166,7 +170,7 @@ class IssueScopeAssessment(models.Model):
         related_name="scope_assessments",
         on_delete=models.CASCADE,
     )
-    spec_revision = models.PositiveBigIntegerField()
+    spec_revision = models.PositiveBigIntegerField(verbose_name="scope revision")
     state = models.CharField(
         max_length=16,
         choices=State.choices,
@@ -181,7 +185,7 @@ class IssueScopeAssessment(models.Model):
     )
     public_reason = models.CharField(max_length=500, blank=True)
     out_of_scope_quote = models.CharField(max_length=1000, blank=True)
-    spec_gap_summary = models.CharField(max_length=1000, blank=True)
+    spec_gap_summary = models.CharField(max_length=1000, blank=True, verbose_name="scope gap summary")
     evaluator_version = models.CharField(max_length=64, default="spec_scope_v1")
     auto_declined = models.BooleanField(default=False)
     error_code = models.CharField(max_length=64, blank=True)
@@ -197,8 +201,8 @@ class IssueScopeAssessment(models.Model):
         ]
 
     def __str__(self):
-        outcome = self.verdict or self.state
-        return f"{outcome} for issue #{self.issue_id} at spec r{self.spec_revision}"
+        outcome = self.get_verdict_display() if self.verdict else self.get_state_display()
+        return f"{outcome} for issue #{self.issue_id} at scope r{self.spec_revision}"
 
 
 class ProjectSpecChangeProposal(models.Model):
@@ -217,7 +221,7 @@ class ProjectSpecChangeProposal(models.Model):
         related_name="spec_change_proposals",
         on_delete=models.CASCADE,
     )
-    base_spec_revision = models.PositiveBigIntegerField()
+    base_spec_revision = models.PositiveBigIntegerField(verbose_name="base scope revision")
     base_content = models.TextField(
         validators=[MaxLengthValidator(ProjectSpec.MAX_CONTENT_LENGTH)],
     )
@@ -248,9 +252,11 @@ class ProjectSpecChangeProposal(models.Model):
 
     class Meta:
         ordering = ["-created_at", "-id"]
+        verbose_name = "product scope change proposal"
+        verbose_name_plural = "product scope change proposals"
 
     def __str__(self):
-        return f"Spec proposal #{self.pk} for {self.project}"
+        return f"Scope proposal #{self.pk} for {self.project}"
 
 
 class IssueUpvote(models.Model):
@@ -352,7 +358,7 @@ class IssueEvent(models.Model):
         DELIVERY_UNLINKED = "delivery_unlinked", "Delivery unlinked"
         SCOPE_ASSESSED = "scope_assessed", "Scope assessed"
         AUTO_DECLINED = "auto_declined", "Automatically declined"
-        SPEC_UPDATED = "spec_updated", "Project spec updated"
+        SPEC_UPDATED = "spec_updated", "Product scope updated"
 
     issue = models.ForeignKey(
         Issue,

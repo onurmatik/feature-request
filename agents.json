@@ -558,21 +558,21 @@
       "method": "GET",
       "path": "/api/projects/{owner_handle}/{project_slug}/spec",
       "auth": "none",
-      "description": "Read the published public Product Spec."
+      "description": "Read the published public Product scope."
     },
     {
       "name": "update_project_spec",
       "method": "PUT",
       "path": "/api/projects/{project_id}/spec",
       "auth": "session_or_token",
-      "description": "Owner-only create or full replacement using the independent expected spec revision."
+      "description": "Owner-only create or full replacement using the independent expected scope revision."
     },
     {
       "name": "delete_project_spec",
       "method": "DELETE",
       "path": "/api/projects/{project_id}/spec",
       "auth": "session_or_token",
-      "description": "Owner-confirmed spec deletion; disables automation and invalidates pending proposals."
+      "description": "Owner-confirmed scope deletion; disables automation and invalidates pending proposals."
     },
     {
       "name": "list_owner_projects",
@@ -681,14 +681,14 @@
       "method": "POST",
       "path": "/api/issues/{issue_id}/scope-assessment/retry",
       "auth": "session_or_token",
-      "description": "Owner-only reassessment against the current spec revision."
+      "description": "Owner-only reassessment against the current scope revision."
     },
     {
       "name": "create_project_spec_proposal",
       "method": "POST",
       "path": "/api/issues/{issue_id}/spec-change-proposals",
       "auth": "session_or_token",
-      "description": "Generate an owner-private full-replacement proposal for a current spec gap."
+      "description": "Generate an owner-private full-replacement proposal for a current scope gap."
     },
     {
       "name": "list_project_spec_proposals",
@@ -702,7 +702,7 @@
       "method": "PATCH",
       "path": "/api/spec-change-proposals/{proposal_id}",
       "auth": "session_or_token",
-      "description": "Owner-only accept or reject with current expected spec revision."
+      "description": "Owner-only accept or reject with current expected scope revision."
     },
     {
       "name": "update_issue",

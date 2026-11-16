@@ -110,7 +110,7 @@ Operate on board data via API:
   - `create_project`
   - `update_project`
   - `delete_project`
-- Product Spec and scope tools:
+- Product scope tools:
   - `get_project_spec`
   - `update_project_spec`
   - `get_request_scope_assessment`
@@ -141,8 +141,8 @@ Operate on board data via API:
 - Keep status transitions separate from content/priority updates.
 - Treat scope assessments as evidence. Automatic `declined` is allowed only when the guarded
   Contract rule matches an exact `Out of scope` quote without contradiction or ambiguity.
-- Assessment failures fail open and remain owner-only. Pending spec proposals are owner-private;
-  acceptance requires the unchanged base spec revision and rejection creates no public event.
+- Assessment failures fail open and remain owner-only. Pending scope proposals are owner-private;
+  acceptance requires the unchanged base scope revision and rejection creates no public event.
 - Only the project owner may transition into or out of `declined`; authors may still comment.
 - Do not transition a request to `done` or `closed` without explicit user direction
   and delivery evidence that the calling agent has inspected.
@@ -169,7 +169,7 @@ Operate on board data via API:
   - `GET /api/projects/{project_id}`
   - `PATCH /api/projects/{project_id}`
   - `DELETE /api/projects/{project_id}`
-- Product Spec and owner proposal workflow:
+- Product scope and owner proposal workflow:
   - `GET /api/projects/{owner_handle}/{project_slug}/spec`
   - `PUT /api/projects/{project_id}/spec`
   - `DELETE /api/projects/{project_id}/spec`

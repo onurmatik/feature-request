@@ -1189,7 +1189,7 @@ def upsert_project_spec(request, project_id: int, payload: ProjectSpecUpsertIn):
             id=project_id,
         )
         if not _can_manage_project(user, project):
-            raise HttpError(403, "Not allowed to update this project spec.")
+            raise HttpError(403, "Not allowed to update this product scope.")
         try:
             spec, _ = save_project_spec_resource(
                 project=project,
@@ -1218,7 +1218,7 @@ def delete_project_spec(
             id=project_id,
         )
         if not _can_manage_project(user, project):
-            raise HttpError(403, "Not allowed to delete this project spec.")
+            raise HttpError(403, "Not allowed to delete this product scope.")
         try:
             deleted_revision = delete_project_spec_resource(
                 project=project,
@@ -1691,19 +1691,19 @@ def create_issue_spec_change_proposal(request, issue_id: int):
         id=issue_id,
     )
     if user.id != issue.project.owner_id:
-        raise HttpError(403, "Only the project owner can propose a spec update.")
+        raise HttpError(403, "Only the project owner can propose a scope update.")
     spec = get_object_or_404(ProjectSpec, project=issue.project)
     latest = issue.scope_assessments.order_by("-created_at", "-id").first()
     if latest is None or latest.verdict != IssueScopeAssessment.Verdict.SPEC_GAP:
-        raise HttpError(409, "The latest scope assessment is not a spec gap.")
+        raise HttpError(409, "The latest scope assessment is not a scope gap.")
     if latest.spec_revision != spec.revision:
-        raise HttpError(409, "The project spec changed after scope assessment.")
+        raise HttpError(409, "The product scope changed after scope assessment.")
     if ProjectSpecChangeProposal.objects.filter(
         issue=issue,
         base_spec_revision=spec.revision,
         status=ProjectSpecChangeProposal.Status.PENDING,
     ).exists():
-        raise HttpError(409, "A pending spec proposal already exists for this request.")
+        raise HttpError(409, "A pending scope proposal already exists for this request.")
     try:
         proposed_content, summary = generate_spec_change_proposal(
             spec=spec,
@@ -1722,7 +1722,7 @@ def create_issue_spec_change_proposal(request, issue_id: int):
             project=issue.project,
         )
         if current_spec.revision != spec.revision:
-            raise HttpError(409, "The project spec changed while generating the proposal.")
+            raise HttpError(409, "The product scope changed while generating the proposal.")
         try:
             proposal = create_spec_change_proposal_resource(
                 project=issue.project,
@@ -1749,7 +1749,7 @@ def list_project_spec_change_proposals(
     user = _require_auth_user(request)
     project = get_object_or_404(Project, id=project_id)
     if user.id != project.owner_id:
-        raise HttpError(403, "Only the project owner can view spec proposals.")
+        raise HttpError(403, "Only the project owner can view scope proposals.")
     if status not in ProjectSpecChangeProposal.Status.values:
         raise HttpError(400, "Invalid proposal status.")
     proposals = ProjectSpecChangeProposal.objects.filter(
@@ -1786,7 +1786,7 @@ def resolve_project_spec_change_proposal(
             id=proposal_id,
         )
         if user.id != proposal.project.owner_id:
-            raise HttpError(403, "Only the project owner can resolve spec proposals.")
+            raise HttpError(403, "Only the project owner can resolve scope proposals.")
         spec = get_object_or_404(
             ProjectSpec.objects.select_for_update(of=("self",)),
             project=proposal.project,

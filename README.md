@@ -337,7 +337,11 @@ Project tools:
 - `update_project`
 - `delete_project` (destructive; requires `get_project`, explicit user direction, and a matching confirmation id)
 
-Product Spec and scope tools:
+Product scope tools:
+
+Product scope lists what a product intentionally includes and excludes. The public page uses
+`/{owner_handle}/{project_slug}/scope/`; existing `/spec/` links still work. API paths, tool names,
+and stored field names retain `spec` for compatibility.
 
 - `get_project_spec`
 - `update_project_spec`
