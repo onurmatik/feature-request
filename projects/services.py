@@ -145,7 +145,7 @@ def duplicate_candidate_dict(issue: Issue, *, title: str, description: str) -> d
 
 
 def annotated_issue_queryset():
-    return Issue.objects.select_related("project", "author", "duplicate_of").annotate(
+    return Issue.objects.filter(project__archived_at__isnull=True).select_related("project", "author", "duplicate_of").annotate(
         upvotes_count=Count("upvotes", distinct=True),
         comments_count=Count("comments", distinct=True),
         delivery_artifacts_count=Count("delivery_artifacts", distinct=True),

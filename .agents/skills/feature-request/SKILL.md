@@ -10,8 +10,8 @@ with a deterministic flow, but normative agent semantics live only in `agent/con
 Tool schemas, scopes, capabilities, ownership, approvals, errors, side effects, and retry rules
 must be referenced or mechanically projected from that Contract rather than redefined here.
 
-Agent Contract 1.1.0 names `get_account_capabilities` as the bootstrap tool. The repository now
-implements its exact 30-tool projection, while MCP production conformance is `pending`
+Agent Contract 1.2.0 names `get_account_capabilities` as the bootstrap tool. The repository now
+implements its exact 33-tool projection, while MCP production conformance is `pending`
 until the immutable MCP release, PostgreSQL concurrency, deployment, observation, and real-client
 acceptance gates pass. The MCP and API sections below document that release-preparation handoff.
 
@@ -88,7 +88,7 @@ Operate on board data via API:
   - optional filters: `issue_type`, `status`, `priority`, `limit`.
   - `status=active` is a list-only filter that excludes `done`, `closed`, and `declined`.
 
-### MCP/OAuth 1.1 Repository Runtime (Production Conformance Pending)
+### MCP/OAuth 1.2 Repository Runtime (Production Conformance Pending)
 - Transport: Streamable HTTP at `/mcp`.
 - Authentication: MCP OAuth discovery, public clients, PKCE S256, exact resource binding.
 - Permission model:
@@ -110,6 +110,9 @@ Operate on board data via API:
   - `create_project`
   - `update_project`
   - `delete_project`
+  - `list_archived_projects`
+  - `archive_project`
+  - `restore_project`
 - Product scope tools:
   - `get_project_spec`
   - `update_project_spec`

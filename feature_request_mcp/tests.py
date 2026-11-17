@@ -12,6 +12,7 @@ from django.core.exceptions import ImproperlyConfigured
 from django.core.management.color import no_style
 from django.db import close_old_connections, connection, connections, transaction
 from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_settings
+from django.utils import timezone
 from jsonschema import Draft202012Validator
 from mcp import MCPError
 from mcp.server.auth.middleware.auth_context import auth_context_var
@@ -103,7 +104,7 @@ class FeatureRequestMCPRegistryTest(TestCase):
         contract = yaml.safe_load(open("agent/contract.yaml"))
         tools = async_to_sync(mcp.list_tools)()
         self.assertEqual([tool.name for tool in tools], list(contract["tools"]))
-        self.assertEqual(len(tools), 30)
+        self.assertEqual(len(tools), 33)
         self.assertEqual(registry_digest(), registry_digest())
         for tool in tools:
             definition = contract["tools"][tool.name]
@@ -689,7 +690,7 @@ class FeatureRequestContractRuntimeConformanceTest(TestCase):
     def _state_signature(self):
         return {
             "projects": list(
-                Project.objects.order_by("id").values_list("id", "revision", "name")
+                Project.objects.order_by("id").values_list("id", "revision", "name", "archived_at")
             ),
             "issues": list(
                 Issue.objects.order_by("id").values_list(
@@ -711,10 +712,17 @@ class FeatureRequestContractRuntimeConformanceTest(TestCase):
         }
 
     def _prepare_success(self, tool):
+        if tool in {"restore_project", "list_archived_projects"}:
+            Project.objects.filter(pk=self.project.pk).update(archived_at=timezone.now())
         if tool == "link_delivery_artifact":
             IssueDeliveryArtifact.objects.filter(pk=self.artifact.pk).delete()
 
     def _assert_success_invariant(self, tool, payload):
+        if tool == "list_archived_projects":
+            self.assertEqual([item["id"] for item in payload["projects"]], [self.project.pk])
+        elif tool in {"archive_project", "restore_project"}:
+            self.assertEqual(payload["revision"], 2)
+            self.assertEqual(payload["archived_at"] is not None, tool == "archive_project")
         if tool == "get_account_capabilities":
             self.assertEqual(payload["limits"]["project_count"]["limit"], 1)
             self.assertTrue(all(payload["capabilities"].values()))
@@ -890,7 +898,7 @@ class FeatureRequestContractRuntimeConformanceTest(TestCase):
             with self.subTest(tool=tool):
                 sid = transaction.savepoint()
                 try:
-                    if tool in {"update_project", "delete_project"}:
+                    if tool in {"update_project", "delete_project", "archive_project", "restore_project"}:
                         Project.objects.filter(pk=1).update(revision=2)
                     elif tool == "update_request_comment":
                         IssueComment.objects.filter(pk=20).update(revision=2)
@@ -924,6 +932,8 @@ class FeatureRequestContractRuntimeConformanceTest(TestCase):
     def _conflicting_arguments(tool, arguments):
         changed = deepcopy(arguments)
         field_values = {
+            "archive_project": ("expected_revision", 2),
+            "restore_project": ("expected_revision", 2),
             "create_project": ("name", "Different roadmap"),
             "update_project": ("tagline", "Different tagline"),
             "delete_project": ("expected_revision", 2),
@@ -1335,7 +1345,7 @@ class FeatureRequestModernTransportTest(TransactionTestCase):
         )
         self.assertEqual(tools.status_code, 200, tools.text)
         result = tools.json()["result"]
-        self.assertEqual(len(result["tools"]), 30)
+        self.assertEqual(len(result["tools"]), 33)
         self.assertEqual(result["ttlMs"], 300000)
         self.assertEqual(result["cacheScope"], "public")
 

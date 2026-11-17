@@ -13,6 +13,13 @@ from django_embedded_mcp import credential_digest
 from ninja.errors import HttpError
 from openai import OpenAI
 
+from projects.lifecycle import (
+    archived_project_to_dict,
+    change_project_archive,
+    lock_active_project,
+    project_id_from_arguments,
+    project_lifecycle_receipt,
+)
 from projects.models import (
     Issue,
     IssueComment,
@@ -82,7 +89,7 @@ def _resource_hint(arguments):
 
 
 def _project_queryset():
-    return Project.objects.select_related("owner", "spec").annotate(
+    return Project.objects.active().select_related("owner", "spec").annotate(
         open_issues_count=Count(
             "issues", filter=Q(issues__status=Issue.Status.OPEN), distinct=True
         )
@@ -99,7 +106,7 @@ def _issue_output(issue_id):
 
 def _comment_output(comment_id):
     return _comment_to_dict(
-        IssueComment.objects.select_related("author", "issue__project__owner").get(pk=comment_id)
+        IssueComment.objects.filter(issue__project__archived_at__isnull=True).select_related("author", "issue__project__owner").get(pk=comment_id)
     )
 
 
@@ -112,7 +119,7 @@ def _artifact_output(artifact_id):
 class FeatureRequestAgentService:
     @staticmethod
     def _capability_set(context) -> frozenset[str]:
-        # Free and Pro expose the same semantic capability catalog in 1.1.0;
+        # Free and Pro expose the same semantic capability catalog in 1.2.0;
         # their only difference is the project_count limit.
         return frozenset(
             {
@@ -339,7 +346,7 @@ class FeatureRequestAgentService:
 
     @staticmethod
     def _notify_issue(issue_id):
-        issue = Issue.objects.select_related("project__owner", "author").get(pk=issue_id)
+        issue = Issue.objects.filter(project__archived_at__isnull=True).select_related("project__owner", "author").get(pk=issue_id)
         if issue.author_id == issue.project.owner_id:
             return
         send_mail(
@@ -352,7 +359,7 @@ class FeatureRequestAgentService:
 
     @staticmethod
     def _notify_comment(comment_id):
-        comment = IssueComment.objects.select_related(
+        comment = IssueComment.objects.filter(issue__project__archived_at__isnull=True).select_related(
             "issue__project__owner", "author"
         ).get(pk=comment_id)
         if comment.author_id == comment.issue.project.owner_id:
@@ -383,6 +390,15 @@ class FeatureRequestAgentService:
         )
 
         def validated_operation():
+            # Lifecycle transitions lock the owner first; ordinary writes lock
+            # their parent before any child row so Archive cannot race a write.
+            if tool_name not in {"archive_project", "restore_project"}:
+                project_id = project_id_from_arguments(arguments)
+                if project_id is not None:
+                    try:
+                        lock_active_project(project_id)
+                    except DomainRuleError:
+                        self._not_found(context)
             result, resource_type, resource_id = operation()
             # Validate the receipt before the transaction containing both the
             # domain mutation and idempotency record is allowed to commit.
@@ -400,7 +416,7 @@ class FeatureRequestAgentService:
         return result
 
     def get_account_capabilities(self, context):
-        used = Project.objects.filter(owner=context.user).count()
+        used = Project.objects.active().filter(owner=context.user).count()
         return {
             "capabilities": {
                 "project_management": True,
@@ -425,6 +441,55 @@ class FeatureRequestAgentService:
         projects = _project_queryset().filter(owner=context.user).order_by("-created_at", "-id")
         return {"projects": [_project_output(project) for project in projects]}
 
+    def list_archived_projects(self, context):
+        projects = Project.objects.archived().filter(owner=context.user).order_by("-archived_at", "-id")
+        return {"projects": [archived_project_to_dict(project) for project in projects]}
+
+    def _change_archive(self, context, tool_name, *, project_id, expected_revision, idempotency_key):
+        arguments = {
+            "project_id": project_id,
+            "expected_revision": expected_revision,
+            "idempotency_key": idempotency_key,
+        }
+
+        def operation():
+            try:
+                project = change_project_archive(
+                    actor=context.user, project_id=project_id,
+                    archived=tool_name == "archive_project",
+                    expected_revision=expected_revision,
+                )
+            except DomainRuleError as exc:
+                if exc.code == "permission_denied":
+                    self._deny(context)
+                if exc.code == "revision_conflict":
+                    current = Project.objects.filter(pk=project_id).first()
+                    if current is None:
+                        self._not_found(context)
+                    self._revision(context, current, expected_revision)
+                if exc.code == "capacity_reached":
+                    raise app_error(
+                        "capacity_reached", context.request_id,
+                        used=Project.objects.active().filter(owner=context.user).count(),
+                        limit=context.user.project_limit, period="lifetime", reset_at=None,
+                    ) from exc
+                self._domain_error(context, exc)
+            return project_lifecycle_receipt(project), "project", project.pk
+
+        return self._mutate(context, tool_name, arguments, operation)
+
+    def archive_project(self, context, project_id, expected_revision, idempotency_key):
+        return self._change_archive(
+            context, "archive_project", project_id=project_id,
+            expected_revision=expected_revision, idempotency_key=idempotency_key,
+        )
+
+    def restore_project(self, context, project_id, expected_revision, idempotency_key):
+        return self._change_archive(
+            context, "restore_project", project_id=project_id,
+            expected_revision=expected_revision, idempotency_key=idempotency_key,
+        )
+
     def get_project(self, context, project_id):
         project = _project_queryset().filter(pk=project_id).first()
         if project is None:
@@ -435,7 +500,7 @@ class FeatureRequestAgentService:
 
     def get_project_spec(self, context, owner_handle, project_slug):
         spec = (
-            ProjectSpec.objects.select_related("project__owner")
+            ProjectSpec.objects.filter(project__archived_at__isnull=True).select_related("project__owner")
             .filter(
                 project__owner__handle=owner_handle.lower(),
                 project__slug=project_slug,
@@ -447,7 +512,7 @@ class FeatureRequestAgentService:
         return _project_spec_to_dict(spec)
 
     def get_request_scope_assessment(self, context, issue_id):
-        issue = Issue.objects.select_related("project").filter(pk=issue_id).first()
+        issue = Issue.objects.filter(project__archived_at__isnull=True).select_related("project").filter(pk=issue_id).first()
         if issue is None:
             self._not_found(context)
         assessments = issue.scope_assessments.all()
@@ -465,12 +530,12 @@ class FeatureRequestAgentService:
         )
 
     def list_project_spec_proposals(self, context, project_id, status="pending"):
-        project = Project.objects.filter(pk=project_id).first()
+        project = Project.objects.active().filter(pk=project_id).first()
         if project is None:
             self._not_found(context)
         if project.owner_id != context.user.pk:
             self._deny(context)
-        proposals = ProjectSpecChangeProposal.objects.filter(
+        proposals = ProjectSpecChangeProposal.objects.filter(project__archived_at__isnull=True).filter(
             project=project,
             status=status,
         ).order_by("-created_at", "-id")
@@ -495,7 +560,7 @@ class FeatureRequestAgentService:
         )
         if project_slug:
             queryset = queryset.filter(project__slug=project_slug)
-            if not Project.objects.filter(
+            if not Project.objects.active().filter(
                 owner__handle=owner_handle.lower(), slug=project_slug
             ).exists():
                 self._not_found(context)
@@ -519,16 +584,16 @@ class FeatureRequestAgentService:
         return _issue_to_dict(issue)
 
     def list_request_comments(self, context, issue_id):
-        issue = Issue.objects.filter(pk=issue_id).first()
+        issue = Issue.objects.filter(project__archived_at__isnull=True).filter(pk=issue_id).first()
         if issue is None:
             self._not_found(context)
         comments = issue.comments.select_related("author").order_by("created_at", "id")
         return {"comments": [_comment_to_dict(comment) for comment in comments]}
 
     def get_queue_snapshot(self, context, project_id=None, limit=100):
-        projects = Project.objects.filter(owner=context.user)
+        projects = Project.objects.active().filter(owner=context.user)
         if project_id is not None:
-            project = Project.objects.filter(pk=project_id).first()
+            project = Project.objects.active().filter(pk=project_id).first()
             if project is None:
                 self._not_found(context)
             if project.owner_id != context.user.pk:
@@ -572,12 +637,12 @@ class FeatureRequestAgentService:
         exclude_issue_id=None,
         limit=5,
     ):
-        project = Project.objects.filter(
+        project = Project.objects.active().filter(
             owner__handle=owner_handle.lower(), slug=project_slug
         ).first()
         if project is None:
             self._not_found(context)
-        queryset = Issue.objects.filter(project=project)
+        queryset = Issue.objects.filter(project__archived_at__isnull=True).filter(project=project)
         if exclude_issue_id is not None:
             if not queryset.filter(pk=exclude_issue_id).exists():
                 raise app_error("invalid_input", context.request_id, fields=["exclude_issue_id"])
@@ -596,7 +661,7 @@ class FeatureRequestAgentService:
         return {"candidates": candidates[:limit]}
 
     def list_request_activity(self, context, issue_id, limit=100):
-        issue = Issue.objects.select_related("project").filter(pk=issue_id).first()
+        issue = Issue.objects.filter(project__archived_at__isnull=True).select_related("project").filter(pk=issue_id).first()
         if issue is None:
             self._not_found(context)
         if context.user.pk not in {issue.author_id, issue.project.owner_id}:
@@ -609,7 +674,7 @@ class FeatureRequestAgentService:
 
     def list_request_changes(self, context, after_id=0, limit=50):
         queryset = (
-            IssueEvent.objects.select_related("actor", "issue__project")
+            IssueEvent.objects.filter(issue__project__archived_at__isnull=True).select_related("actor", "issue__project")
             .filter(issue__project__owner=context.user, id__gt=after_id)
             .order_by("id")
         )
@@ -622,7 +687,7 @@ class FeatureRequestAgentService:
         }
 
     def list_delivery_artifacts(self, context, issue_id):
-        issue = Issue.objects.select_related("project").filter(pk=issue_id).first()
+        issue = Issue.objects.filter(project__archived_at__isnull=True).select_related("project").filter(pk=issue_id).first()
         if issue is None:
             self._not_found(context)
         if context.user.pk not in {issue.author_id, issue.project.owner_id}:
@@ -639,10 +704,10 @@ class FeatureRequestAgentService:
         }
 
         def operation():
-            user = type(context.user).objects.select_for_update(of=("self",)).get(
+            user = type(context.user).objects.select_for_update(of=("self",), no_key=True).get(
                 pk=context.user.pk
             )
-            used = Project.objects.filter(owner=user).count()
+            used = Project.objects.active().filter(owner=user).count()
             if used >= user.project_limit:
                 raise app_error(
                     "capacity_reached",
@@ -684,7 +749,7 @@ class FeatureRequestAgentService:
 
         def operation():
             project = (
-                Project.objects.select_for_update(of=("self",))
+                Project.objects.active().select_for_update(of=("self",))
                 .select_related("owner")
                 .filter(pk=project_id)
                 .first()
@@ -741,7 +806,7 @@ class FeatureRequestAgentService:
             )
 
         def operation():
-            project = Project.objects.select_for_update(of=("self",)).filter(
+            project = Project.objects.active().select_for_update(of=("self",)).filter(
                 pk=project_id
             ).first()
             if project is None:
@@ -787,12 +852,12 @@ class FeatureRequestAgentService:
                 dependency_outcome="not_repeated",
             )
             return result
-        project = Project.objects.filter(pk=project_id).first()
+        project = Project.objects.active().filter(pk=project_id).first()
         if project is None:
             self._not_found(context)
         if project.owner_id != context.user.pk:
             self._deny(context)
-        current = ProjectSpec.objects.filter(project=project).first()
+        current = ProjectSpec.objects.filter(project__archived_at__isnull=True).filter(project=project).first()
         actual_revision = current.revision if current is not None else 0
         if actual_revision != expected_revision:
             raise app_error(
@@ -808,14 +873,14 @@ class FeatureRequestAgentService:
         }
 
         def operation():
-            locked_project = Project.objects.select_for_update(of=("self",)).filter(
+            locked_project = Project.objects.active().select_for_update(of=("self",)).filter(
                 pk=project_id
             ).first()
             if locked_project is None:
                 self._not_found(context)
             if locked_project.owner_id != context.user.pk:
                 self._deny(context)
-            locked_spec = ProjectSpec.objects.select_for_update(of=("self",)).filter(
+            locked_spec = ProjectSpec.objects.filter(project__archived_at__isnull=True).select_for_update(of=("self",)).filter(
                 project=locked_project
             ).first()
             locked_revision = locked_spec.revision if locked_spec is not None else 0
@@ -836,7 +901,7 @@ class FeatureRequestAgentService:
             except DomainRuleError as exc:
                 self._domain_error(context, exc, fields=["content"])
             result = _project_spec_to_dict(
-                ProjectSpec.objects.select_related("project__owner").get(pk=spec.pk)
+                ProjectSpec.objects.filter(project__archived_at__isnull=True).select_related("project__owner").get(pk=spec.pk)
             )
             return result, "project_spec", spec.pk
 
@@ -866,13 +931,13 @@ class FeatureRequestAgentService:
                 dependency_outcome="not_repeated",
             )
             return result
-        issue = Issue.objects.select_related("project").filter(pk=issue_id).first()
+        issue = Issue.objects.filter(project__archived_at__isnull=True).select_related("project").filter(pk=issue_id).first()
         if issue is None:
             self._not_found(context)
         if issue.project.owner_id != context.user.pk:
             self._deny(context)
         self._revision(context, issue, expected_revision)
-        spec = ProjectSpec.objects.filter(project=issue.project).first()
+        spec = ProjectSpec.objects.filter(project__archived_at__isnull=True).filter(project=issue.project).first()
         if spec is None:
             self._not_found(context)
         evaluation = evaluate_request_scope(
@@ -892,7 +957,7 @@ class FeatureRequestAgentService:
         )
 
         def operation():
-            locked_issue = Issue.objects.select_for_update(of=("self",)).select_related(
+            locked_issue = Issue.objects.filter(project__archived_at__isnull=True).select_for_update(of=("self",)).select_related(
                 "project"
             ).filter(pk=issue_id).first()
             if locked_issue is None:
@@ -900,7 +965,7 @@ class FeatureRequestAgentService:
             if locked_issue.project.owner_id != context.user.pk:
                 self._deny(context)
             self._revision(context, locked_issue, expected_revision)
-            current_spec = ProjectSpec.objects.select_for_update(of=("self",)).filter(
+            current_spec = ProjectSpec.objects.filter(project__archived_at__isnull=True).select_for_update(of=("self",)).filter(
                 pk=spec.pk,
                 revision=spec.revision,
             ).first()
@@ -950,12 +1015,12 @@ class FeatureRequestAgentService:
                 dependency_outcome="not_repeated",
             )
             return result
-        issue = Issue.objects.select_related("project").filter(pk=issue_id).first()
+        issue = Issue.objects.filter(project__archived_at__isnull=True).select_related("project").filter(pk=issue_id).first()
         if issue is None:
             self._not_found(context)
         if issue.project.owner_id != context.user.pk:
             self._deny(context)
-        spec = ProjectSpec.objects.filter(project=issue.project).first()
+        spec = ProjectSpec.objects.filter(project__archived_at__isnull=True).filter(project=issue.project).first()
         if spec is None:
             self._not_found(context)
         if spec.revision != expected_spec_revision:
@@ -993,14 +1058,14 @@ class FeatureRequestAgentService:
         )
 
         def operation():
-            locked_issue = Issue.objects.select_for_update(of=("self",)).select_related(
+            locked_issue = Issue.objects.filter(project__archived_at__isnull=True).select_for_update(of=("self",)).select_related(
                 "project"
             ).filter(pk=issue_id).first()
             if locked_issue is None:
                 self._not_found(context)
             if locked_issue.project.owner_id != context.user.pk:
                 self._deny(context)
-            current_spec = ProjectSpec.objects.select_for_update(of=("self",)).filter(
+            current_spec = ProjectSpec.objects.filter(project__archived_at__isnull=True).select_for_update(of=("self",)).filter(
                 project=locked_issue.project
             ).first()
             if current_spec is None:
@@ -1049,7 +1114,7 @@ class FeatureRequestAgentService:
 
         def operation():
             proposal = (
-                ProjectSpecChangeProposal.objects.select_for_update(of=("self",))
+                ProjectSpecChangeProposal.objects.filter(project__archived_at__isnull=True).select_for_update(of=("self",))
                 .select_related("project", "issue")
                 .filter(pk=proposal_id)
                 .first()
@@ -1058,7 +1123,7 @@ class FeatureRequestAgentService:
                 self._not_found(context)
             if proposal.project.owner_id != context.user.pk:
                 self._deny(context)
-            spec = ProjectSpec.objects.select_for_update(of=("self",)).filter(
+            spec = ProjectSpec.objects.filter(project__archived_at__isnull=True).select_for_update(of=("self",)).filter(
                 project=proposal.project
             ).first()
             if spec is None:
@@ -1126,13 +1191,13 @@ class FeatureRequestAgentService:
             return result
         self._moderate_issue(context, issue_type, title, description)
         context.audit_extra["approval_evidence"] = {"owner": "agent", "current_turn": True}
-        project_snapshot = Project.objects.filter(
+        project_snapshot = Project.objects.active().filter(
             owner__handle=owner_handle.lower(),
             slug=project_slug,
         ).first()
         if project_snapshot is None:
             self._not_found(context)
-        spec = ProjectSpec.objects.filter(project=project_snapshot).first()
+        spec = ProjectSpec.objects.filter(project__archived_at__isnull=True).filter(project=project_snapshot).first()
         evaluation = (
             evaluate_request_scope(
                 spec=spec,
@@ -1146,7 +1211,7 @@ class FeatureRequestAgentService:
         )
 
         def operation():
-            project = Project.objects.select_related("owner").filter(
+            project = Project.objects.active().select_related("owner").filter(
                 owner__handle=owner_handle.lower(), slug=project_slug
             ).first()
             if project is None:
@@ -1161,7 +1226,7 @@ class FeatureRequestAgentService:
                 source="mcp",
             )
             if spec is not None and evaluation is not None:
-                current_spec = ProjectSpec.objects.select_for_update(of=("self",)).filter(
+                current_spec = ProjectSpec.objects.filter(project__archived_at__isnull=True).select_for_update(of=("self",)).filter(
                     pk=spec.pk,
                     revision=spec.revision,
                 ).first()
@@ -1206,7 +1271,7 @@ class FeatureRequestAgentService:
 
         def operation():
             issue = (
-                Issue.objects.select_for_update(of=("self",))
+                Issue.objects.filter(project__archived_at__isnull=True).select_for_update(of=("self",))
                 .select_related("project")
                 .filter(pk=issue_id)
                 .first()
@@ -1216,7 +1281,7 @@ class FeatureRequestAgentService:
             if context.user.pk not in {issue.author_id, issue.project.owner_id}:
                 self._deny(context)
             self._revision(context, issue, expected_revision)
-            canonical = Issue.objects.filter(pk=canonical_issue_id).first()
+            canonical = Issue.objects.filter(project__archived_at__isnull=True).filter(pk=canonical_issue_id).first()
             if canonical is None:
                 self._not_found(context)
             try:
@@ -1244,7 +1309,7 @@ class FeatureRequestAgentService:
 
         def operation():
             issue = (
-                Issue.objects.select_for_update(of=("self",))
+                Issue.objects.filter(project__archived_at__isnull=True).select_for_update(of=("self",))
                 .select_related("project")
                 .filter(pk=issue_id)
                 .first()
@@ -1280,7 +1345,7 @@ class FeatureRequestAgentService:
 
         def operation():
             issue = (
-                Issue.objects.select_for_update(of=("self",))
+                Issue.objects.filter(project__archived_at__isnull=True).select_for_update(of=("self",))
                 .select_related("project")
                 .filter(pk=issue_id)
                 .first()
@@ -1332,7 +1397,7 @@ class FeatureRequestAgentService:
 
         def operation():
             issue = (
-                Issue.objects.select_for_update(of=("self",))
+                Issue.objects.filter(project__archived_at__isnull=True).select_for_update(of=("self",))
                 .select_related("project")
                 .filter(pk=issue_id)
                 .first()
@@ -1388,7 +1453,7 @@ class FeatureRequestAgentService:
 
         def operation():
             issue = (
-                Issue.objects.select_for_update(of=("self",))
+                Issue.objects.filter(project__archived_at__isnull=True).select_for_update(of=("self",))
                 .select_related("project")
                 .filter(pk=issue_id)
                 .first()
@@ -1468,7 +1533,7 @@ class FeatureRequestAgentService:
 
         def operation():
             issue = (
-                Issue.objects.select_for_update(of=("self",))
+                Issue.objects.filter(project__archived_at__isnull=True).select_for_update(of=("self",))
                 .select_related("project")
                 .filter(pk=issue_id)
                 .first()
@@ -1513,7 +1578,7 @@ class FeatureRequestAgentService:
                     )
                 if assessment is None:
                     spec_revision = (
-                        ProjectSpec.objects.filter(project=issue.project)
+                        ProjectSpec.objects.filter(project__archived_at__isnull=True).filter(project=issue.project)
                         .values_list("revision", flat=True)
                         .first()
                         or 0
@@ -1526,7 +1591,7 @@ class FeatureRequestAgentService:
                         public_reason=reason,
                         evaluator_version="owner_manual_v1",
                     )
-                    IssueEvent.objects.create(
+                    IssueEvent.objects.filter(issue__project__archived_at__isnull=True).create(
                         issue=issue,
                         actor=context.user,
                         event_type=IssueEvent.Type.SCOPE_ASSESSED,
@@ -1570,14 +1635,14 @@ class FeatureRequestAgentService:
                 notification_outcome="not_repeated",
             )
             return result
-        issue = Issue.objects.select_related("project").filter(pk=issue_id).first()
+        issue = Issue.objects.filter(project__archived_at__isnull=True).select_related("project").filter(pk=issue_id).first()
         if issue is None:
             self._not_found(context)
         self._moderate_comment(context, body, issue)
         context.audit_extra["approval_evidence"] = {"owner": "agent", "current_turn": True}
 
         def operation():
-            locked_issue = Issue.objects.select_for_update(of=("self",)).filter(
+            locked_issue = Issue.objects.filter(project__archived_at__isnull=True).select_for_update(of=("self",)).filter(
                 pk=issue_id
             ).first()
             if locked_issue is None:
@@ -1627,7 +1692,7 @@ class FeatureRequestAgentService:
                 notification_outcome="not_applicable",
             )
             return result
-        comment = IssueComment.objects.select_related("issue__project").filter(
+        comment = IssueComment.objects.filter(issue__project__archived_at__isnull=True).select_related("issue__project").filter(
             pk=comment_id, issue_id=issue_id
         ).first()
         if comment is None:
@@ -1643,7 +1708,7 @@ class FeatureRequestAgentService:
 
         def operation():
             locked = (
-                IssueComment.objects.select_for_update(of=("self",))
+                IssueComment.objects.filter(issue__project__archived_at__isnull=True).select_for_update(of=("self",))
                 .select_related("issue__project")
                 .filter(pk=comment_id, issue_id=issue_id)
                 .first()

@@ -1,6 +1,6 @@
 $schema: ./contract.schema.json
 schema_version: "1"
-agent_contract_version: 1.1.0
+agent_contract_version: 1.2.0
 
 product:
   name: FeatureRequest
@@ -95,7 +95,19 @@ server_instructions:
     - id: delivery_natural_key
       text: A delivery artifact is naturally identified by issue_id and URL; the same kind and label returns created false, while different metadata for the same key returns idempotency_conflict instead of old metadata.
 
+    - id: archived_project_access
+      text: Archiving retains the project, its slug, and all child data but removes it from ordinary project lists, queues, counts, feeds, and all board-content reads and writes for every actor including its owner. Archived content returns not_found, including cached mutation results. Only owner-scoped list_archived_projects metadata and archive_project or restore_project lifecycle receipts remain accessible. Restore makes the original board available again.
+    - id: archived_project_capacity
+      text: Archived projects do not consume project_count capacity. get_account_capabilities and create_project count active projects only. restore_project enforces the same plan limit atomically with create_project using an owner lock followed by the project lock, and returns capacity_reached without changing state when full. Ordinary child writes lock and recheck the active parent before committing.
+    - id: archive_lifecycle_replay
+      text: Archive and restore require the owner and current expected_revision. A request already in its target state is a no-op after revision validation. Both mutations return only project_id, revision, and archived_at. Same-key lifecycle replays return the original receipt without reapplying a transition, even if a later transition changed the project. Read current state with list_projects or list_archived_projects before retrying an uncertain result.
+
 resources:
+  archived_project:
+    description: Owner-private project identity and revision retained for restoring a hidden board; child content is unavailable until restored.
+    owner_rule: Project.owner_id equals authenticated_actor_id.
+    tenant_rule: not_applicable
+    revisioned: true
   account:
     description: Capabilities and capacity computed for the authenticated actor.
     owner_rule: The resource is the authenticated actor's account projection.
@@ -256,7 +268,7 @@ application_errors:
   invalid_state: {message: The requested state transition or relationship is invalid., retryable: false, details: [state]}
 
 mapping:
-  snapshot: agent/mappings/mcp-1.1.0.json
+  snapshot: agent/mappings/mcp-1.2.0.json
   read_only_hint: side_effect == read_only
   destructive_hint: destructive
   open_world_hint: open_world
@@ -264,6 +276,39 @@ mapping:
   excluded_from_security_scopes: [capability, ownership, plan, limit]
 
 $defs:
+  archived_project:
+    type: object
+    additionalProperties: false
+    required: [id, name, slug, revision, archived_at]
+    properties:
+      id: {$ref: "#/$defs/positive_id"}
+      name: {type: string, minLength: 1, maxLength: 120}
+      slug: {$ref: "#/$defs/slug"}
+      revision: {$ref: "#/$defs/revision"}
+      archived_at: {$ref: "#/$defs/timestamp"}
+  archived_project_list:
+    type: object
+    additionalProperties: false
+    required: [projects]
+    properties:
+      projects: {type: array, items: {$ref: "#/$defs/archived_project"}}
+  project_archive_input:
+    type: object
+    additionalProperties: false
+    required: [project_id, expected_revision, idempotency_key]
+    properties:
+      project_id: {$ref: "#/$defs/positive_id"}
+      expected_revision: {$ref: "#/$defs/revision"}
+      idempotency_key: {$ref: "#/$defs/idempotency_key"}
+  project_archive_receipt:
+    type: object
+    additionalProperties: false
+    required: [project_id, revision, archived_at]
+    properties:
+      project_id: {$ref: "#/$defs/positive_id"}
+      revision: {$ref: "#/$defs/revision"}
+      archived_at:
+        anyOf: [{$ref: "#/$defs/timestamp"}, {type: "null"}]
   positive_id: {type: integer, minimum: 1}
   revision: {type: integer, minimum: 1}
   timestamp: {type: string, format: date-time}
@@ -999,7 +1044,7 @@ tools:
     open_world: false
     approval: *no_approval
     idempotency: &required_idempotency {mode: required, key_field: idempotency_key, key_scope: authenticated_actor_id+tool_name, guarantee_hours: 24, replay: return_original_result, conflict: idempotency_conflict, uncertain_result: authoritative_read_before_retry}
-    errors: [invalid_input, permission_denied, capacity_reached, feature_unavailable, idempotency_conflict, rate_limited]
+    errors: [invalid_input, permission_denied, not_found, capacity_reached, feature_unavailable, idempotency_conflict, rate_limited]
     data_classification: &public_write {input: [public_untrusted_content], output: [public_untrusted_content, restricted_operational_evidence], untrusted_output: true, audit_redaction: [raw_user_content, raw_url]}
     audit_profile: write
     long_running: *not_long_running
@@ -1538,3 +1583,156 @@ tools:
     data_classification: *public_write
     audit_profile: external
     long_running: *not_long_running
+
+  list_archived_projects:
+    title: List archived projects
+    description: List only the authenticated owner's archived project identity and revision, without board content.
+    exposure: public
+    input_schema:
+      $ref: '#/$defs/empty_input'
+    output_schema:
+      $ref: '#/$defs/archived_project_list'
+    authentication: required
+    required_scopes:
+    - read
+    required_capabilities:
+    - project_management
+    resource_type: archived_project
+    ownership: project_owner
+    side_effect: read_only
+    destructive: false
+    open_world: false
+    approval:
+      mode: none
+      owner: none
+      conditions: []
+      confirmation_field: null
+      preconditions: []
+    idempotency:
+      mode: not_required
+      key_field: null
+      key_scope: null
+      guarantee_hours: null
+      replay: not_applicable
+      conflict: not_applicable
+      uncertain_result: not_applicable
+    errors:
+    - invalid_input
+    - permission_denied
+    - feature_unavailable
+    - rate_limited
+    data_classification:
+      input: []
+      output:
+      - public_untrusted_content
+      untrusted_output: true
+      audit_redaction:
+      - raw_user_content
+      - raw_url
+    audit_profile: read
+    long_running:
+      mode: not_applicable
+      reason: The tool completes within one bounded request and does not create an operation.
+  archive_project:
+    title: Archive project
+    description: Hide an owned project and its content while retaining its slug and data for later restoration.
+    exposure: public
+    input_schema:
+      $ref: '#/$defs/project_archive_input'
+    output_schema:
+      $ref: '#/$defs/project_archive_receipt'
+    authentication: required
+    required_scopes:
+    - write
+    required_capabilities:
+    - project_management
+    resource_type: archived_project
+    ownership: project_owner
+    side_effect: reversible_write
+    destructive: false
+    open_world: false
+    approval:
+      mode: none
+      owner: none
+      conditions: []
+      confirmation_field: null
+      preconditions: []
+    idempotency:
+      mode: required
+      key_field: idempotency_key
+      key_scope: authenticated_actor_id+tool_name
+      guarantee_hours: 24
+      replay: return_original_result
+      conflict: idempotency_conflict
+      uncertain_result: authoritative_read_before_retry
+    errors:
+    - invalid_input
+    - permission_denied
+    - not_found
+    - feature_unavailable
+    - revision_conflict
+    - idempotency_conflict
+    - rate_limited
+    data_classification:
+      input:
+      - restricted_operational_evidence
+      output:
+      - restricted_operational_evidence
+      untrusted_output: false
+      audit_redaction: []
+    audit_profile: write
+    long_running:
+      mode: not_applicable
+      reason: The tool completes within one bounded request and does not create an operation.
+  restore_project:
+    title: Restore project
+    description: Reactivate an owned archived project at its original URL, subject to active-project capacity.
+    exposure: public
+    input_schema:
+      $ref: '#/$defs/project_archive_input'
+    output_schema:
+      $ref: '#/$defs/project_archive_receipt'
+    authentication: required
+    required_scopes:
+    - write
+    required_capabilities:
+    - project_management
+    resource_type: archived_project
+    ownership: project_owner
+    side_effect: reversible_write
+    destructive: false
+    open_world: false
+    approval:
+      mode: none
+      owner: none
+      conditions: []
+      confirmation_field: null
+      preconditions: []
+    idempotency:
+      mode: required
+      key_field: idempotency_key
+      key_scope: authenticated_actor_id+tool_name
+      guarantee_hours: 24
+      replay: return_original_result
+      conflict: idempotency_conflict
+      uncertain_result: authoritative_read_before_retry
+    errors:
+    - invalid_input
+    - permission_denied
+    - not_found
+    - feature_unavailable
+    - revision_conflict
+    - idempotency_conflict
+    - rate_limited
+    - capacity_reached
+    data_classification:
+      input:
+      - restricted_operational_evidence
+      output:
+      - restricted_operational_evidence
+      untrusted_output: false
+      audit_redaction: []
+    audit_profile: write
+    long_running:
+      mode: not_applicable
+      reason: The tool completes within one bounded request and does not create an operation.

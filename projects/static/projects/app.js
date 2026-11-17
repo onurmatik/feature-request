@@ -138,6 +138,11 @@
 
   const state = {
     projects: [],
+    archivedProjects: [],
+    isArchivedProjectsLoading: false,
+    archivedProjectsFeedback: "",
+    archivedProjectsFeedbackTone: "",
+    projectArchivePendingId: null,
     interactedProjects: [],
     issues: [],
     comments: [],
@@ -2195,6 +2200,7 @@
             <div class="max-w-6xl mx-auto w-full px-6 md:px-8 py-10 space-y-8">
               ${renderSettingsMobileNav(computed)}
               <div><h2 class="text-2xl font-bold text-[#111827] mb-2">General Settings</h2><p class="text-sm text-[#6b7280]">Global workspace settings live here. API access applies to all of your projects.</p></div>
+              ${renderArchivedProjects()}
               <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <section class="rounded-md-ds border border-[#e5e7eb] bg-white p-6 space-y-4"><h3 class="text-sm font-bold uppercase tracking-widest text-[#6b7280]">API Access</h3>${state.isAuthenticated ? `<div class="space-y-1"><p class="text-sm text-[#111827]">Generate and manage tokens for programmatic access.</p><p class="text-xs text-[#6b7280]">Your API tokens inherit your account permissions and can access all of your projects.</p><a href="${settingsUrl("api")}" data-action="settings-nav" data-section="api" class="inline-flex items-center gap-2 rounded-sm-ds bg-[#111827] px-4 py-2 text-xs font-bold uppercase tracking-wide text-white hover:bg-black transition-colors">${icon("key", 14)}Open API Access</a></div>` : `<div class="space-y-3"><p class="text-sm text-[#6b7280]">Sign in to manage settings and API tokens.</p><button type="button" data-action="open-auth" data-mode="signIn" class="px-4 py-2 bg-[#111827] text-white text-xs font-bold rounded-sm-ds hover:bg-black transition-colors">Sign In</button></div>`}</section>
                 <section class="rounded-md-ds border border-[#e5e7eb] bg-white p-6 space-y-4"><h3 class="text-sm font-bold uppercase tracking-widest text-[#6b7280]">Agent Integration</h3><div class="space-y-2 text-sm text-[#6b7280]"><p>One agent token is maintained per user.</p><p>It is write-enabled and only rotates when you refresh it.</p></div><a href="${settingsUrl("connect-agent")}" data-action="settings-nav" data-section="connect-agent" class="inline-flex items-center gap-2 rounded-sm-ds bg-[#06B6D4] px-4 py-2 text-xs font-bold uppercase tracking-wide text-white hover:bg-cyan-600 transition-colors">${icon("bot", 14)}Open Agent Integration</a></section>
@@ -2204,6 +2210,21 @@
         </div>`;
     }
     return renderApiOrAgentSettings(computed);
+  }
+
+  function renderArchivedProjects() {
+    if (!state.isAuthenticated || (!state.archivedProjects.length && !state.isArchivedProjectsLoading && !state.archivedProjectsFeedback)) {
+      return "";
+    }
+    return `<section id="archived-projects" class="rounded-md-ds border border-[#e5e7eb] bg-white p-6 space-y-4" aria-labelledby="archived-projects-title">
+      <h3 id="archived-projects-title" tabindex="-1" class="text-sm font-bold text-[#111827]">Archived projects</h3>
+      ${state.isArchivedProjectsLoading ? `<p role="status" class="text-xs text-[#6b7280]">Loading…</p>` : ""}
+      ${state.archivedProjects.map((project) => `<div class="flex items-center justify-between gap-4">
+        <div class="min-w-0"><p class="truncate text-sm font-bold text-[#111827]">${escapeHtml(project.name)}</p><p class="truncate text-xs text-[#6b7280]">${escapeHtml(project.slug)}</p></div>
+        <button type="button" data-action="restore-project" data-id="${project.id}" aria-label="Restore ${escapeAttr(project.name)}" class="shrink-0 rounded-sm-ds border border-[#e5e7eb] bg-white px-4 py-2 text-xs font-bold text-[#111827] hover:bg-[#f3f4f6] disabled:opacity-45"${disabledAttr(state.projectArchivePendingId !== null)}>${state.projectArchivePendingId === project.id ? "Restoring…" : "Restore"}</button>
+      </div>`).join("")}
+      ${state.archivedProjectsFeedback ? `<p id="archive-feedback" tabindex="-1" role="status" class="text-xs ${state.archivedProjectsFeedbackTone === "error" ? "text-[#dc2626]" : "text-[#16a34a]"}">${escapeHtml(state.archivedProjectsFeedback)}</p>` : ""}
+    </section>`;
   }
 
   function renderApiOrAgentSettings(computed) {
@@ -2369,6 +2390,7 @@
   }
 
   function renderProjectGeneralSettings(project, computed) {
+    const actionsDisabled = !project || !computed.isOwnerViewer || state.isProjectDeleting || state.isProjectSaving || state.projectArchivePendingId !== null;
     return `
       <div class="space-y-12">
         <section class="space-y-6">
@@ -2379,7 +2401,7 @@
         </section>
         <section class="space-y-4">
           <h3 class="text-sm font-bold uppercase tracking-widest text-[#dc2626]">Danger Zone</h3>
-          <div class="p-4 border border-rose-100 bg-rose-50 rounded-md-ds flex flex-col md:flex-row gap-4 md:items-center md:justify-between"><div class="space-y-1"><p class="text-sm font-bold text-[#111827]">Delete this project</p><p class="text-xs text-[#6b7280]">Permanently deletes this project, including its requests and comments.</p></div><button type="button" data-action="open-delete-modal" class="shrink-0 px-4 py-2 bg-[#dc2626] text-white text-xs font-bold rounded-sm-ds hover:bg-red-700 transition-all shadow-sm"${disabledAttr(!project || !computed.isOwnerViewer || state.isProjectDeleting)}>Delete Project</button></div>
+          <div class="p-4 border border-rose-100 bg-rose-50 rounded-md-ds flex flex-col md:flex-row gap-4 md:items-center md:justify-between"><div class="space-y-1"><p class="text-sm font-bold text-[#111827]">Archive or delete project</p><p class="text-xs text-[#6b7280]">Archive hides the project until you restore it. Delete is permanent.</p></div><div class="flex flex-wrap shrink-0 gap-3"><button type="button" data-action="archive-project" class="px-4 py-2 border border-[#e5e7eb] bg-white text-[#111827] text-xs font-bold rounded-sm-ds hover:bg-[#f3f4f6] disabled:opacity-45"${disabledAttr(actionsDisabled)}>${state.projectArchivePendingId === project?.id ? "Archiving…" : "Archive"}</button><button type="button" data-action="open-delete-modal" class="px-4 py-2 bg-[#dc2626] text-white text-xs font-bold rounded-sm-ds hover:bg-red-700 transition-all shadow-sm disabled:opacity-45"${disabledAttr(actionsDisabled)}>Delete Project</button></div></div>
         </section>
       </div>`;
   }
@@ -2607,6 +2629,8 @@
     }
     const response = await fetch(`/api/owners/${encodeURIComponent(state.ownerHandle)}/projects`);
     if (response.status === 404) {
+      clearProjectContent();
+      state.projects = [];
       state.isRouteNotFound = true;
       render();
       return;
@@ -2625,6 +2649,8 @@
       !route.isProjectFormRoute &&
       !data.some((project) => project.slug === route.projectSlug)
     ) {
+      clearProjectContent();
+      state.projects = Array.isArray(data) ? data : [];
       state.isRouteNotFound = true;
       render();
       return;
@@ -2634,6 +2660,43 @@
       state.selectedProjectSlug = "";
     }
     render();
+  }
+
+  async function refreshArchivedProjects() {
+    if (!state.isAuthenticated) {
+      state.archivedProjects = [];
+      return;
+    }
+    state.isArchivedProjectsLoading = true;
+    render();
+    try {
+      const response = await fetch("/api/projects/archived");
+      const data = await jsonOrEmpty(response);
+      if (!response.ok) {
+        throw new Error(detailFromPayload(data, "Archived projects could not be loaded."));
+      }
+      state.archivedProjects = Array.isArray(data) ? data : [];
+    } catch (error) {
+      state.archivedProjectsFeedback = error.message || "Archived projects could not be loaded.";
+      state.archivedProjectsFeedbackTone = "error";
+    } finally {
+      state.isArchivedProjectsLoading = false;
+      render();
+    }
+  }
+
+  function clearProjectContent() {
+    state.issues = [];
+    state.comments = [];
+    state.selectedIssueId = null;
+    state.isIssueDetailOpen = false;
+    state.loadedCommentsIssueId = null;
+    state.projectSpec = null;
+    state.projectSpecDraft = PROJECT_SPEC_TEMPLATE;
+    state.projectSpecDraftProjectId = null;
+    state.scopeAssessment = null;
+    state.loadedScopeAssessmentIssueId = null;
+    state.specProposals = [];
   }
 
   async function refreshProjectSpec() {
@@ -3269,6 +3332,10 @@
       window.history[replaceHistory ? "replaceState" : "pushState"]({ view: state.view }, "", nextUrl);
     }
     render();
+    if (state.view === "settingsGeneral") {
+      state.archivedProjectsFeedback = "";
+      refreshArchivedProjects();
+    }
     if (state.view === "settingsApi" || state.view === "settingsConnectAgent") {
       refreshApiTokens().catch(() => {
         state.apiTokenFeedback = "API tokens could not be loaded.";
@@ -3874,6 +3941,73 @@
     } finally {
       state.isProjectDeleting = false;
       render();
+    }
+  }
+
+  async function handleProjectArchive(project, archived) {
+    if (!project || !state.isAuthenticated || state.projectArchivePendingId !== null) {
+      return;
+    }
+    if (archived && !getComputed().isOwnerViewer) {
+      return;
+    }
+    state.projectArchivePendingId = project.id;
+    state.projectFeedback = "";
+    state.archivedProjectsFeedback = "";
+    render();
+    try {
+      const response = await fetch(`/api/projects/${project.id}/${archived ? "archive" : "restore"}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-CSRFToken": csrfTokenFromCookie() },
+        body: JSON.stringify({ expected_revision: project.revision }),
+      });
+      const data = await jsonOrEmpty(response);
+      if (!response.ok) {
+        if (response.status === 409) {
+          if (archived) await refreshProjects();
+          else await refreshArchivedProjects();
+        }
+        throw new Error(detailFromPayload(data, `Project ${archived ? "archive" : "restore"} failed.`));
+      }
+      for (const key of ["projects", "interactedProjects", "messageSidebarProjects", "agentPromptProjects"]) {
+        state[key] = state[key].filter((item) => item.id !== project.id);
+      }
+      if (archived) {
+        clearProjectContent();
+        state.isDeleteModalOpen = false;
+        state.selectedProjectSlug = "";
+        state.ownerHandle = state.currentUserHandle;
+        state.view = "issues";
+        state.isRouteNotFound = false;
+        window.history.replaceState({ slug: "" }, "", boardUrl(""));
+        await runRouteLoads();
+        setStatus("Project archived. Restore it from Settings → Archived projects.");
+      } else {
+        state.archivedProjects = state.archivedProjects.filter((item) => item.id !== project.id);
+        state.archivedProjectsFeedback = `${project.name} restored.`;
+        state.archivedProjectsFeedbackTone = "success";
+        await refreshAgentPromptProjects();
+        if (!state.ownerHandle || normalizeHandle(state.ownerHandle) === normalizeHandle(state.currentUserHandle)) {
+          state.projects = [...state.agentPromptProjects];
+        }
+      }
+    } catch (error) {
+      const message = error.message || "Project update failed. Please try again.";
+      if (archived) {
+        state.projectFeedback = message;
+        state.projectFeedbackTone = "error";
+      } else {
+        state.archivedProjectsFeedback = message;
+        state.archivedProjectsFeedbackTone = "error";
+      }
+    } finally {
+      state.projectArchivePendingId = null;
+      render();
+      if (!archived) {
+        document.getElementById("archive-feedback")?.focus({ preventScroll: true });
+      } else {
+        root.querySelector('[data-action="archive-project"]')?.focus({ preventScroll: true });
+      }
     }
   }
 
@@ -4512,6 +4646,12 @@
         state.isDeleteModalOpen = true;
         render();
         break;
+      case "archive-project":
+        handleProjectArchive(computed.selectedProject, true);
+        break;
+      case "restore-project":
+        handleProjectArchive(state.archivedProjects.find((project) => project.id === Number(element.dataset.id)), false);
+        break;
       case "close-delete-modal":
         state.isDeleteModalOpen = false;
         render();
@@ -4585,6 +4725,10 @@
         await refreshMessages();
       }
       await refreshMessageSidebarProjects();
+      return;
+    }
+    if (route.kind === "settings" && state.view === "settingsGeneral") {
+      await refreshArchivedProjects();
       return;
     }
     if (route.kind === "settings" && (state.view === "settingsApi" || state.view === "settingsConnectAgent")) {

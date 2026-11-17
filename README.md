@@ -251,9 +251,9 @@ Project responses include `open_issues_count`, which counts issues with status `
 
 ## MCP Server
 
-FeatureRequest includes an explicit Python `MCPServer[None]` exposing the Agent Contract 1.1.0
+FeatureRequest includes an explicit Python `MCPServer[None]` exposing the Agent Contract 1.2.0
 request operating workflow over stateless Streamable HTTP. It implements modern MCP 2026-07-28
-`server/discover`, per-request protocol headers, and a deterministic 30-tool registry. FastMCP,
+`server/discover`, per-request protocol headers, and a deterministic 33-tool registry. FastMCP,
 loopback HTTP API forwarding, and legacy initialize transport are not used.
 
 `/mcp` is protected by OAuth 2.1 Authorization Code + PKCE S256. Client ID Metadata Documents
@@ -336,6 +336,16 @@ Project tools:
 - `create_project`
 - `update_project`
 - `delete_project` (destructive; requires `get_project`, explicit user direction, and a matching confirmation id)
+- `list_archived_projects`, `archive_project`, `restore_project`
+
+Project settings includes Archive beside Delete. Owners restore projects from
+Settings → Archived projects. Archive retains the slug and all data, hides the board
+and child content from normal web/API/MCP access, and frees active-project capacity.
+Restore requires available capacity. REST exposes `GET /api/projects/archived` and
+`POST /api/projects/{project_id}/archive` or `/restore` with `expected_revision`.
+These routes return owner-only archive summaries or minimal lifecycle receipts.
+Normative authorization, visibility, capacity, revision, and replay rules are in
+`agent/contract.yaml`; the MCP production release gates remain pending.
 
 Product scope tools:
 

@@ -1,0 +1,3423 @@
+schema_version: '1'
+agent_contract_version: 1.2.0
+categories:
+  success:
+    status: covered
+    applies_to: all
+    vectors:
+    - get_account_capabilities_success
+    - list_projects_success
+    - get_project_success
+    - get_project_spec_success
+    - create_project_success
+    - update_project_success
+    - update_project_spec_success
+    - delete_project_success
+    - list_requests_success
+    - get_request_success
+    - get_request_scope_assessment_success
+    - list_request_comments_success
+    - get_queue_snapshot_success
+    - find_duplicate_candidates_success
+    - list_request_activity_success
+    - list_request_changes_success
+    - list_delivery_artifacts_success
+    - list_project_spec_proposals_success
+    - create_request_success
+    - reassess_request_scope_success
+    - propose_project_spec_update_success
+    - resolve_project_spec_proposal_success
+    - link_duplicate_request_success
+    - unlink_duplicate_request_success
+    - link_delivery_artifact_success
+    - unlink_delivery_artifact_success
+    - update_request_success
+    - transition_request_success
+    - add_request_comment_success
+    - update_request_comment_success
+    - list_archived_projects_success
+    - archive_project_success
+    - restore_project_success
+  invalid_input:
+    status: covered
+    applies_to: all
+    vectors:
+    - invalid_input_matrix
+  missing_capability:
+    status: covered
+    applies_to:
+    - list_projects
+    - get_project
+    - get_project_spec
+    - create_project
+    - update_project
+    - update_project_spec
+    - delete_project
+    - list_requests
+    - get_request
+    - get_request_scope_assessment
+    - list_request_comments
+    - get_queue_snapshot
+    - find_duplicate_candidates
+    - list_request_activity
+    - list_request_changes
+    - list_delivery_artifacts
+    - list_project_spec_proposals
+    - create_request
+    - reassess_request_scope
+    - propose_project_spec_update
+    - resolve_project_spec_proposal
+    - link_duplicate_request
+    - unlink_duplicate_request
+    - link_delivery_artifact
+    - unlink_delivery_artifact
+    - update_request
+    - transition_request
+    - add_request_comment
+    - update_request_comment
+    - list_archived_projects
+    - archive_project
+    - restore_project
+    vectors:
+    - missing_capability_matrix
+  ownership_isolation:
+    status: covered
+    applies_to:
+    - list_projects
+    - get_project
+    - update_project
+    - update_project_spec
+    - delete_project
+    - get_queue_snapshot
+    - list_request_activity
+    - list_request_changes
+    - list_delivery_artifacts
+    - list_project_spec_proposals
+    - reassess_request_scope
+    - propose_project_spec_update
+    - resolve_project_spec_proposal
+    - link_duplicate_request
+    - unlink_duplicate_request
+    - link_delivery_artifact
+    - unlink_delivery_artifact
+    - update_request
+    - transition_request
+    - update_request_comment
+    - archive_project
+    - restore_project
+    - list_archived_projects
+    vectors:
+    - ownership_isolation_matrix
+    - ownership_filtering_matrix
+  capability_plan_matrix:
+    status: covered
+    applies_to: all
+    vectors:
+    - pro_plan_matrix
+  quota_concurrency:
+    status: covered
+    applies_to:
+    - create_project
+    - update_project
+    - update_project_spec
+    - delete_project
+    - reassess_request_scope
+    - propose_project_spec_update
+    - resolve_project_spec_proposal
+    - link_duplicate_request
+    - unlink_duplicate_request
+    - link_delivery_artifact
+    - unlink_delivery_artifact
+    - update_request
+    - transition_request
+    - update_request_comment
+    - archive_project
+    - restore_project
+    vectors:
+    - create_project_capacity_concurrency
+    - revision_conflict_matrix
+  idempotent_replay:
+    status: covered
+    applies_to:
+    - create_project
+    - update_project
+    - update_project_spec
+    - delete_project
+    - create_request
+    - reassess_request_scope
+    - propose_project_spec_update
+    - resolve_project_spec_proposal
+    - link_duplicate_request
+    - unlink_duplicate_request
+    - link_delivery_artifact
+    - unlink_delivery_artifact
+    - update_request
+    - transition_request
+    - add_request_comment
+    - update_request_comment
+    - archive_project
+    - restore_project
+    vectors:
+    - mutation_replay_matrix
+    - delivery_natural_key_reuse
+  idempotency_conflict:
+    status: covered
+    applies_to:
+    - create_project
+    - update_project
+    - update_project_spec
+    - delete_project
+    - create_request
+    - reassess_request_scope
+    - propose_project_spec_update
+    - resolve_project_spec_proposal
+    - link_duplicate_request
+    - unlink_duplicate_request
+    - link_delivery_artifact
+    - unlink_delivery_artifact
+    - update_request
+    - transition_request
+    - add_request_comment
+    - update_request_comment
+    - archive_project
+    - restore_project
+    vectors:
+    - mutation_conflict_matrix
+    - delivery_natural_key_conflict
+  approval:
+    status: covered
+    applies_to:
+    - update_project_spec
+    - delete_project
+    - create_request
+    - reassess_request_scope
+    - propose_project_spec_update
+    - transition_request
+    - add_request_comment
+    - update_request_comment
+    vectors:
+    - approval_matrix
+    - approval_granted_matrix
+  uncertain_external_effect:
+    status: covered
+    applies_to:
+    - update_project_spec
+    - create_request
+    - reassess_request_scope
+    - propose_project_spec_update
+    - add_request_comment
+    - update_request_comment
+    vectors:
+    - external_effect_uncertain_matrix
+    - notification_unknown_after_commit_matrix
+  redaction:
+    status: covered
+    applies_to: all
+    vectors:
+    - redaction_matrix
+  async_status:
+    status: not_applicable
+    applies_to: all
+    vectors: []
+    reason: Every 1.0.0 tool completes within a bounded request and no tool starts a long-running operation.
+error_coverage:
+  invalid_input:
+    status: covered
+    vectors:
+    - invalid_input_matrix
+  permission_denied:
+    status: covered
+    vectors:
+    - ownership_isolation_matrix
+  not_found:
+    status: not_applicable
+    reason: No dedicated missing-resource fixture exists in the Contract-stage bundle; downstream service conformance must
+      exercise each targetable tool's declared not_found behavior.
+  capacity_reached:
+    status: covered
+    vectors:
+    - create_project_capacity_concurrency
+  quota_exhausted:
+    status: not_applicable
+    reason: Contract 1.0.0 defines no renewable usage quota; project_count is a lifetime capacity limit covered by capacity_reached.
+  rate_limited:
+    status: not_applicable
+    reason: Contract 1.0.0 defines no deterministic global call-rate policy from which a service-level vector can derive retry
+      timing.
+  feature_unavailable:
+    status: covered
+    vectors:
+    - missing_capability_matrix
+  revision_conflict:
+    status: covered
+    vectors:
+    - revision_conflict_matrix
+  idempotency_conflict:
+    status: covered
+    vectors:
+    - mutation_conflict_matrix
+    - delivery_natural_key_conflict
+  moderation_rejected:
+    status: not_applicable
+    reason: Moderation classification is provider-dependent and has no deterministic rejected-content fixture in the Contract-stage
+      bundle; downstream service conformance must inject the rejection outcome.
+  dependency_unavailable:
+    status: covered
+    vectors:
+    - external_effect_uncertain_matrix
+  approval_required:
+    status: covered
+    vectors:
+    - approval_matrix
+  confirmation_mismatch:
+    status: not_applicable
+    reason: The approval vectors cover missing and granted intent but do not include a separate mismatched confirm_project_id
+      fixture; downstream service conformance must exercise the declared error.
+  invalid_state:
+    status: not_applicable
+    reason: No deterministic invalid duplicate-relationship or request-transition fixture is included in this Contract-stage
+      bundle; downstream service conformance must exercise the declared state guards.
+vectors:
+- id: get_account_capabilities_success
+  tool: get_account_capabilities
+  category: success
+  covers:
+  - success
+  input: &id018 {}
+  context: &id001
+    authenticated_actor_id: actor-1
+    authenticated_client_id: client-1
+    tenant_id: null
+    scopes:
+    - read
+    - write
+    capabilities:
+    - project_management
+    - request_management
+    - request_collaboration
+    - duplicate_evidence
+    - delivery_evidence
+    - activity_feed
+    - project_specification
+    ownership_fixture: authorized
+    plan: free
+  expected:
+    result:
+      capabilities:
+        project_management: true
+        request_management: true
+        request_collaboration: true
+        duplicate_evidence: true
+        delivery_evidence: true
+        activity_feed: true
+        project_specification: true
+      limits:
+        project_count:
+          used: 0
+          limit: 1
+          period: lifetime
+          reset_at: null
+    audit: &id002
+      profile: read
+      record_fields:
+      - authenticated_actor_id
+      - authenticated_client_id
+      - tool_name
+      - target_resource
+      - authorization_decisions
+      - redacted_input_hash
+      - result_or_error_code
+      - request_id
+      - utc_timestamp
+- id: list_projects_success
+  tool: list_projects
+  category: success
+  covers:
+  - success
+  input: &id019 {}
+  context: *id001
+  expected:
+    result: &id048
+      projects:
+      - &id003
+        id: 1
+        owner_id: 1
+        owner_handle: owner
+        name: Roadmap
+        slug: roadmap
+        tagline: Public roadmap
+        url: https://example.com
+        favicon_url: ''
+        open_issues_count: 1
+        revision: 1
+        created_at: '2026-01-01T00:00:00Z'
+        updated_at: '2026-01-01T00:00:00Z'
+    audit: *id002
+- id: get_project_success
+  tool: get_project
+  category: success
+  covers:
+  - success
+  input: &id020
+    project_id: 1
+  context: *id001
+  expected:
+    result: *id003
+    audit: *id002
+- id: create_project_success
+  tool: create_project
+  category: success
+  covers:
+  - success
+  input: &id022
+    name: Roadmap
+    tagline: Public roadmap
+    url: https://example.com
+    idempotency_key: idem-create-project-0001
+  context: *id001
+  expected:
+    result: *id003
+    audit: &id004
+      profile: write
+      record_fields:
+      - authenticated_actor_id
+      - authenticated_client_id
+      - tool_name
+      - target_resource
+      - authorization_decisions
+      - redacted_input_hash
+      - result_or_error_code
+      - request_id
+      - idempotency_id
+      - utc_timestamp
+- id: update_project_success
+  tool: update_project
+  category: success
+  covers:
+  - success
+  input: &id023
+    project_id: 1
+    tagline: Updated roadmap
+    expected_revision: 1
+    idempotency_key: idem-update-project-0001
+  context: *id001
+  expected:
+    result: &id050
+      id: 1
+      owner_id: 1
+      owner_handle: owner
+      name: Roadmap
+      slug: roadmap
+      tagline: Updated roadmap
+      url: https://example.com
+      favicon_url: ''
+      open_issues_count: 1
+      revision: 2
+      created_at: '2026-01-01T00:00:00Z'
+      updated_at: '2026-01-01T00:01:00Z'
+    audit: *id004
+- id: delete_project_success
+  tool: delete_project
+  category: success
+  covers:
+  - success
+  input: &id025
+    project_id: 1
+    confirm_project_id: 1
+    expected_revision: 1
+    idempotency_key: idem-delete-project-0001
+  context:
+    authenticated_actor_id: actor-1
+    authenticated_client_id: client-1
+    tenant_id: null
+    scopes:
+    - read
+    - write
+    capabilities:
+    - project_management
+    ownership_fixture: authorized_with_current_turn_explicit_user_intent_get_project_same_turn_and_matching_confirmation
+    plan: free
+  expected:
+    result: &id052
+      project_id: 1
+      deleted: true
+      deleted_revision: 1
+    audit: &id008
+      profile: destructive
+      record_fields:
+      - authenticated_actor_id
+      - authenticated_client_id
+      - tool_name
+      - target_resource
+      - authorization_decisions
+      - redacted_input_hash
+      - result_or_error_code
+      - request_id
+      - idempotency_id
+      - approval_evidence
+      - utc_timestamp
+- id: list_requests_success
+  tool: list_requests
+  category: success
+  covers:
+  - success
+  input: &id026
+    owner_handle: owner
+    project_slug: roadmap
+    status: active
+    limit: 50
+  context: *id001
+  expected:
+    result: &id053
+      requests:
+      - &id005
+        id: 10
+        project_id: 1
+        author_id: 2
+        author_handle: author
+        author_display_name: Author
+        author_avatar_url: ''
+        issue_type: feature
+        title: Dark mode
+        description: Add dark mode
+        status: open
+        priority: 2
+        duplicate_of_id: null
+        upvotes_count: 0
+        comments_count: 1
+        delivery_artifacts_count: 1
+        last_activity_at: '2026-01-01T00:00:00Z'
+        revision: 1
+        created_at: '2026-01-01T00:00:00Z'
+        updated_at: '2026-01-01T00:00:00Z'
+    audit: *id002
+- id: get_request_success
+  tool: get_request
+  category: success
+  covers:
+  - success
+  input: &id027
+    issue_id: 10
+  context: *id001
+  expected:
+    result: *id005
+    audit: *id002
+- id: list_request_comments_success
+  tool: list_request_comments
+  category: success
+  covers:
+  - success
+  input: &id029
+    issue_id: 10
+  context: *id001
+  expected:
+    result: &id054
+      comments:
+      - &id010
+        id: 20
+        issue_id: 10
+        author_id: 2
+        author_handle: author
+        author_avatar_url: ''
+        body: Please add this.
+        revision: 1
+        created_at: '2026-01-01T00:00:00Z'
+        updated_at: '2026-01-01T00:00:00Z'
+    audit: *id002
+- id: get_queue_snapshot_success
+  tool: get_queue_snapshot
+  category: success
+  covers:
+  - success
+  input: &id030
+    project_id: 1
+    limit: 100
+  context: *id001
+  expected:
+    result: &id055
+      generated_at: '2026-01-01T00:00:00Z'
+      projects_count: 1
+      active_requests_count: 1
+      status_counts:
+        open: 1
+        planned: 0
+        in_progress: 0
+      priority_counts:
+        '1': 0
+        '2': 1
+        '3': 0
+        '4': 0
+      requests:
+      - *id005
+    audit: *id002
+- id: find_duplicate_candidates_success
+  tool: find_duplicate_candidates
+  category: success
+  covers:
+  - success
+  input: &id031
+    owner_handle: owner
+    project_slug: roadmap
+    title: Dark theme
+    description: Add a dark mode
+    limit: 5
+  context: *id001
+  expected:
+    result: &id056
+      candidates:
+      - issue_id: 10
+        title: Dark mode
+        description: Add dark mode
+        issue_type: feature
+        status: open
+        priority: 2
+        duplicate_of_id: null
+        algorithm: weighted_jaccard_v1
+        similarity_score: 0.75
+        matched_terms:
+        - dark
+        - mode
+        score_components:
+          title_jaccard: 0.5
+          content_jaccard: 1.0
+          title_weight: 0.7
+          content_weight: 0.3
+    audit: *id002
+- id: list_request_activity_success
+  tool: list_request_activity
+  category: success
+  covers:
+  - success
+  input: &id032
+    issue_id: 10
+    limit: 100
+  context: *id001
+  expected:
+    result: &id057
+      events:
+      - &id006
+        id: 30
+        issue_id: 10
+        project_id: 1
+        event_type: created
+        actor_id: 2
+        actor_handle: author
+        data:
+          source: mcp
+        created_at: '2026-01-01T00:00:00Z'
+    audit: *id002
+- id: list_request_changes_success
+  tool: list_request_changes
+  category: success
+  covers:
+  - success
+  input: &id033
+    after_id: 0
+    limit: 50
+  context: *id001
+  expected:
+    result: &id058
+      events:
+      - *id006
+      next_cursor: 30
+      has_more: false
+    audit: *id002
+- id: list_delivery_artifacts_success
+  tool: list_delivery_artifacts
+  category: success
+  covers:
+  - success
+  input: &id034
+    issue_id: 10
+  context: *id001
+  expected:
+    result: &id059
+      artifacts:
+      - &id007
+        id: 40
+        issue_id: 10
+        added_by_id: 1
+        added_by_handle: owner
+        kind: pull_request
+        url: https://example.com/pull/1
+        label: PR 1
+        created_at: '2026-01-01T00:00:00Z'
+    audit: *id002
+- id: create_request_success
+  tool: create_request
+  category: success
+  covers:
+  - success
+  input: &id036
+    owner_handle: owner
+    project_slug: roadmap
+    title: Dark mode
+    description: Add dark mode
+    issue_type: feature
+    priority: 2
+    idempotency_key: idem-create-request-0001
+  context: &id009
+    authenticated_actor_id: actor-1
+    authenticated_client_id: client-1
+    tenant_id: null
+    scopes:
+    - write
+    capabilities:
+    - request_management
+    - request_collaboration
+    ownership_fixture: authorized_with_current_turn_explicit_user_intent
+    plan: free
+  expected:
+    result: *id005
+    audit: &id011
+      profile: external
+      record_fields:
+      - authenticated_actor_id
+      - authenticated_client_id
+      - tool_name
+      - target_resource
+      - authorization_decisions
+      - redacted_input_hash
+      - result_or_error_code
+      - request_id
+      - idempotency_id
+      - dependency_outcome
+      - notification_outcome
+      - utc_timestamp
+- id: link_duplicate_request_success
+  tool: link_duplicate_request
+  category: success
+  covers:
+  - success
+  input: &id040
+    issue_id: 10
+    canonical_issue_id: 11
+    expected_revision: 1
+    idempotency_key: idem-link-duplicate-0001
+  context: *id001
+  expected:
+    result: &id063
+      changed: true
+      request:
+        id: 10
+        project_id: 1
+        author_id: 2
+        author_handle: author
+        author_display_name: Author
+        author_avatar_url: ''
+        issue_type: feature
+        title: Dark mode
+        description: Add dark mode
+        status: open
+        priority: 2
+        duplicate_of_id: 11
+        upvotes_count: 0
+        comments_count: 1
+        delivery_artifacts_count: 1
+        last_activity_at: '2026-01-01T00:01:00Z'
+        revision: 2
+        created_at: '2026-01-01T00:00:00Z'
+        updated_at: '2026-01-01T00:01:00Z'
+    audit: *id004
+- id: unlink_duplicate_request_success
+  tool: unlink_duplicate_request
+  category: success
+  covers:
+  - success
+  input: &id041
+    issue_id: 10
+    expected_revision: 1
+    idempotency_key: idem-unlink-duplicate-01
+  context: *id001
+  expected:
+    result: &id064
+      changed: false
+      request: *id005
+    audit: *id004
+- id: link_delivery_artifact_success
+  tool: link_delivery_artifact
+  category: success
+  covers:
+  - success
+  input: &id042
+    issue_id: 10
+    kind: pull_request
+    url: https://example.com/pull/1
+    label: PR 1
+    expected_revision: 1
+    idempotency_key: idem-link-delivery-0001
+  context: *id001
+  expected:
+    result: &id065
+      created: true
+      artifact: *id007
+      request_revision: 2
+    audit: *id004
+- id: unlink_delivery_artifact_success
+  tool: unlink_delivery_artifact
+  category: success
+  covers:
+  - success
+  input: &id043
+    issue_id: 10
+    artifact_id: 40
+    expected_revision: 1
+    idempotency_key: idem-unlink-delivery-01
+  context: *id001
+  expected:
+    result: &id066
+      changed: true
+      issue_id: 10
+      artifact_id: 40
+      request_revision: 2
+    audit: *id004
+- id: update_request_success
+  tool: update_request
+  category: success
+  covers:
+  - success
+  input: &id044
+    issue_id: 10
+    priority: 3
+    expected_revision: 1
+    idempotency_key: idem-update-request-0001
+  context: *id001
+  expected:
+    result: &id067
+      id: 10
+      project_id: 1
+      author_id: 2
+      author_handle: author
+      author_display_name: Author
+      author_avatar_url: ''
+      issue_type: feature
+      title: Dark mode
+      description: Add dark mode
+      status: open
+      priority: 3
+      duplicate_of_id: null
+      upvotes_count: 0
+      comments_count: 1
+      delivery_artifacts_count: 1
+      last_activity_at: '2026-01-01T00:01:00Z'
+      revision: 2
+      created_at: '2026-01-01T00:00:00Z'
+      updated_at: '2026-01-01T00:01:00Z'
+    audit: *id004
+- id: transition_request_success
+  tool: transition_request
+  category: success
+  covers:
+  - success
+  input: &id045
+    issue_id: 10
+    status: planned
+    expected_revision: 1
+    idempotency_key: idem-transition-req-0001
+  context: *id001
+  expected:
+    result: &id068
+      id: 10
+      project_id: 1
+      author_id: 2
+      author_handle: author
+      author_display_name: Author
+      author_avatar_url: ''
+      issue_type: feature
+      title: Dark mode
+      description: Add dark mode
+      status: planned
+      priority: 2
+      duplicate_of_id: null
+      upvotes_count: 0
+      comments_count: 1
+      delivery_artifacts_count: 1
+      last_activity_at: '2026-01-01T00:01:00Z'
+      revision: 2
+      created_at: '2026-01-01T00:00:00Z'
+      updated_at: '2026-01-01T00:01:00Z'
+    audit: *id008
+- id: add_request_comment_success
+  tool: add_request_comment
+  category: success
+  covers:
+  - success
+  input: &id046
+    issue_id: 10
+    body: Please add this.
+    idempotency_key: idem-add-comment-000001
+  context: *id009
+  expected:
+    result: *id010
+    audit: *id011
+- id: update_request_comment_success
+  tool: update_request_comment
+  category: success
+  covers:
+  - success
+  input: &id047
+    issue_id: 10
+    comment_id: 20
+    body: Please add this soon.
+    expected_revision: 1
+    idempotency_key: idem-update-comment-0001
+  context: *id009
+  expected:
+    result: &id069
+      id: 20
+      issue_id: 10
+      author_id: 2
+      author_handle: author
+      author_avatar_url: ''
+      body: Please add this soon.
+      revision: 2
+      created_at: '2026-01-01T00:00:00Z'
+      updated_at: '2026-01-01T00:01:00Z'
+    audit: *id011
+- id: get_project_spec_success
+  tool: get_project_spec
+  category: success
+  input: &id021
+    owner_handle: owner
+    project_slug: roadmap
+  context: *id001
+  expected:
+    result: &id049
+      project_id: 1
+      owner_handle: owner
+      project_slug: roadmap
+      content: '# Purpose
+
+        Ship a focused roadmap.
+
+        ## Intended users
+
+        Product teams.
+
+        ## In scope
+
+        Public feedback.
+
+        ## Out of scope
+
+        Private strategy.
+
+        ## Product principles / Constraints
+
+        Safe defaults.'
+      revision: 1
+      auto_decline_enabled: false
+      created_at: '2026-01-01T00:00:00Z'
+      updated_at: '2026-01-01T00:00:00Z'
+    audit: *id002
+- id: update_project_spec_success
+  tool: update_project_spec
+  category: success
+  input: &id024
+    project_id: 1
+    content: '# Purpose
+
+      Ship a focused roadmap.
+
+      ## Intended users
+
+      Product teams.
+
+      ## In scope
+
+      Public feedback.
+
+      ## Out of scope
+
+      Private strategy.
+
+      ## Product principles / Constraints
+
+      Safe defaults.'
+    auto_decline_enabled: false
+    expected_revision: 1
+    idempotency_key: idem-update-spec-0001
+  context: &id012
+    authenticated_actor_id: actor-1
+    authenticated_client_id: client-1
+    tenant_id: null
+    scopes:
+    - read
+    - write
+    capabilities:
+    - project_management
+    - request_management
+    - request_collaboration
+    - duplicate_evidence
+    - delivery_evidence
+    - activity_feed
+    - project_specification
+    ownership_fixture: authorized_with_current_turn_explicit_user_intent
+    plan: free
+  expected:
+    result: &id051
+      project_id: 1
+      owner_handle: owner
+      project_slug: roadmap
+      content: '# Purpose
+
+        Ship a focused roadmap.
+
+        ## Intended users
+
+        Product teams.
+
+        ## In scope
+
+        Public feedback.
+
+        ## Out of scope
+
+        Private strategy.
+
+        ## Product principles / Constraints
+
+        Safe defaults.'
+      revision: 2
+      auto_decline_enabled: false
+      created_at: '2026-01-01T00:00:00Z'
+      updated_at: '2026-01-01T00:01:00Z'
+    audit: *id011
+- id: get_request_scope_assessment_success
+  tool: get_request_scope_assessment
+  category: success
+  input: &id028
+    issue_id: 10
+  context: *id001
+  expected:
+    result: &id013
+      id: 30
+      issue_id: 10
+      spec_revision: 1
+      state: completed
+      verdict: spec_gap
+      public_reason: The request reveals an undefined product boundary.
+      out_of_scope_quote: ''
+      spec_gap_summary: Clarify whether integrations are supported.
+      evaluator_version: spec_scope_v1
+      auto_declined: false
+      created_at: '2026-01-01T00:01:00Z'
+    audit: *id002
+- id: list_project_spec_proposals_success
+  tool: list_project_spec_proposals
+  category: success
+  input: &id035
+    project_id: 1
+    status: pending
+  context: *id001
+  expected:
+    result: &id060
+      proposals:
+      - &id014
+        id: 40
+        project_id: 1
+        issue_id: 10
+        base_spec_revision: 1
+        proposed_content: '# Purpose
+
+          Ship a focused roadmap.
+
+          ## Intended users
+
+          Product teams.
+
+          ## In scope
+
+          Public feedback and integrations.
+
+          ## Out of scope
+
+          Private strategy.
+
+          ## Product principles / Constraints
+
+          Safe defaults.'
+        summary: Clarify integration support.
+        diff: '@@ -1 +1 @@'
+        status: pending
+        created_by_id: 1
+        reviewed_by_id: null
+        created_at: '2026-01-01T00:02:00Z'
+        updated_at: '2026-01-01T00:02:00Z'
+    audit: *id002
+- id: reassess_request_scope_success
+  tool: reassess_request_scope
+  category: success
+  input: &id037
+    issue_id: 10
+    expected_revision: 1
+    idempotency_key: idem-reassess-scope-0001
+  context: *id012
+  expected:
+    result: &id061
+      assessment: *id013
+      request: *id005
+    audit: *id008
+- id: propose_project_spec_update_success
+  tool: propose_project_spec_update
+  category: success
+  input: &id038
+    issue_id: 10
+    expected_spec_revision: 1
+    idempotency_key: idem-propose-spec-0001
+  context: *id012
+  expected:
+    result: *id014
+    audit: *id011
+- id: resolve_project_spec_proposal_success
+  tool: resolve_project_spec_proposal
+  category: success
+  input: &id039
+    proposal_id: 40
+    decision: accept
+    expected_revision: 1
+    idempotency_key: idem-resolve-spec-0001
+  context: *id001
+  expected:
+    result: &id062
+      id: 40
+      project_id: 1
+      issue_id: 10
+      base_spec_revision: 1
+      proposed_content: '# Purpose
+
+        Ship a focused roadmap.
+
+        ## Intended users
+
+        Product teams.
+
+        ## In scope
+
+        Public feedback and integrations.
+
+        ## Out of scope
+
+        Private strategy.
+
+        ## Product principles / Constraints
+
+        Safe defaults.'
+      summary: Clarify integration support.
+      diff: '@@ -1 +1 @@'
+      status: accepted
+      created_by_id: 1
+      reviewed_by_id: 1
+      created_at: '2026-01-01T00:02:00Z'
+      updated_at: '2026-01-01T00:03:00Z'
+    audit: *id004
+- id: invalid_input_matrix
+  category: invalid_input
+  covers:
+  - invalid_input
+  matrix:
+    tools: &id017
+    - get_account_capabilities
+    - list_projects
+    - get_project
+    - get_project_spec
+    - create_project
+    - update_project
+    - update_project_spec
+    - delete_project
+    - list_requests
+    - get_request
+    - get_request_scope_assessment
+    - list_request_comments
+    - get_queue_snapshot
+    - find_duplicate_candidates
+    - list_request_activity
+    - list_request_changes
+    - list_delivery_artifacts
+    - list_project_spec_proposals
+    - create_request
+    - reassess_request_scope
+    - propose_project_spec_update
+    - resolve_project_spec_proposal
+    - link_duplicate_request
+    - unlink_duplicate_request
+    - link_delivery_artifact
+    - unlink_delivery_artifact
+    - update_request
+    - transition_request
+    - add_request_comment
+    - update_request_comment
+    - list_archived_projects
+    - archive_project
+    - restore_project
+  input_by_tool:
+    get_account_capabilities: &id015
+      unexpected: true
+    list_projects: *id015
+    get_project: *id015
+    get_project_spec: *id015
+    create_project: *id015
+    update_project: *id015
+    update_project_spec: *id015
+    delete_project: *id015
+    list_requests: *id015
+    get_request: *id015
+    get_request_scope_assessment: *id015
+    list_request_comments: *id015
+    get_queue_snapshot: *id015
+    find_duplicate_candidates: *id015
+    list_request_activity: *id015
+    list_request_changes: *id015
+    list_delivery_artifacts: *id015
+    list_project_spec_proposals: *id015
+    create_request: *id015
+    reassess_request_scope: *id015
+    propose_project_spec_update: *id015
+    resolve_project_spec_proposal: *id015
+    link_duplicate_request: *id015
+    unlink_duplicate_request: *id015
+    link_delivery_artifact: *id015
+    unlink_delivery_artifact: *id015
+    update_request: *id015
+    transition_request: *id015
+    add_request_comment: *id015
+    update_request_comment: *id015
+    list_archived_projects:
+      unexpected: true
+    archive_project:
+      unexpected: true
+    restore_project:
+      unexpected: true
+  context: *id001
+  expected:
+    error_by_tool:
+      get_account_capabilities: &id016
+        code: invalid_input
+        message: One or more inputs are invalid.
+        retryable: false
+        request_id: req-invalid
+        details:
+          fields:
+          - unexpected
+      list_projects: *id016
+      get_project: *id016
+      get_project_spec: *id016
+      create_project: *id016
+      update_project: *id016
+      update_project_spec: *id016
+      delete_project: *id016
+      list_requests: *id016
+      get_request: *id016
+      get_request_scope_assessment: *id016
+      list_request_comments: *id016
+      get_queue_snapshot: *id016
+      find_duplicate_candidates: *id016
+      list_request_activity: *id016
+      list_request_changes: *id016
+      list_delivery_artifacts: *id016
+      list_project_spec_proposals: *id016
+      create_request: *id016
+      reassess_request_scope: *id016
+      propose_project_spec_update: *id016
+      resolve_project_spec_proposal: *id016
+      link_duplicate_request: *id016
+      unlink_duplicate_request: *id016
+      link_delivery_artifact: *id016
+      unlink_delivery_artifact: *id016
+      update_request: *id016
+      transition_request: *id016
+      add_request_comment: *id016
+      update_request_comment: *id016
+      list_archived_projects:
+        code: invalid_input
+        message: One or more inputs are invalid.
+        retryable: false
+        request_id: req-invalid
+        details:
+          fields:
+          - unexpected
+      archive_project:
+        code: invalid_input
+        message: One or more inputs are invalid.
+        retryable: false
+        request_id: req-invalid
+        details:
+          fields:
+          - unexpected
+      restore_project:
+        code: invalid_input
+        message: One or more inputs are invalid.
+        retryable: false
+        request_id: req-invalid
+        details:
+          fields:
+          - unexpected
+    audit:
+      profile_by_tool:
+        get_account_capabilities: read
+        list_projects: read
+        get_project: read
+        get_project_spec: read
+        create_project: write
+        update_project: write
+        update_project_spec: external
+        delete_project: destructive
+        list_requests: read
+        get_request: read
+        get_request_scope_assessment: read
+        list_request_comments: read
+        get_queue_snapshot: read
+        find_duplicate_candidates: read
+        list_request_activity: read
+        list_request_changes: read
+        list_delivery_artifacts: read
+        list_project_spec_proposals: read
+        create_request: external
+        reassess_request_scope: destructive
+        propose_project_spec_update: external
+        resolve_project_spec_proposal: write
+        link_duplicate_request: write
+        unlink_duplicate_request: write
+        link_delivery_artifact: write
+        unlink_delivery_artifact: write
+        update_request: write
+        transition_request: destructive
+        add_request_comment: external
+        update_request_comment: external
+        list_archived_projects: read
+        archive_project: write
+        restore_project: write
+      record_fields:
+      - authenticated_actor_id
+      - authenticated_client_id
+      - tool_name
+      - target_resource
+      - authorization_decisions
+      - redacted_input_hash
+      - result_or_error_code
+      - request_id
+      - idempotency_id
+      - approval_evidence
+      - dependency_outcome
+      - notification_outcome
+      - utc_timestamp
+- id: pro_plan_matrix
+  category: capability_plan_matrix
+  covers:
+  - capability_plan_matrix
+  matrix:
+    tools: *id017
+  input_by_tool: &id091
+    get_account_capabilities: *id018
+    list_projects: *id019
+    get_project: *id020
+    get_project_spec: *id021
+    create_project: *id022
+    update_project: *id023
+    update_project_spec: *id024
+    delete_project: *id025
+    list_requests: *id026
+    get_request: *id027
+    get_request_scope_assessment: *id028
+    list_request_comments: *id029
+    get_queue_snapshot: *id030
+    find_duplicate_candidates: *id031
+    list_request_activity: *id032
+    list_request_changes: *id033
+    list_delivery_artifacts: *id034
+    list_project_spec_proposals: *id035
+    create_request: *id036
+    reassess_request_scope: *id037
+    propose_project_spec_update: *id038
+    resolve_project_spec_proposal: *id039
+    link_duplicate_request: *id040
+    unlink_duplicate_request: *id041
+    link_delivery_artifact: *id042
+    unlink_delivery_artifact: *id043
+    update_request: *id044
+    transition_request: *id045
+    add_request_comment: *id046
+    update_request_comment: *id047
+    list_archived_projects: &id070 {}
+    archive_project: &id071
+      project_id: 1
+      expected_revision: 1
+      idempotency_key: idem-archive-project-0001
+    restore_project: &id072
+      project_id: 1
+      expected_revision: 1
+      idempotency_key: idem-restore-project-0001
+  context: &id092
+    authenticated_actor_id: actor-1
+    authenticated_client_id: client-1
+    tenant_id: null
+    scopes:
+    - read
+    - write
+    capabilities:
+    - project_management
+    - request_management
+    - request_collaboration
+    - duplicate_evidence
+    - delivery_evidence
+    - activity_feed
+    - project_specification
+    ownership_fixture: authorized_with_all_required_current_turn_approvals_and_preconditions
+    plan: pro_30
+  expected:
+    result_by_tool: &id093
+      get_account_capabilities:
+        capabilities:
+          project_management: true
+          request_management: true
+          request_collaboration: true
+          duplicate_evidence: true
+          delivery_evidence: true
+          activity_feed: true
+          project_specification: true
+        limits:
+          project_count:
+            used: 1
+            limit: 30
+            period: lifetime
+            reset_at: null
+      list_projects: *id048
+      get_project: *id003
+      get_project_spec: *id049
+      create_project: *id003
+      update_project: *id050
+      update_project_spec: *id051
+      delete_project: *id052
+      list_requests: *id053
+      get_request: *id005
+      get_request_scope_assessment: *id013
+      list_request_comments: *id054
+      get_queue_snapshot: *id055
+      find_duplicate_candidates: *id056
+      list_request_activity: *id057
+      list_request_changes: *id058
+      list_delivery_artifacts: *id059
+      list_project_spec_proposals: *id060
+      create_request: *id005
+      reassess_request_scope: *id061
+      propose_project_spec_update: *id014
+      resolve_project_spec_proposal: *id062
+      link_duplicate_request: *id063
+      unlink_duplicate_request: *id064
+      link_delivery_artifact: *id065
+      unlink_delivery_artifact: *id066
+      update_request: *id067
+      transition_request: *id068
+      add_request_comment: *id010
+      update_request_comment: *id069
+      list_archived_projects: &id094
+        projects:
+        - id: 1
+          name: Roadmap
+          slug: roadmap
+          revision: 1
+          archived_at: '2026-01-01T00:00:00Z'
+      archive_project: &id083
+        project_id: 1
+        revision: 2
+        archived_at: '2026-01-01T00:01:00Z'
+      restore_project: &id084
+        project_id: 1
+        revision: 2
+        archived_at: null
+    audit:
+      profile_by_tool: &id080
+        get_account_capabilities: read
+        list_projects: read
+        get_project: read
+        get_project_spec: read
+        create_project: write
+        update_project: write
+        update_project_spec: external
+        delete_project: destructive
+        list_requests: read
+        get_request: read
+        get_request_scope_assessment: read
+        list_request_comments: read
+        get_queue_snapshot: read
+        find_duplicate_candidates: read
+        list_request_activity: read
+        list_request_changes: read
+        list_delivery_artifacts: read
+        list_project_spec_proposals: read
+        create_request: external
+        reassess_request_scope: destructive
+        propose_project_spec_update: external
+        resolve_project_spec_proposal: write
+        link_duplicate_request: write
+        unlink_duplicate_request: write
+        link_delivery_artifact: write
+        unlink_delivery_artifact: write
+        update_request: write
+        transition_request: destructive
+        add_request_comment: external
+        update_request_comment: external
+        list_archived_projects: read
+        archive_project: write
+        restore_project: write
+      record_fields:
+      - authenticated_actor_id
+      - authenticated_client_id
+      - tool_name
+      - target_resource
+      - authorization_decisions
+      - redacted_input_hash
+      - result_or_error_code
+      - request_id
+      - idempotency_id
+      - approval_evidence
+      - dependency_outcome
+      - notification_outcome
+      - utc_timestamp
+- id: missing_capability_matrix
+  category: missing_capability
+  covers:
+  - missing_capability
+  matrix:
+    tools:
+    - list_projects
+    - get_project
+    - get_project_spec
+    - create_project
+    - update_project
+    - update_project_spec
+    - delete_project
+    - list_requests
+    - get_request
+    - get_request_scope_assessment
+    - list_request_comments
+    - get_queue_snapshot
+    - find_duplicate_candidates
+    - list_request_activity
+    - list_request_changes
+    - list_delivery_artifacts
+    - list_project_spec_proposals
+    - create_request
+    - reassess_request_scope
+    - propose_project_spec_update
+    - resolve_project_spec_proposal
+    - link_duplicate_request
+    - unlink_duplicate_request
+    - link_delivery_artifact
+    - unlink_delivery_artifact
+    - update_request
+    - transition_request
+    - add_request_comment
+    - update_request_comment
+    - list_archived_projects
+    - archive_project
+    - restore_project
+  input_by_tool:
+    list_projects: *id019
+    get_project: *id020
+    get_project_spec: *id021
+    create_project: *id022
+    update_project: *id023
+    update_project_spec: *id024
+    delete_project: *id025
+    list_requests: *id026
+    get_request: *id027
+    get_request_scope_assessment: *id028
+    list_request_comments: *id029
+    get_queue_snapshot: *id030
+    find_duplicate_candidates: *id031
+    list_request_activity: *id032
+    list_request_changes: *id033
+    list_delivery_artifacts: *id034
+    list_project_spec_proposals: *id035
+    create_request: *id036
+    reassess_request_scope: *id037
+    propose_project_spec_update: *id038
+    resolve_project_spec_proposal: *id039
+    link_duplicate_request: *id040
+    unlink_duplicate_request: *id041
+    link_delivery_artifact: *id042
+    unlink_delivery_artifact: *id043
+    update_request: *id044
+    transition_request: *id045
+    add_request_comment: *id046
+    update_request_comment: *id047
+    list_archived_projects: *id070
+    archive_project: *id071
+    restore_project: *id072
+  context:
+    authenticated_actor_id: actor-1
+    authenticated_client_id: client-1
+    tenant_id: null
+    scopes:
+    - read
+    - write
+    capabilities: []
+    ownership_fixture: authorized
+    plan: free
+  expected:
+    error_by_tool:
+      list_projects: &id073
+        code: feature_unavailable
+        message: A required capability is unavailable.
+        retryable: false
+        request_id: req-capability
+        details:
+          capability: project_management
+      get_project: *id073
+      get_project_spec: &id074
+        code: feature_unavailable
+        message: A required capability is unavailable.
+        retryable: false
+        request_id: req-capability
+        details:
+          capability: project_specification
+      create_project: *id073
+      update_project: *id073
+      update_project_spec: *id074
+      delete_project: *id073
+      list_requests: &id075
+        code: feature_unavailable
+        message: A required capability is unavailable.
+        retryable: false
+        request_id: req-capability
+        details:
+          capability: request_management
+      get_request: *id075
+      get_request_scope_assessment: *id074
+      list_request_comments: &id079
+        code: feature_unavailable
+        message: A required capability is unavailable.
+        retryable: false
+        request_id: req-capability
+        details:
+          capability: request_collaboration
+      get_queue_snapshot: &id076
+        code: feature_unavailable
+        message: A required capability is unavailable.
+        retryable: false
+        request_id: req-capability
+        details:
+          capability: activity_feed
+      find_duplicate_candidates: &id077
+        code: feature_unavailable
+        message: A required capability is unavailable.
+        retryable: false
+        request_id: req-capability
+        details:
+          capability: duplicate_evidence
+      list_request_activity: *id076
+      list_request_changes: *id076
+      list_delivery_artifacts: &id078
+        code: feature_unavailable
+        message: A required capability is unavailable.
+        retryable: false
+        request_id: req-capability
+        details:
+          capability: delivery_evidence
+      list_project_spec_proposals: *id074
+      create_request: *id075
+      reassess_request_scope: *id074
+      propose_project_spec_update: *id074
+      resolve_project_spec_proposal: *id074
+      link_duplicate_request: *id077
+      unlink_duplicate_request: *id077
+      link_delivery_artifact: *id078
+      unlink_delivery_artifact: *id078
+      update_request: *id075
+      transition_request: *id075
+      add_request_comment: *id079
+      update_request_comment: *id079
+      list_archived_projects:
+        code: feature_unavailable
+        message: A required capability is unavailable.
+        retryable: false
+        request_id: req-capability
+        details:
+          capability: project_management
+      archive_project:
+        code: feature_unavailable
+        message: A required capability is unavailable.
+        retryable: false
+        request_id: req-capability
+        details:
+          capability: project_management
+      restore_project:
+        code: feature_unavailable
+        message: A required capability is unavailable.
+        retryable: false
+        request_id: req-capability
+        details:
+          capability: project_management
+    audit:
+      profile_by_tool: *id080
+      record_fields:
+      - authenticated_actor_id
+      - authenticated_client_id
+      - tool_name
+      - target_resource
+      - authorization_decisions
+      - redacted_input_hash
+      - result_or_error_code
+      - request_id
+      - idempotency_id
+      - approval_evidence
+      - dependency_outcome
+      - notification_outcome
+      - utc_timestamp
+- id: ownership_isolation_matrix
+  category: ownership_isolation
+  covers:
+  - ownership_isolation
+  matrix:
+    tools:
+    - get_project
+    - update_project
+    - update_project_spec
+    - delete_project
+    - get_queue_snapshot
+    - list_request_activity
+    - list_delivery_artifacts
+    - list_project_spec_proposals
+    - reassess_request_scope
+    - propose_project_spec_update
+    - resolve_project_spec_proposal
+    - link_duplicate_request
+    - unlink_duplicate_request
+    - link_delivery_artifact
+    - unlink_delivery_artifact
+    - update_request
+    - transition_request
+    - update_request_comment
+    - archive_project
+    - restore_project
+  input_by_tool:
+    get_project: *id020
+    update_project: *id023
+    update_project_spec: *id024
+    delete_project: *id025
+    get_queue_snapshot: *id030
+    list_request_activity: *id032
+    list_delivery_artifacts: *id034
+    list_project_spec_proposals: *id035
+    reassess_request_scope: *id037
+    propose_project_spec_update: *id038
+    resolve_project_spec_proposal: *id039
+    link_duplicate_request: *id040
+    unlink_duplicate_request: *id041
+    link_delivery_artifact: *id042
+    unlink_delivery_artifact: *id043
+    update_request: *id044
+    transition_request: *id045
+    update_request_comment: *id047
+    archive_project: *id071
+    restore_project: *id072
+  context:
+    authenticated_actor_id: actor-2
+    authenticated_client_id: client-1
+    tenant_id: null
+    scopes:
+    - read
+    - write
+    capabilities:
+    - project_management
+    - request_management
+    - request_collaboration
+    - duplicate_evidence
+    - delivery_evidence
+    - activity_feed
+    - project_specification
+    ownership_fixture: target_owned_and_authored_by_actor_1_but_authenticated_actor_is_actor_2
+    plan: free
+  expected:
+    error_by_tool:
+      get_project: &id081
+        code: permission_denied
+        message: The operation is not permitted.
+        retryable: false
+        request_id: req-owner
+        details: {}
+      update_project: *id081
+      update_project_spec: *id081
+      delete_project: *id081
+      get_queue_snapshot: *id081
+      list_request_activity: *id081
+      list_delivery_artifacts: *id081
+      list_project_spec_proposals: *id081
+      reassess_request_scope: *id081
+      propose_project_spec_update: *id081
+      resolve_project_spec_proposal: *id081
+      link_duplicate_request: *id081
+      unlink_duplicate_request: *id081
+      link_delivery_artifact: *id081
+      unlink_delivery_artifact: *id081
+      update_request: *id081
+      transition_request: *id081
+      update_request_comment: *id081
+      archive_project:
+        code: permission_denied
+        message: The operation is not permitted.
+        retryable: false
+        request_id: req-owner
+        details: {}
+      restore_project:
+        code: permission_denied
+        message: The operation is not permitted.
+        retryable: false
+        request_id: req-owner
+        details: {}
+    audit:
+      profile_by_tool:
+        get_project: read
+        update_project: write
+        update_project_spec: external
+        delete_project: destructive
+        get_queue_snapshot: read
+        list_request_activity: read
+        list_delivery_artifacts: read
+        list_project_spec_proposals: read
+        reassess_request_scope: destructive
+        propose_project_spec_update: external
+        resolve_project_spec_proposal: write
+        link_duplicate_request: write
+        unlink_duplicate_request: write
+        link_delivery_artifact: write
+        unlink_delivery_artifact: write
+        update_request: write
+        transition_request: destructive
+        update_request_comment: external
+        archive_project: write
+        restore_project: write
+      record_fields:
+      - authenticated_actor_id
+      - authenticated_client_id
+      - tool_name
+      - target_resource
+      - authorization_decisions
+      - redacted_input_hash
+      - result_or_error_code
+      - request_id
+      - idempotency_id
+      - approval_evidence
+      - dependency_outcome
+      - notification_outcome
+      - utc_timestamp
+- id: ownership_filtering_matrix
+  category: ownership_isolation
+  covers:
+  - ownership_isolation
+  matrix:
+    tools:
+    - list_projects
+    - list_request_changes
+    - list_archived_projects
+  input_by_tool:
+    list_projects: {}
+    list_request_changes:
+      after_id: 0
+      limit: 50
+    list_archived_projects: *id070
+  context:
+    authenticated_actor_id: actor-2
+    authenticated_client_id: client-1
+    tenant_id: null
+    scopes:
+    - read
+    capabilities:
+    - project_management
+    - activity_feed
+    ownership_fixture: fixtures_exist_only_for_actor_1
+    plan: free
+  expected:
+    result_by_tool:
+      list_projects:
+        projects: []
+      list_request_changes:
+        events: []
+        next_cursor: 0
+        has_more: false
+      list_archived_projects:
+        projects: []
+    audit:
+      profile: read
+      record_fields:
+      - authenticated_actor_id
+      - authenticated_client_id
+      - tool_name
+      - target_resource
+      - authorization_decisions
+      - redacted_input_hash
+      - result_or_error_code
+      - request_id
+      - utc_timestamp
+- id: create_project_capacity_concurrency
+  tool: create_project
+  category: quota_concurrency
+  covers:
+  - quota_concurrency
+  input: *id022
+  context:
+    authenticated_actor_id: actor-1
+    authenticated_client_id: client-1
+    tenant_id: null
+    scopes:
+    - write
+    capabilities:
+    - project_management
+    ownership_fixture: two_concurrent_creates_at_free_limit_zero_of_one
+    plan: free
+  expected:
+    error:
+      code: capacity_reached
+      message: A non-renewing resource limit has been reached.
+      retryable: false
+      request_id: req-capacity
+      details:
+        used: 1
+        limit: 1
+        period: lifetime
+        reset_at: null
+    audit: *id004
+  notes: Exactly one concurrent create commits and consumes capacity; the losing transaction returns capacity_reached and
+    creates no project.
+- id: revision_conflict_matrix
+  category: quota_concurrency
+  covers:
+  - quota_concurrency
+  matrix:
+    tools:
+    - update_project
+    - update_project_spec
+    - delete_project
+    - reassess_request_scope
+    - propose_project_spec_update
+    - resolve_project_spec_proposal
+    - link_duplicate_request
+    - unlink_duplicate_request
+    - link_delivery_artifact
+    - unlink_delivery_artifact
+    - update_request
+    - transition_request
+    - update_request_comment
+    - archive_project
+    - restore_project
+  input_by_tool:
+    update_project: *id023
+    update_project_spec: *id024
+    delete_project: *id025
+    reassess_request_scope: *id037
+    propose_project_spec_update: *id038
+    resolve_project_spec_proposal: *id039
+    link_duplicate_request: *id040
+    unlink_duplicate_request: *id041
+    link_delivery_artifact: *id042
+    unlink_delivery_artifact: *id043
+    update_request: *id044
+    transition_request: *id045
+    update_request_comment: *id047
+    archive_project: *id071
+    restore_project: *id072
+  context:
+    authenticated_actor_id: actor-1
+    authenticated_client_id: client-1
+    tenant_id: null
+    scopes:
+    - read
+    - write
+    capabilities:
+    - project_management
+    - request_management
+    - request_collaboration
+    - duplicate_evidence
+    - delivery_evidence
+    - project_specification
+    ownership_fixture: authorized_resources_are_revision_2_while_inputs_expect_revision_1_with_delete_preflight_matching_confirmation_and_required_current_turn_intent
+    plan: free
+  expected:
+    error_by_tool:
+      update_project: &id082
+        code: revision_conflict
+        message: The resource changed after it was read.
+        retryable: false
+        request_id: req-revision
+        details:
+          expected_revision: 1
+          actual_revision: 2
+      update_project_spec: *id082
+      delete_project: *id082
+      reassess_request_scope: *id082
+      propose_project_spec_update: *id082
+      resolve_project_spec_proposal: *id082
+      link_duplicate_request: *id082
+      unlink_duplicate_request: *id082
+      link_delivery_artifact: *id082
+      unlink_delivery_artifact: *id082
+      update_request: *id082
+      transition_request: *id082
+      update_request_comment: *id082
+      archive_project:
+        code: revision_conflict
+        message: The resource changed after it was read.
+        retryable: false
+        request_id: req-revision
+        details:
+          expected_revision: 1
+          actual_revision: 2
+      restore_project:
+        code: revision_conflict
+        message: The resource changed after it was read.
+        retryable: false
+        request_id: req-revision
+        details:
+          expected_revision: 1
+          actual_revision: 2
+    audit:
+      profile_by_tool:
+        update_project: write
+        update_project_spec: external
+        delete_project: destructive
+        reassess_request_scope: destructive
+        propose_project_spec_update: external
+        resolve_project_spec_proposal: write
+        link_duplicate_request: write
+        unlink_duplicate_request: write
+        link_delivery_artifact: write
+        unlink_delivery_artifact: write
+        update_request: write
+        transition_request: destructive
+        update_request_comment: external
+        archive_project: write
+        restore_project: write
+      record_fields:
+      - authenticated_actor_id
+      - authenticated_client_id
+      - tool_name
+      - target_resource
+      - authorization_decisions
+      - redacted_input_hash
+      - result_or_error_code
+      - request_id
+      - idempotency_id
+      - approval_evidence
+      - dependency_outcome
+      - notification_outcome
+      - utc_timestamp
+  notes: The stale expected_revision is rejected before mutation; no state, revision, notification, or external dependency
+    effect occurs.
+- id: mutation_replay_matrix
+  category: idempotent_replay
+  covers:
+  - idempotent_replay
+  matrix:
+    tools: &id085
+    - create_project
+    - update_project
+    - update_project_spec
+    - delete_project
+    - create_request
+    - reassess_request_scope
+    - propose_project_spec_update
+    - resolve_project_spec_proposal
+    - link_duplicate_request
+    - unlink_duplicate_request
+    - link_delivery_artifact
+    - unlink_delivery_artifact
+    - update_request
+    - transition_request
+    - add_request_comment
+    - update_request_comment
+    - archive_project
+    - restore_project
+  input_by_tool: &id086
+    create_project: *id022
+    update_project: *id023
+    update_project_spec: *id024
+    delete_project: *id025
+    create_request: *id036
+    reassess_request_scope: *id037
+    propose_project_spec_update: *id038
+    resolve_project_spec_proposal: *id039
+    link_duplicate_request: *id040
+    unlink_duplicate_request: *id041
+    link_delivery_artifact: *id042
+    unlink_delivery_artifact: *id043
+    update_request: *id044
+    transition_request: *id045
+    add_request_comment: *id046
+    update_request_comment: *id047
+    archive_project: *id071
+    restore_project: *id072
+  context:
+    authenticated_actor_id: actor-1
+    authenticated_client_id: client-1
+    tenant_id: null
+    scopes:
+    - write
+    capabilities:
+    - project_management
+    - request_management
+    - request_collaboration
+    - duplicate_evidence
+    - delivery_evidence
+    - project_specification
+    ownership_fixture: same_key_and_canonical_input_previously_succeeded
+    plan: free
+  expected:
+    result_by_tool:
+      create_project: *id003
+      update_project: *id050
+      update_project_spec: *id051
+      delete_project: *id052
+      create_request: *id005
+      reassess_request_scope: *id061
+      propose_project_spec_update: *id014
+      resolve_project_spec_proposal: *id062
+      link_duplicate_request: *id063
+      unlink_duplicate_request: *id064
+      link_delivery_artifact: *id065
+      unlink_delivery_artifact: *id066
+      update_request: *id067
+      transition_request: *id068
+      add_request_comment: *id010
+      update_request_comment: *id069
+      archive_project: *id083
+      restore_project: *id084
+    audit:
+      profile_by_tool:
+        create_project: write
+        update_project: write
+        update_project_spec: external
+        delete_project: destructive
+        create_request: external
+        reassess_request_scope: destructive
+        propose_project_spec_update: external
+        resolve_project_spec_proposal: write
+        link_duplicate_request: write
+        unlink_duplicate_request: write
+        link_delivery_artifact: write
+        unlink_delivery_artifact: write
+        update_request: write
+        transition_request: destructive
+        add_request_comment: external
+        update_request_comment: external
+        archive_project: write
+        restore_project: write
+      record_fields:
+      - authenticated_actor_id
+      - authenticated_client_id
+      - tool_name
+      - target_resource
+      - authorization_decisions
+      - redacted_input_hash
+      - result_or_error_code
+      - request_id
+      - idempotency_id
+      - approval_evidence
+      - dependency_outcome
+      - notification_outcome
+      - utc_timestamp
+  notes: Replay returns the byte-equivalent original result and does not increment a resource revision or repeat notification/moderation
+    effects.
+- id: mutation_conflict_matrix
+  category: idempotency_conflict
+  covers:
+  - idempotency_conflict
+  matrix:
+    tools: *id085
+  input_by_tool: *id086
+  context:
+    authenticated_actor_id: actor-1
+    authenticated_client_id: client-1
+    tenant_id: null
+    scopes:
+    - write
+    capabilities:
+    - project_management
+    - request_management
+    - request_collaboration
+    - duplicate_evidence
+    - delivery_evidence
+    - project_specification
+    ownership_fixture: same_key_previously_used_with_different_canonical_input
+    plan: free
+  expected:
+    error_by_tool:
+      create_project: &id087
+        code: idempotency_conflict
+        message: The idempotency key was already used with different input.
+        retryable: false
+        request_id: req-idempotency
+        details:
+          idempotency_key: redacted-key-id
+      update_project: *id087
+      update_project_spec: *id087
+      delete_project: *id087
+      create_request: *id087
+      reassess_request_scope: *id087
+      propose_project_spec_update: *id087
+      resolve_project_spec_proposal: *id087
+      link_duplicate_request: *id087
+      unlink_duplicate_request: *id087
+      link_delivery_artifact: *id087
+      unlink_delivery_artifact: *id087
+      update_request: *id087
+      transition_request: *id087
+      add_request_comment: *id087
+      update_request_comment: *id087
+      archive_project:
+        code: idempotency_conflict
+        message: The idempotency key was already used with different input.
+        retryable: false
+        request_id: req-idempotency
+        details:
+          idempotency_key: redacted-key-id
+      restore_project:
+        code: idempotency_conflict
+        message: The idempotency key was already used with different input.
+        retryable: false
+        request_id: req-idempotency
+        details:
+          idempotency_key: redacted-key-id
+    audit:
+      profile_by_tool:
+        create_project: write
+        update_project: write
+        update_project_spec: external
+        delete_project: destructive
+        create_request: external
+        reassess_request_scope: destructive
+        propose_project_spec_update: external
+        resolve_project_spec_proposal: write
+        link_duplicate_request: write
+        unlink_duplicate_request: write
+        link_delivery_artifact: write
+        unlink_delivery_artifact: write
+        update_request: write
+        transition_request: destructive
+        add_request_comment: external
+        update_request_comment: external
+        archive_project: write
+        restore_project: write
+      record_fields:
+      - authenticated_actor_id
+      - authenticated_client_id
+      - tool_name
+      - target_resource
+      - authorization_decisions
+      - redacted_input_hash
+      - result_or_error_code
+      - request_id
+      - idempotency_id
+      - approval_evidence
+      - dependency_outcome
+      - notification_outcome
+      - utc_timestamp
+- id: delivery_natural_key_reuse
+  tool: link_delivery_artifact
+  category: idempotent_replay
+  covers:
+  - idempotent_replay
+  input:
+    issue_id: 10
+    kind: pull_request
+    url: https://example.com/pull/1
+    label: PR 1
+    expected_revision: 2
+    idempotency_key: idem-link-delivery-0002
+  context:
+    authenticated_actor_id: actor-1
+    authenticated_client_id: client-1
+    tenant_id: null
+    scopes:
+    - write
+    capabilities:
+    - delivery_evidence
+    ownership_fixture: same_issue_and_url_already_exist_with_same_kind_and_label
+    plan: free
+  expected:
+    result:
+      created: false
+      artifact: *id007
+      request_revision: 2
+    audit: *id004
+  notes: Natural-key reuse with a new idempotency key is a no-op and does not increment request revision.
+- id: delivery_natural_key_conflict
+  tool: link_delivery_artifact
+  category: idempotency_conflict
+  covers:
+  - idempotency_conflict
+  input:
+    issue_id: 10
+    kind: release
+    url: https://example.com/pull/1
+    label: Release 1
+    expected_revision: 2
+    idempotency_key: idem-link-delivery-0003
+  context:
+    authenticated_actor_id: actor-1
+    authenticated_client_id: client-1
+    tenant_id: null
+    scopes:
+    - write
+    capabilities:
+    - delivery_evidence
+    ownership_fixture: same_issue_and_url_exist_with_different_kind_or_label
+    plan: free
+  expected:
+    error: *id087
+    audit: *id004
+  notes: Existing metadata is never silently returned when kind or label differs.
+- id: approval_matrix
+  category: approval
+  covers:
+  - approval
+  matrix:
+    tools: &id088
+    - update_project_spec
+    - delete_project
+    - create_request
+    - reassess_request_scope
+    - propose_project_spec_update
+    - transition_request
+    - add_request_comment
+    - update_request_comment
+  input_by_tool:
+    update_project_spec: *id024
+    delete_project: *id025
+    create_request: *id036
+    reassess_request_scope: *id037
+    propose_project_spec_update: *id038
+    transition_request: &id089
+      issue_id: 10
+      status: done
+      expected_revision: 1
+      idempotency_key: idem-terminal-state-0001
+    add_request_comment: *id046
+    update_request_comment: *id047
+  context:
+    authenticated_actor_id: actor-1
+    authenticated_client_id: client-1
+    tenant_id: null
+    scopes:
+    - write
+    capabilities:
+    - project_management
+    - request_management
+    - request_collaboration
+    - project_specification
+    ownership_fixture: authorized_but_current_turn_user_intent_absent
+    plan: free
+  expected:
+    error_by_tool:
+      update_project_spec:
+        code: approval_required
+        message: Explicit current-turn user approval is required.
+        retryable: false
+        request_id: req-approval
+        details:
+          operation: update_project_spec
+      delete_project:
+        code: approval_required
+        message: Explicit current-turn user approval is required.
+        retryable: false
+        request_id: req-approval
+        details:
+          operation: delete_project
+      create_request:
+        code: approval_required
+        message: Explicit current-turn user approval is required.
+        retryable: false
+        request_id: req-approval
+        details:
+          operation: create_request
+      reassess_request_scope:
+        code: approval_required
+        message: Explicit current-turn user approval is required.
+        retryable: false
+        request_id: req-approval
+        details:
+          operation: reassess_request_scope
+      propose_project_spec_update:
+        code: approval_required
+        message: Explicit current-turn user approval is required.
+        retryable: false
+        request_id: req-approval
+        details:
+          operation: propose_project_spec_update
+      transition_request:
+        code: approval_required
+        message: Explicit current-turn user approval is required.
+        retryable: false
+        request_id: req-approval
+        details:
+          operation: transition_request
+      add_request_comment:
+        code: approval_required
+        message: Explicit current-turn user approval is required.
+        retryable: false
+        request_id: req-approval
+        details:
+          operation: add_request_comment
+      update_request_comment:
+        code: approval_required
+        message: Explicit current-turn user approval is required.
+        retryable: false
+        request_id: req-approval
+        details:
+          operation: update_request_comment
+    audit:
+      profile_by_tool:
+        update_project_spec: external
+        delete_project: destructive
+        create_request: external
+        reassess_request_scope: destructive
+        propose_project_spec_update: external
+        transition_request: destructive
+        add_request_comment: external
+        update_request_comment: external
+      record_fields:
+      - authenticated_actor_id
+      - authenticated_client_id
+      - tool_name
+      - target_resource
+      - authorization_decisions
+      - redacted_input_hash
+      - result_or_error_code
+      - request_id
+      - idempotency_id
+      - approval_evidence
+      - dependency_outcome
+      - notification_outcome
+      - utc_timestamp
+- id: approval_granted_matrix
+  category: approval
+  covers:
+  - approval
+  matrix:
+    tools: *id088
+  input_by_tool:
+    update_project_spec: *id024
+    delete_project: *id025
+    create_request: *id036
+    reassess_request_scope: *id037
+    propose_project_spec_update: *id038
+    transition_request: *id089
+    add_request_comment: *id046
+    update_request_comment: *id047
+  context:
+    authenticated_actor_id: actor-1
+    authenticated_client_id: client-1
+    tenant_id: null
+    scopes:
+    - read
+    - write
+    capabilities:
+    - project_management
+    - request_management
+    - request_collaboration
+    - delivery_evidence
+    - project_specification
+    ownership_fixture: explicit_current_turn_user_intent_with_delete_get_project_same_turn_matching_confirmation_and_terminal_delivery_evidence_inspected
+    plan: free
+  expected:
+    result_by_tool:
+      update_project_spec: *id051
+      delete_project: *id052
+      create_request: *id005
+      reassess_request_scope: *id061
+      propose_project_spec_update: *id014
+      transition_request:
+        id: 10
+        project_id: 1
+        author_id: 2
+        author_handle: author
+        author_display_name: Author
+        author_avatar_url: ''
+        issue_type: feature
+        title: Dark mode
+        description: Add dark mode
+        status: done
+        priority: 2
+        duplicate_of_id: null
+        upvotes_count: 0
+        comments_count: 1
+        delivery_artifacts_count: 1
+        last_activity_at: '2026-01-01T00:01:00Z'
+        revision: 2
+        created_at: '2026-01-01T00:00:00Z'
+        updated_at: '2026-01-01T00:01:00Z'
+      add_request_comment: *id010
+      update_request_comment: *id069
+    audit:
+      profile_by_tool:
+        update_project_spec: external
+        delete_project: destructive
+        create_request: external
+        reassess_request_scope: destructive
+        propose_project_spec_update: external
+        transition_request: destructive
+        add_request_comment: external
+        update_request_comment: external
+      record_fields:
+      - authenticated_actor_id
+      - authenticated_client_id
+      - tool_name
+      - target_resource
+      - authorization_decisions
+      - redacted_input_hash
+      - result_or_error_code
+      - request_id
+      - idempotency_id
+      - approval_evidence
+      - dependency_outcome
+      - notification_outcome
+      - utc_timestamp
+  notes: Delete approval includes same-turn get_project and matching confirm_project_id; terminal transition approval includes
+    inspected delivery evidence.
+- id: external_effect_uncertain_matrix
+  category: uncertain_external_effect
+  covers:
+  - uncertain_external_effect
+  matrix:
+    tools:
+    - update_project_spec
+    - create_request
+    - reassess_request_scope
+    - propose_project_spec_update
+    - add_request_comment
+    - update_request_comment
+  input_by_tool:
+    update_project_spec: *id024
+    create_request: *id036
+    reassess_request_scope: *id037
+    propose_project_spec_update: *id038
+    add_request_comment: *id046
+    update_request_comment: *id047
+  context:
+    authenticated_actor_id: actor-1
+    authenticated_client_id: client-1
+    tenant_id: null
+    scopes:
+    - write
+    capabilities:
+    - request_management
+    - request_collaboration
+    - project_specification
+    ownership_fixture: content_moderation_dependency_unavailable_before_any_mutation
+    plan: free
+  expected:
+    error_by_tool:
+      update_project_spec: &id090
+        code: dependency_unavailable
+        message: A required dependency is temporarily unavailable.
+        retryable: true
+        request_id: req-dependency
+        details:
+          dependency: content_moderation
+      create_request: *id090
+      reassess_request_scope: *id090
+      propose_project_spec_update: *id090
+      add_request_comment: *id090
+      update_request_comment: *id090
+    audit:
+      profile_by_tool:
+        update_project_spec: external
+        create_request: external
+        reassess_request_scope: destructive
+        propose_project_spec_update: external
+        add_request_comment: external
+        update_request_comment: external
+      record_fields:
+      - authenticated_actor_id
+      - authenticated_client_id
+      - tool_name
+      - target_resource
+      - authorization_decisions
+      - redacted_input_hash
+      - result_or_error_code
+      - request_id
+      - idempotency_id
+      - approval_evidence
+      - dependency_outcome
+      - notification_outcome
+      - utc_timestamp
+  notes: Moderation is unavailable before the database mutation, so no request or comment is committed; the caller performs
+    an authoritative read before considering a same-key retry.
+- id: notification_unknown_after_commit_matrix
+  category: uncertain_external_effect
+  covers:
+  - uncertain_external_effect
+  matrix:
+    tools:
+    - create_request
+    - add_request_comment
+  input_by_tool:
+    create_request: *id036
+    add_request_comment: *id046
+  context:
+    authenticated_actor_id: actor-1
+    authenticated_client_id: client-1
+    tenant_id: null
+    scopes:
+    - write
+    capabilities:
+    - request_management
+    - request_collaboration
+    ownership_fixture: current_turn_user_intent_with_database_commit_succeeded_and_best_effort_notification_unknown
+    plan: free
+  expected:
+    result_by_tool:
+      create_request: *id005
+      add_request_comment: *id010
+    audit:
+      profile: external
+      record_fields:
+      - authenticated_actor_id
+      - authenticated_client_id
+      - tool_name
+      - target_resource
+      - authorization_decisions
+      - redacted_input_hash
+      - result_or_error_code
+      - request_id
+      - idempotency_id
+      - approval_evidence
+      - dependency_outcome
+      - notification_outcome
+      - utc_timestamp
+  notes: A notification failure or unknown outcome after commit does not turn the tool result into dependency_unavailable;
+    the committed resource is returned as success and notification is not retried silently.
+- id: redaction_matrix
+  category: redaction
+  covers:
+  - redaction
+  matrix:
+    tools: *id017
+  input_by_tool: *id091
+  context: *id092
+  expected:
+    result_by_tool: *id093
+    audit:
+      profile_by_tool: *id080
+      record_fields:
+      - authenticated_actor_id
+      - authenticated_client_id
+      - tool_name
+      - target_resource
+      - authorization_decisions
+      - redacted_input_hash
+      - result_or_error_code
+      - request_id
+      - idempotency_id
+      - approval_evidence
+      - dependency_outcome
+      - notification_outcome
+      - utc_timestamp
+  notes: Audit stores a canonical redacted input hash and excludes tokens, email, raw user content, raw URLs, stack traces,
+    and internal trace identifiers.
+- id: list_archived_projects_success
+  tool: list_archived_projects
+  category: success
+  covers:
+  - success
+  input: *id070
+  context:
+    authenticated_actor_id: actor-1
+    authenticated_client_id: client-1
+    tenant_id: null
+    scopes:
+    - read
+    - write
+    capabilities:
+    - project_management
+    - request_management
+    - request_collaboration
+    - duplicate_evidence
+    - delivery_evidence
+    - activity_feed
+    - project_specification
+    ownership_fixture: owned_archived_project
+    plan: free
+  expected:
+    result: *id094
+    audit:
+      profile: read
+      record_fields:
+      - authenticated_actor_id
+      - authenticated_client_id
+      - tool_name
+      - target_resource
+      - authorization_decisions
+      - redacted_input_hash
+      - result_or_error_code
+      - request_id
+      - utc_timestamp
+- id: archive_project_success
+  tool: archive_project
+  category: success
+  covers:
+  - success
+  input: *id071
+  context:
+    authenticated_actor_id: actor-1
+    authenticated_client_id: client-1
+    tenant_id: null
+    scopes:
+    - read
+    - write
+    capabilities:
+    - project_management
+    - request_management
+    - request_collaboration
+    - duplicate_evidence
+    - delivery_evidence
+    - activity_feed
+    - project_specification
+    ownership_fixture: authorized
+    plan: free
+  expected:
+    result: *id083
+    audit:
+      profile: write
+      record_fields:
+      - authenticated_actor_id
+      - authenticated_client_id
+      - tool_name
+      - target_resource
+      - authorization_decisions
+      - redacted_input_hash
+      - result_or_error_code
+      - request_id
+      - idempotency_id
+      - utc_timestamp
+- id: restore_project_success
+  tool: restore_project
+  category: success
+  covers:
+  - success
+  input: *id072
+  context:
+    authenticated_actor_id: actor-1
+    authenticated_client_id: client-1
+    tenant_id: null
+    scopes:
+    - read
+    - write
+    capabilities:
+    - project_management
+    - request_management
+    - request_collaboration
+    - duplicate_evidence
+    - delivery_evidence
+    - activity_feed
+    - project_specification
+    ownership_fixture: owned_archived_project
+    plan: free
+  expected:
+    result: *id084
+    audit:
+      profile: write
+      record_fields:
+      - authenticated_actor_id
+      - authenticated_client_id
+      - tool_name
+      - target_resource
+      - authorization_decisions
+      - redacted_input_hash
+      - result_or_error_code
+      - request_id
+      - idempotency_id
+      - utc_timestamp
+tool_coverage:
+  get_account_capabilities:
+    success:
+      status: covered
+      vectors:
+      - get_account_capabilities_success
+    invalid_input: &id096
+      status: covered
+      vectors:
+      - invalid_input_matrix
+    missing_capability:
+      status: not_applicable
+      reason: Bootstrap intentionally requires no paid or plan capability.
+    ownership_isolation:
+      status: not_applicable
+      reason: The result is computed only for the authenticated actor and accepts no foreign resource selector.
+    capability_plan_matrix: &id097
+      status: covered
+      vectors:
+      - pro_plan_matrix
+    quota_concurrency: &id098
+      status: not_applicable
+      reason: This tool does not consume project capacity or a renewable quota.
+    idempotent_replay: &id095
+      status: not_applicable
+      reason: Read-only tools do not mutate state and require no idempotency key.
+    idempotency_conflict: *id095
+    approval: &id099
+      status: not_applicable
+      reason: The operation requires no current-turn confirmation.
+    uncertain_external_effect: &id100
+      status: not_applicable
+      reason: The tool has no external effect or outbound dependency side effect.
+    redaction: &id101
+      status: covered
+      vectors:
+      - redaction_matrix
+    async_status: &id102
+      status: not_applicable
+      reason: The tool completes within one bounded request and creates no long-running operation.
+  list_projects:
+    success:
+      status: covered
+      vectors:
+      - list_projects_success
+    invalid_input: *id096
+    missing_capability: &id103
+      status: covered
+      vectors:
+      - missing_capability_matrix
+    ownership_isolation:
+      status: covered
+      vectors:
+      - ownership_filtering_matrix
+    capability_plan_matrix: *id097
+    quota_concurrency: *id098
+    idempotent_replay: *id095
+    idempotency_conflict: *id095
+    approval: *id099
+    uncertain_external_effect: *id100
+    redaction: *id101
+    async_status: *id102
+  get_project:
+    success:
+      status: covered
+      vectors:
+      - get_project_success
+    invalid_input: *id096
+    missing_capability: *id103
+    ownership_isolation: &id104
+      status: covered
+      vectors:
+      - ownership_isolation_matrix
+    capability_plan_matrix: *id097
+    quota_concurrency: *id098
+    idempotent_replay: *id095
+    idempotency_conflict: *id095
+    approval: *id099
+    uncertain_external_effect: *id100
+    redaction: *id101
+    async_status: *id102
+  get_project_spec:
+    success:
+      status: covered
+      vectors:
+      - get_project_spec_success
+    invalid_input: *id096
+    missing_capability: *id103
+    ownership_isolation:
+      status: not_applicable
+      reason: Published Product Specs are public authenticated-board resources and expose no owner-private proposal state.
+    capability_plan_matrix: *id097
+    quota_concurrency: *id098
+    idempotent_replay: *id095
+    idempotency_conflict: *id095
+    approval: *id099
+    uncertain_external_effect: *id100
+    redaction: *id101
+    async_status: *id102
+  create_project:
+    success:
+      status: covered
+      vectors:
+      - create_project_success
+    invalid_input: *id096
+    missing_capability: *id103
+    ownership_isolation:
+      status: not_applicable
+      reason: A successful create always assigns authenticated_actor_id as owner and has no foreign target.
+    capability_plan_matrix: *id097
+    quota_concurrency:
+      status: covered
+      vectors:
+      - create_project_capacity_concurrency
+    idempotent_replay: &id105
+      status: covered
+      vectors:
+      - mutation_replay_matrix
+    idempotency_conflict: &id106
+      status: covered
+      vectors:
+      - mutation_conflict_matrix
+    approval: *id099
+    uncertain_external_effect: *id100
+    redaction: *id101
+    async_status: *id102
+  update_project:
+    success:
+      status: covered
+      vectors:
+      - update_project_success
+    invalid_input: *id096
+    missing_capability: *id103
+    ownership_isolation: *id104
+    capability_plan_matrix: *id097
+    quota_concurrency: &id107
+      status: covered
+      vectors:
+      - revision_conflict_matrix
+    idempotent_replay: *id105
+    idempotency_conflict: *id106
+    approval: *id099
+    uncertain_external_effect: *id100
+    redaction: *id101
+    async_status: *id102
+  update_project_spec:
+    success:
+      status: covered
+      vectors:
+      - update_project_spec_success
+    invalid_input: *id096
+    missing_capability: *id103
+    ownership_isolation: *id104
+    capability_plan_matrix: *id097
+    quota_concurrency: *id107
+    idempotent_replay: *id105
+    idempotency_conflict: *id106
+    approval: &id110
+      status: covered
+      vectors:
+      - approval_matrix
+      - approval_granted_matrix
+    uncertain_external_effect: &id111
+      status: covered
+      vectors:
+      - external_effect_uncertain_matrix
+    redaction: *id101
+    async_status: *id102
+  delete_project:
+    success:
+      status: covered
+      vectors:
+      - delete_project_success
+    invalid_input: *id096
+    missing_capability: *id103
+    ownership_isolation: *id104
+    capability_plan_matrix: *id097
+    quota_concurrency: *id107
+    idempotent_replay: *id105
+    idempotency_conflict: *id106
+    approval: &id109
+      status: covered
+      vectors:
+      - approval_matrix
+      - approval_granted_matrix
+    uncertain_external_effect: *id100
+    redaction: *id101
+    async_status: *id102
+  list_requests:
+    success:
+      status: covered
+      vectors:
+      - list_requests_success
+    invalid_input: *id096
+    missing_capability: *id103
+    ownership_isolation: &id108
+      status: not_applicable
+      reason: The target is an authenticated public-board surface and does not grant access to private owner data.
+    capability_plan_matrix: *id097
+    quota_concurrency: *id098
+    idempotent_replay: *id095
+    idempotency_conflict: *id095
+    approval: *id099
+    uncertain_external_effect: *id100
+    redaction: *id101
+    async_status: *id102
+  get_request:
+    success:
+      status: covered
+      vectors:
+      - get_request_success
+    invalid_input: *id096
+    missing_capability: *id103
+    ownership_isolation: *id108
+    capability_plan_matrix: *id097
+    quota_concurrency: *id098
+    idempotent_replay: *id095
+    idempotency_conflict: *id095
+    approval: *id099
+    uncertain_external_effect: *id100
+    redaction: *id101
+    async_status: *id102
+  get_request_scope_assessment:
+    success:
+      status: covered
+      vectors:
+      - get_request_scope_assessment_success
+    invalid_input: *id096
+    missing_capability: *id103
+    ownership_isolation: *id108
+    capability_plan_matrix: *id097
+    quota_concurrency: *id098
+    idempotent_replay: *id095
+    idempotency_conflict: *id095
+    approval: *id099
+    uncertain_external_effect: *id100
+    redaction: *id101
+    async_status: *id102
+  list_request_comments:
+    success:
+      status: covered
+      vectors:
+      - list_request_comments_success
+    invalid_input: *id096
+    missing_capability: *id103
+    ownership_isolation: *id108
+    capability_plan_matrix: *id097
+    quota_concurrency: *id098
+    idempotent_replay: *id095
+    idempotency_conflict: *id095
+    approval: *id099
+    uncertain_external_effect: *id100
+    redaction: *id101
+    async_status: *id102
+  get_queue_snapshot:
+    success:
+      status: covered
+      vectors:
+      - get_queue_snapshot_success
+    invalid_input: *id096
+    missing_capability: *id103
+    ownership_isolation: *id104
+    capability_plan_matrix: *id097
+    quota_concurrency: *id098
+    idempotent_replay: *id095
+    idempotency_conflict: *id095
+    approval: *id099
+    uncertain_external_effect: *id100
+    redaction: *id101
+    async_status: *id102
+  find_duplicate_candidates:
+    success:
+      status: covered
+      vectors:
+      - find_duplicate_candidates_success
+    invalid_input: *id096
+    missing_capability: *id103
+    ownership_isolation: *id108
+    capability_plan_matrix: *id097
+    quota_concurrency: *id098
+    idempotent_replay: *id095
+    idempotency_conflict: *id095
+    approval: *id099
+    uncertain_external_effect: *id100
+    redaction: *id101
+    async_status: *id102
+  list_request_activity:
+    success:
+      status: covered
+      vectors:
+      - list_request_activity_success
+    invalid_input: *id096
+    missing_capability: *id103
+    ownership_isolation: *id104
+    capability_plan_matrix: *id097
+    quota_concurrency: *id098
+    idempotent_replay: *id095
+    idempotency_conflict: *id095
+    approval: *id099
+    uncertain_external_effect: *id100
+    redaction: *id101
+    async_status: *id102
+  list_request_changes:
+    success:
+      status: covered
+      vectors:
+      - list_request_changes_success
+    invalid_input: *id096
+    missing_capability: *id103
+    ownership_isolation:
+      status: covered
+      vectors:
+      - ownership_filtering_matrix
+    capability_plan_matrix: *id097
+    quota_concurrency: *id098
+    idempotent_replay: *id095
+    idempotency_conflict: *id095
+    approval: *id099
+    uncertain_external_effect: *id100
+    redaction: *id101
+    async_status: *id102
+  list_delivery_artifacts:
+    success:
+      status: covered
+      vectors:
+      - list_delivery_artifacts_success
+    invalid_input: *id096
+    missing_capability: *id103
+    ownership_isolation: *id104
+    capability_plan_matrix: *id097
+    quota_concurrency: *id098
+    idempotent_replay: *id095
+    idempotency_conflict: *id095
+    approval: *id099
+    uncertain_external_effect: *id100
+    redaction: *id101
+    async_status: *id102
+  list_project_spec_proposals:
+    success:
+      status: covered
+      vectors:
+      - list_project_spec_proposals_success
+    invalid_input: *id096
+    missing_capability: *id103
+    ownership_isolation: *id104
+    capability_plan_matrix: *id097
+    quota_concurrency: *id098
+    idempotent_replay: *id095
+    idempotency_conflict: *id095
+    approval: *id099
+    uncertain_external_effect: *id100
+    redaction: *id101
+    async_status: *id102
+  create_request:
+    success:
+      status: covered
+      vectors:
+      - create_request_success
+    invalid_input: *id096
+    missing_capability: *id103
+    ownership_isolation: *id108
+    capability_plan_matrix: *id097
+    quota_concurrency: *id098
+    idempotent_replay: *id105
+    idempotency_conflict: *id106
+    approval: *id109
+    uncertain_external_effect: &id112
+      status: covered
+      vectors:
+      - external_effect_uncertain_matrix
+      - notification_unknown_after_commit_matrix
+    redaction: *id101
+    async_status: *id102
+  reassess_request_scope:
+    success:
+      status: covered
+      vectors:
+      - reassess_request_scope_success
+    invalid_input: *id096
+    missing_capability: *id103
+    ownership_isolation: *id104
+    capability_plan_matrix: *id097
+    quota_concurrency: *id107
+    idempotent_replay: *id105
+    idempotency_conflict: *id106
+    approval: *id110
+    uncertain_external_effect: *id111
+    redaction: *id101
+    async_status: *id102
+  propose_project_spec_update:
+    success:
+      status: covered
+      vectors:
+      - propose_project_spec_update_success
+    invalid_input: *id096
+    missing_capability: *id103
+    ownership_isolation: *id104
+    capability_plan_matrix: *id097
+    quota_concurrency: *id107
+    idempotent_replay: *id105
+    idempotency_conflict: *id106
+    approval: *id110
+    uncertain_external_effect: *id111
+    redaction: *id101
+    async_status: *id102
+  resolve_project_spec_proposal:
+    success:
+      status: covered
+      vectors:
+      - resolve_project_spec_proposal_success
+    invalid_input: *id096
+    missing_capability: *id103
+    ownership_isolation: *id104
+    capability_plan_matrix: *id097
+    quota_concurrency: *id107
+    idempotent_replay: *id105
+    idempotency_conflict: *id106
+    approval: *id099
+    uncertain_external_effect: *id100
+    redaction: *id101
+    async_status: *id102
+  link_duplicate_request:
+    success:
+      status: covered
+      vectors:
+      - link_duplicate_request_success
+    invalid_input: *id096
+    missing_capability: *id103
+    ownership_isolation: *id104
+    capability_plan_matrix: *id097
+    quota_concurrency: *id107
+    idempotent_replay: *id105
+    idempotency_conflict: *id106
+    approval: *id099
+    uncertain_external_effect: *id100
+    redaction: *id101
+    async_status: *id102
+  unlink_duplicate_request:
+    success:
+      status: covered
+      vectors:
+      - unlink_duplicate_request_success
+    invalid_input: *id096
+    missing_capability: *id103
+    ownership_isolation: *id104
+    capability_plan_matrix: *id097
+    quota_concurrency: *id107
+    idempotent_replay: *id105
+    idempotency_conflict: *id106
+    approval: *id099
+    uncertain_external_effect: *id100
+    redaction: *id101
+    async_status: *id102
+  link_delivery_artifact:
+    success:
+      status: covered
+      vectors:
+      - link_delivery_artifact_success
+    invalid_input: *id096
+    missing_capability: *id103
+    ownership_isolation: *id104
+    capability_plan_matrix: *id097
+    quota_concurrency: *id107
+    idempotent_replay:
+      status: covered
+      vectors:
+      - mutation_replay_matrix
+      - delivery_natural_key_reuse
+    idempotency_conflict:
+      status: covered
+      vectors:
+      - mutation_conflict_matrix
+      - delivery_natural_key_conflict
+    approval: *id099
+    uncertain_external_effect: *id100
+    redaction: *id101
+    async_status: *id102
+  unlink_delivery_artifact:
+    success:
+      status: covered
+      vectors:
+      - unlink_delivery_artifact_success
+    invalid_input: *id096
+    missing_capability: *id103
+    ownership_isolation: *id104
+    capability_plan_matrix: *id097
+    quota_concurrency: *id107
+    idempotent_replay: *id105
+    idempotency_conflict: *id106
+    approval: *id099
+    uncertain_external_effect: *id100
+    redaction: *id101
+    async_status: *id102
+  update_request:
+    success:
+      status: covered
+      vectors:
+      - update_request_success
+    invalid_input: *id096
+    missing_capability: *id103
+    ownership_isolation: *id104
+    capability_plan_matrix: *id097
+    quota_concurrency: *id107
+    idempotent_replay: *id105
+    idempotency_conflict: *id106
+    approval: *id099
+    uncertain_external_effect: *id100
+    redaction: *id101
+    async_status: *id102
+  transition_request:
+    success:
+      status: covered
+      vectors:
+      - transition_request_success
+    invalid_input: *id096
+    missing_capability: *id103
+    ownership_isolation: *id104
+    capability_plan_matrix: *id097
+    quota_concurrency: *id107
+    idempotent_replay: *id105
+    idempotency_conflict: *id106
+    approval: *id109
+    uncertain_external_effect: *id100
+    redaction: *id101
+    async_status: *id102
+  add_request_comment:
+    success:
+      status: covered
+      vectors:
+      - add_request_comment_success
+    invalid_input: *id096
+    missing_capability: *id103
+    ownership_isolation: *id108
+    capability_plan_matrix: *id097
+    quota_concurrency: *id098
+    idempotent_replay: *id105
+    idempotency_conflict: *id106
+    approval: *id109
+    uncertain_external_effect: *id112
+    redaction: *id101
+    async_status: *id102
+  update_request_comment:
+    success:
+      status: covered
+      vectors:
+      - update_request_comment_success
+    invalid_input: *id096
+    missing_capability: *id103
+    ownership_isolation: *id104
+    capability_plan_matrix: *id097
+    quota_concurrency: *id107
+    idempotent_replay: *id105
+    idempotency_conflict: *id106
+    approval: *id109
+    uncertain_external_effect:
+      status: covered
+      vectors:
+      - external_effect_uncertain_matrix
+    redaction: *id101
+    async_status: *id102
+  list_archived_projects:
+    success:
+      status: covered
+      vectors:
+      - list_archived_projects_success
+    invalid_input:
+      status: covered
+      vectors:
+      - invalid_input_matrix
+    missing_capability:
+      status: covered
+      vectors:
+      - missing_capability_matrix
+    ownership_isolation:
+      status: covered
+      vectors:
+      - ownership_filtering_matrix
+    capability_plan_matrix:
+      status: covered
+      vectors:
+      - pro_plan_matrix
+    quota_concurrency:
+      status: not_applicable
+      reason: This tool does not consume project capacity or a renewable quota.
+    idempotent_replay: &id113
+      status: not_applicable
+      reason: Read-only tools do not mutate state and require no idempotency key.
+    idempotency_conflict: *id113
+    approval:
+      status: not_applicable
+      reason: The operation requires no current-turn confirmation.
+    uncertain_external_effect:
+      status: not_applicable
+      reason: The tool has no external effect or outbound dependency side effect.
+    redaction:
+      status: covered
+      vectors:
+      - redaction_matrix
+    async_status:
+      status: not_applicable
+      reason: The tool completes within one bounded request and creates no long-running operation.
+  archive_project:
+    success:
+      status: covered
+      vectors:
+      - archive_project_success
+    invalid_input:
+      status: covered
+      vectors:
+      - invalid_input_matrix
+    missing_capability:
+      status: covered
+      vectors:
+      - missing_capability_matrix
+    ownership_isolation:
+      status: covered
+      vectors:
+      - ownership_isolation_matrix
+    capability_plan_matrix:
+      status: covered
+      vectors:
+      - pro_plan_matrix
+    quota_concurrency:
+      status: covered
+      vectors:
+      - revision_conflict_matrix
+    idempotent_replay:
+      status: covered
+      vectors:
+      - mutation_replay_matrix
+    idempotency_conflict:
+      status: covered
+      vectors:
+      - mutation_conflict_matrix
+    approval:
+      status: not_applicable
+      reason: The operation requires no current-turn confirmation.
+    uncertain_external_effect:
+      status: not_applicable
+      reason: The tool has no external effect or outbound dependency side effect.
+    redaction:
+      status: covered
+      vectors:
+      - redaction_matrix
+    async_status:
+      status: not_applicable
+      reason: The tool completes within one bounded request and creates no long-running operation.
+  restore_project:
+    success:
+      status: covered
+      vectors:
+      - restore_project_success
+    invalid_input:
+      status: covered
+      vectors:
+      - invalid_input_matrix
+    missing_capability:
+      status: covered
+      vectors:
+      - missing_capability_matrix
+    ownership_isolation:
+      status: covered
+      vectors:
+      - ownership_isolation_matrix
+    capability_plan_matrix:
+      status: covered
+      vectors:
+      - pro_plan_matrix
+    quota_concurrency:
+      status: covered
+      vectors:
+      - revision_conflict_matrix
+    idempotent_replay:
+      status: covered
+      vectors:
+      - mutation_replay_matrix
+    idempotency_conflict:
+      status: covered
+      vectors:
+      - mutation_conflict_matrix
+    approval:
+      status: not_applicable
+      reason: The operation requires no current-turn confirmation.
+    uncertain_external_effect:
+      status: not_applicable
+      reason: The tool has no external effect or outbound dependency side effect.
+    redaction:
+      status: covered
+      vectors:
+      - redaction_matrix
+    async_status:
+      status: not_applicable
+      reason: The tool completes within one bounded request and creates no long-running operation.

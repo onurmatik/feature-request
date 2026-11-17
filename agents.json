@@ -6,9 +6,9 @@
   "agent_contract": {
     "source": "agent/contract.yaml",
     "schema": "agent/contract.schema.json",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "role": "canonical_semantic_source",
-    "conformance_bundle": "agent/conformance/1.1.0/",
+    "conformance_bundle": "agent/conformance/1.2.0/",
     "projection_role": "This file describes environment bindings and the observed implementation surface; it does not redefine Agent Contract semantics.",
     "bootstrap_target": "get_account_capabilities",
     "runtime_conformance": {
@@ -195,19 +195,19 @@
   },
   "mcp": {
     "name": "feature-request",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "transport": "streamable_http",
     "path": "/mcp",
     "implementation": "Python MCPServer",
     "contract_projection": {
       "source": "agent/contract.yaml",
-      "mapping_snapshot": "agent/mappings/mcp-1.1.0.json",
+      "mapping_snapshot": "agent/mappings/mcp-1.2.0.json",
       "conformance_status": "pending",
       "bootstrap_target": "get_account_capabilities",
       "bootstrap_runtime_status": "pending",
       "notes": [
         "The repository runtime registry below is a deterministic projection, not the normative Agent Contract catalog.",
-        "get_account_capabilities and all 30 Contract tools are implemented in the repository; public production use remains pending the release gates.",
+        "get_account_capabilities and all 33 Contract tools are implemented in the repository; public production use remains pending the release gates.",
         "Tool schemas, scopes, capabilities, ownership, approvals, errors, side effects, and retry semantics are projected from agent/contract.yaml."
       ]
     },
@@ -398,6 +398,21 @@
       {
         "name": "update_request_comment",
         "api_operation": "update_issue_comment",
+        "read_only": false
+      },
+      {
+        "name": "list_archived_projects",
+        "api_operation": "list_archived_projects",
+        "read_only": true
+      },
+      {
+        "name": "archive_project",
+        "api_operation": "archive_project",
+        "read_only": false
+      },
+      {
+        "name": "restore_project",
+        "api_operation": "restore_project",
         "read_only": false
       }
     ]
@@ -870,6 +885,33 @@
       "path": "/auth/magic-link",
       "auth": "none",
       "description": "Consumes sesame magic-link token and logs user in."
+    },
+    {
+      "name": "list_archived_projects",
+      "method": "GET",
+      "path": "/api/projects/archived",
+      "auth": "session_or_token",
+      "description": "List only the authenticated owner's archived project identity and revision, without board content."
+    },
+    {
+      "name": "archive_project",
+      "method": "POST",
+      "path": "/api/projects/{project_id}/archive",
+      "auth": "session_or_token",
+      "description": "Hide an owned project and its content while retaining its slug and data for later restoration.",
+      "required_body": {
+        "expected_revision": "integer"
+      }
+    },
+    {
+      "name": "restore_project",
+      "method": "POST",
+      "path": "/api/projects/{project_id}/restore",
+      "auth": "session_or_token",
+      "description": "Reactivate an owned archived project at its original URL, subject to active-project capacity.",
+      "required_body": {
+        "expected_revision": "integer"
+      }
     }
   ]
 }

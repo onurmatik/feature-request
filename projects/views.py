@@ -122,7 +122,7 @@ def frontend_app(request, spa_path=""):
 @xframe_options_exempt
 def embed_widget(request, owner_handle, project_slug):
     project = get_object_or_404(
-        Project.objects.select_related("owner"),
+        Project.objects.active().select_related("owner"),
         owner__handle=str(owner_handle or "").strip().lower(),
         slug=project_slug,
     )
@@ -162,7 +162,7 @@ def embed_submission_verify(request, token):
             "project__owner",
             "issue__author",
         )
-        .filter(token_hash=digest)
+        .filter(token_hash=digest, project__archived_at__isnull=True)
         .first()
     )
     if submission is None:
@@ -220,6 +220,10 @@ def embed_submission_verify(request, token):
 
     created_issue = False
     with transaction.atomic():
+        get_object_or_404(
+            Project.objects.active().select_for_update(of=("self",)),
+            pk=submission.project_id,
+        )
         # Lock only the submission row. PostgreSQL rejects FOR UPDATE when a
         # nullable select_related() join (issue) is included in the lock set.
         # Related objects are resolved after the authoritative row is locked.

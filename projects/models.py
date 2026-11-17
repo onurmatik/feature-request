@@ -4,6 +4,14 @@ from django.db import models
 from slugify import slugify
 
 
+class ProjectQuerySet(models.QuerySet):
+    def active(self):
+        return self.filter(archived_at__isnull=True)
+
+    def archived(self):
+        return self.filter(archived_at__isnull=False)
+
+
 class Project(models.Model):
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -16,8 +24,12 @@ class Project(models.Model):
     url = models.URLField(blank=True)
     favicon_url = models.URLField(blank=True)
     revision = models.PositiveBigIntegerField(default=1)
+    archived_at = models.DateTimeField(null=True, blank=True, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    # Keep the default manager unfiltered for slug reservations and retained data.
+    objects = ProjectQuerySet.as_manager()
 
     class Meta:
         ordering = ["-created_at"]

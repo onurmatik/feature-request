@@ -38,6 +38,13 @@ from .embed import (
     validate_turnstile,
 )
 from .events import record_issue_event
+from .lifecycle import (
+    archived_project_to_dict,
+    change_project_archive,
+    lock_active_project,
+    project_id_for_resource,
+    project_lifecycle_receipt,
+)
 from .models import (
     EmbeddedIssueSubmission,
     Issue,
@@ -124,6 +131,24 @@ class ProjectOut(Schema):
     revision: int
     created_at: str
     updated_at: str
+
+
+class ArchivedProjectOut(Schema):
+    id: int
+    name: str
+    slug: str
+    revision: int
+    archived_at: str
+
+
+class ProjectArchiveIn(Schema):
+    expected_revision: int
+
+
+class ProjectArchiveOut(Schema):
+    project_id: int
+    revision: int
+    archived_at: Optional[str]
 
 
 class FeaturedProjectOut(Schema):
@@ -396,12 +421,25 @@ def _can_manage_project(user, project: Project):
 def _raise_domain_http_error(exc: DomainRuleError):
     status = {
         "not_found": 404,
+        "permission_denied": 403,
+        "capacity_reached": 403,
         "revision_conflict": 409,
         "invalid_state": 409,
         "dependency_unavailable": 503,
         "moderation_rejected": 400,
     }.get(exc.code, 400)
     raise HttpError(status, exc.message) from exc
+
+
+def _lock_active_project(project_id):
+    try:
+        return lock_active_project(project_id)
+    except DomainRuleError as exc:
+        _raise_domain_http_error(exc)
+
+
+def _lock_resource_project(kind, resource_id):
+    return _lock_active_project(project_id_for_resource(kind, resource_id))
 
 
 def _clean_non_empty(value: str, field_name: str):
@@ -1019,7 +1057,7 @@ def _notify_owner_on_new_comment(request, comment: IssueComment):
 
 def _get_project(owner_handle: str, project_slug: str):
     return get_object_or_404(
-        Project.objects.select_related("owner", "spec"),
+        Project.objects.active().select_related("owner", "spec"),
         owner__handle=owner_handle.lower(),
         slug=project_slug,
     )
@@ -1031,7 +1069,7 @@ def _get_owner(owner_handle: str):
 
 
 def _get_annotated_issue_queryset():
-    return Issue.objects.select_related("project", "author", "duplicate_of").annotate(
+    return Issue.objects.filter(project__archived_at__isnull=True).select_related("project", "author", "duplicate_of").annotate(
         upvotes_count=Count("upvotes", distinct=True),
         comments_count=Count("comments", distinct=True),
         delivery_artifacts_count=Count("delivery_artifacts", distinct=True),
@@ -1055,7 +1093,7 @@ _get_annotated_issue_queryset = _shared_annotated_issue_queryset
 def list_my_projects(request):
     user = _require_auth_user(request)
     projects = _order_projects_by_last_request(
-        _annotate_open_issues_count(Project.objects.select_related("owner", "spec").filter(owner=user))
+        _annotate_open_issues_count(Project.objects.active().select_related("owner", "spec").filter(owner=user))
     )
     return [_project_to_dict(project) for project in projects]
 
@@ -1078,11 +1116,11 @@ def create_project(request, payload: ProjectCreateIn):
         favicon_debug = []
 
     with transaction.atomic():
-        locked_user = get_user_model().objects.select_for_update(of=("self",)).get(
+        locked_user = get_user_model().objects.select_for_update(of=("self",), no_key=True).get(
             pk=user.pk
         )
         if locked_user.has_project_limit(
-            Project.objects.filter(owner=locked_user).count()
+            Project.objects.active().filter(owner=locked_user).count()
         ):
             raise HttpError(
                 403,
@@ -1095,15 +1133,47 @@ def create_project(request, payload: ProjectCreateIn):
             url=url,
             favicon_url=favicon_url,
         )
-    project = Project.objects.select_related("owner", "spec").get(id=project.id)
-    return 201, _project_to_dict(project)
+        project = Project.objects.active().select_related("owner", "spec").get(id=project.id)
+        result = _project_to_dict(project)
+    return 201, result
+
+
+@router.get("/projects/archived", response=list[ArchivedProjectOut])
+def list_archived_projects(request):
+    user = _require_auth_user(request)
+    projects = Project.objects.archived().filter(owner=user).order_by("-archived_at", "-id")
+    return [archived_project_to_dict(project) for project in projects]
+
+
+def _change_project_archive(request, project_id, payload, *, archived):
+    user = _require_auth_user(request)
+    if payload.expected_revision < 1:
+        raise HttpError(400, "expected_revision must be positive.")
+    try:
+        project = change_project_archive(
+            actor=user, project_id=project_id, archived=archived,
+            expected_revision=payload.expected_revision,
+        )
+    except DomainRuleError as exc:
+        _raise_domain_http_error(exc)
+    return project_lifecycle_receipt(project)
+
+
+@router.post("/projects/{project_id}/archive", response=ProjectArchiveOut)
+def archive_project(request, project_id: int, payload: ProjectArchiveIn):
+    return _change_project_archive(request, project_id, payload, archived=True)
+
+
+@router.post("/projects/{project_id}/restore", response=ProjectArchiveOut)
+def restore_project(request, project_id: int, payload: ProjectArchiveIn):
+    return _change_project_archive(request, project_id, payload, archived=False)
 
 
 @router.get("/projects/{project_id}", response=ProjectOut)
 def get_my_project(request, project_id: int):
     user = _require_auth_user(request)
     project = get_object_or_404(
-        Project.objects.select_related("owner", "spec"),
+        Project.objects.active().select_related("owner", "spec"),
         id=project_id,
         owner=user,
     )
@@ -1115,7 +1185,7 @@ def update_project(request, project_id: int, payload: ProjectUpdateIn):
     user = _require_auth_user(request)
     with transaction.atomic():
         project = get_object_or_404(
-            Project.objects.select_for_update(of=("self",)).select_related("owner"),
+            Project.objects.active().select_for_update(of=("self",)).select_related("owner"),
             id=project_id,
         )
         if not _can_manage_project(user, project):
@@ -1147,13 +1217,15 @@ def update_project(request, project_id: int, payload: ProjectUpdateIn):
             values["favicon_url"] = favicon_url
             apply_project_changes(project, **values)
 
-    return _project_to_dict(project)
+        result = _project_to_dict(project)
+    return result
 
 
 @router.delete("/projects/{project_id}", response={204: None})
+@transaction.atomic
 def delete_project(request, project_id: int):
     user = _require_auth_user(request)
-    project = get_object_or_404(Project, id=project_id)
+    project = _lock_active_project(project_id)
     if not _can_manage_project(user, project):
         raise HttpError(403, "Not allowed to delete this project.")
     project.delete()
@@ -1167,7 +1239,7 @@ def delete_project(request, project_id: int):
 def get_public_project_spec(request, owner_handle: str, project_slug: str):
     project = _get_project(owner_handle, project_slug)
     spec = get_object_or_404(
-        ProjectSpec.objects.select_related("project__owner"),
+        ProjectSpec.objects.filter(project__archived_at__isnull=True).select_related("project__owner"),
         project=project,
     )
     return project_spec_to_dict(spec)
@@ -1185,7 +1257,7 @@ def upsert_project_spec(request, project_id: int, payload: ProjectSpecUpsertIn):
 
     with transaction.atomic():
         project = get_object_or_404(
-            Project.objects.select_for_update(of=("self",)).select_related("owner"),
+            Project.objects.active().select_for_update(of=("self",)).select_related("owner"),
             id=project_id,
         )
         if not _can_manage_project(user, project):
@@ -1199,8 +1271,9 @@ def upsert_project_spec(request, project_id: int, payload: ProjectSpecUpsertIn):
             )
         except DomainRuleError as exc:
             _raise_domain_http_error(exc)
-    spec = ProjectSpec.objects.select_related("project__owner").get(pk=spec.pk)
-    return project_spec_to_dict(spec)
+        spec = ProjectSpec.objects.filter(project__archived_at__isnull=True).select_related("project__owner").get(pk=spec.pk)
+        result = project_spec_to_dict(spec)
+    return result
 
 
 @router.delete("/projects/{project_id}/spec", response=ProjectSpecDeleteOut)
@@ -1214,7 +1287,7 @@ def delete_project_spec(
         raise HttpError(400, "confirm_project_id must match project_id.")
     with transaction.atomic():
         project = get_object_or_404(
-            Project.objects.select_for_update(of=("self",)),
+            Project.objects.active().select_for_update(of=("self",)),
             id=project_id,
         )
         if not _can_manage_project(user, project):
@@ -1237,7 +1310,7 @@ def delete_project_spec(
 def list_owner_projects(request, owner_handle: str):
     owner = _get_owner(owner_handle)
     projects = _order_projects_by_last_request(
-        _annotate_open_issues_count(Project.objects.select_related("owner", "spec").filter(owner=owner))
+        _annotate_open_issues_count(Project.objects.active().select_related("owner", "spec").filter(owner=owner))
     )
     return [_project_to_dict(project) for project in projects]
 
@@ -1255,7 +1328,7 @@ def _project_latest_interaction_at(project):
 def list_owner_interacted_projects(request, owner_handle: str):
     owner = _get_owner(owner_handle)
     projects = _annotate_open_issues_count(
-        Project.objects.select_related("owner", "spec")
+        Project.objects.active().select_related("owner", "spec")
         .exclude(owner=owner)
         .filter(
             Q(issues__author=owner)
@@ -1289,7 +1362,7 @@ def list_owner_interacted_projects(request, owner_handle: str):
 def list_featured_public_projects(request, limit: int = 3):
     safe_limit = max(1, min(limit, 12))
     projects = (
-        Project.objects.select_related("owner")
+        Project.objects.active().select_related("owner")
         .annotate(issues_count=Count("issues", distinct=True))
         .order_by("-issues_count", "-updated_at", "-id")[:safe_limit]
     )
@@ -1307,7 +1380,7 @@ def list_owner_issues(
     limit: Optional[int] = None,
 ):
     owner = _get_owner(owner_handle)
-    visible_projects = Project.objects.filter(owner=owner)
+    visible_projects = Project.objects.active().filter(owner=owner)
     if project_slug:
         visible_projects = visible_projects.filter(slug=project_slug)
         if not visible_projects.exists():
@@ -1376,7 +1449,7 @@ def find_duplicate_candidates(
     description = description.strip()
     _validate_limit(limit, maximum=20)
 
-    queryset = Issue.objects.filter(project=project)
+    queryset = Issue.objects.filter(project__archived_at__isnull=True).filter(project=project)
     if exclude_issue_id is not None:
         if not queryset.filter(id=exclude_issue_id).exists():
             raise HttpError(400, "exclude_issue_id must belong to the target project.")
@@ -1415,7 +1488,7 @@ def create_issue(request, owner_handle: str, project_slug: str, payload: IssueCr
     title = _clean_non_empty(payload.title, "Issue title")
     description = payload.description.strip()
     _moderate_issue_submission(payload.issue_type, title, description)
-    spec = ProjectSpec.objects.filter(project=project).first()
+    spec = ProjectSpec.objects.filter(project__archived_at__isnull=True).filter(project=project).first()
     evaluation = (
         evaluate_request_scope(
             spec=spec,
@@ -1428,6 +1501,7 @@ def create_issue(request, owner_handle: str, project_slug: str, payload: IssueCr
         else None
     )
     with transaction.atomic():
+        project = _lock_active_project(project.pk)
         issue = create_issue_resource(
             project=project,
             author=user,
@@ -1438,7 +1512,7 @@ def create_issue(request, owner_handle: str, project_slug: str, payload: IssueCr
             source="api",
         )
         if spec is not None and evaluation is not None:
-            current_spec = ProjectSpec.objects.select_for_update(of=("self",)).filter(
+            current_spec = ProjectSpec.objects.filter(project__archived_at__isnull=True).select_for_update(of=("self",)).filter(
                 pk=spec.pk,
                 revision=spec.revision,
             ).first()
@@ -1453,9 +1527,10 @@ def create_issue(request, owner_handle: str, project_slug: str, payload: IssueCr
                 evaluation=evaluation,
                 source="api",
             )
+        issue = _get_annotated_issue_queryset().get(id=issue.id)
+        result = _issue_to_dict(issue)
     _notify_owner_on_new_issue(request, issue, user)
-    issue = _get_annotated_issue_queryset().get(id=issue.id)
-    return 201, _issue_to_dict(issue)
+    return 201, result
 
 
 @router.post(
@@ -1515,7 +1590,7 @@ def create_embed_submission(
     except HttpError:
         raise
 
-    spec = ProjectSpec.objects.filter(project=project).first()
+    spec = ProjectSpec.objects.filter(project__archived_at__isnull=True).filter(project=project).first()
     evaluation = evaluate_embed_feedback(
         feedback=feedback,
         spec=spec,
@@ -1523,11 +1598,7 @@ def create_embed_submission(
     )
     created = False
     with transaction.atomic():
-        locked_project = (
-            Project.objects.select_for_update(of=("self",))
-            .select_related("owner")
-            .get(pk=project.pk)
-        )
+        locked_project = _lock_active_project(project.pk)
         existing = (
             EmbeddedIssueSubmission.objects.select_for_update(of=("self",))
             .select_related("issue__project__owner")
@@ -1564,7 +1635,7 @@ def create_embed_submission(
             )
             if spec is not None and evaluation.scope_evaluation is not None:
                 scope_evaluation = evaluation.scope_evaluation
-                current_spec = ProjectSpec.objects.select_for_update(of=("self",)).filter(
+                current_spec = ProjectSpec.objects.filter(project__archived_at__isnull=True).select_for_update(of=("self",)).filter(
                     pk=spec.pk,
                     revision=spec.revision,
                 ).first()
@@ -1626,7 +1697,7 @@ def get_issue(request, issue_id: int):
     response=ScopeAssessmentOut,
 )
 def get_issue_scope_assessment(request, issue_id: int):
-    issue = get_object_or_404(Issue.objects.select_related("project"), id=issue_id)
+    issue = get_object_or_404(Issue.objects.filter(project__archived_at__isnull=True).select_related("project"), id=issue_id)
     is_owner = request.user.is_authenticated and request.user.id == issue.project.owner_id
     assessments = issue.scope_assessments.all()
     if not is_owner:
@@ -1644,7 +1715,7 @@ def get_issue_scope_assessment(request, issue_id: int):
 def retry_issue_scope_assessment(request, issue_id: int):
     user = _require_auth_user(request)
     issue = get_object_or_404(
-        Issue.objects.select_related("project"),
+        Issue.objects.filter(project__archived_at__isnull=True).select_related("project"),
         id=issue_id,
     )
     if user.id != issue.project.owner_id:
@@ -1658,11 +1729,12 @@ def retry_issue_scope_assessment(request, issue_id: int):
         client_factory=OpenAI,
     )
     with transaction.atomic():
+        _lock_resource_project("request", issue_id)
         issue = get_object_or_404(
-            Issue.objects.select_for_update(of=("self",)).select_related("project"),
+            Issue.objects.filter(project__archived_at__isnull=True).select_for_update(of=("self",)).select_related("project"),
             id=issue_id,
         )
-        current_spec = ProjectSpec.objects.select_for_update(of=("self",)).filter(
+        current_spec = ProjectSpec.objects.filter(project__archived_at__isnull=True).select_for_update(of=("self",)).filter(
             pk=spec.pk,
             revision=spec.revision,
         ).first()
@@ -1687,7 +1759,7 @@ def retry_issue_scope_assessment(request, issue_id: int):
 def create_issue_spec_change_proposal(request, issue_id: int):
     user = _require_auth_user(request)
     issue = get_object_or_404(
-        Issue.objects.select_related("project"),
+        Issue.objects.filter(project__archived_at__isnull=True).select_related("project"),
         id=issue_id,
     )
     if user.id != issue.project.owner_id:
@@ -1698,7 +1770,7 @@ def create_issue_spec_change_proposal(request, issue_id: int):
         raise HttpError(409, "The latest scope assessment is not a scope gap.")
     if latest.spec_revision != spec.revision:
         raise HttpError(409, "The product scope changed after scope assessment.")
-    if ProjectSpecChangeProposal.objects.filter(
+    if ProjectSpecChangeProposal.objects.filter(project__archived_at__isnull=True).filter(
         issue=issue,
         base_spec_revision=spec.revision,
         status=ProjectSpecChangeProposal.Status.PENDING,
@@ -1713,12 +1785,13 @@ def create_issue_spec_change_proposal(request, issue_id: int):
     except DomainRuleError as exc:
         _raise_domain_http_error(exc)
     with transaction.atomic():
+        _lock_resource_project("request", issue_id)
         issue = get_object_or_404(
-            Issue.objects.select_for_update(of=("self",)).select_related("project"),
+            Issue.objects.filter(project__archived_at__isnull=True).select_for_update(of=("self",)).select_related("project"),
             id=issue_id,
         )
         current_spec = get_object_or_404(
-            ProjectSpec.objects.select_for_update(of=("self",)),
+            ProjectSpec.objects.filter(project__archived_at__isnull=True).select_for_update(of=("self",)),
             project=issue.project,
         )
         if current_spec.revision != spec.revision:
@@ -1747,12 +1820,12 @@ def list_project_spec_change_proposals(
     status: str = ProjectSpecChangeProposal.Status.PENDING,
 ):
     user = _require_auth_user(request)
-    project = get_object_or_404(Project, id=project_id)
+    project = get_object_or_404(Project.objects.active(), id=project_id)
     if user.id != project.owner_id:
         raise HttpError(403, "Only the project owner can view scope proposals.")
     if status not in ProjectSpecChangeProposal.Status.values:
         raise HttpError(400, "Invalid proposal status.")
-    proposals = ProjectSpecChangeProposal.objects.filter(
+    proposals = ProjectSpecChangeProposal.objects.filter(project__archived_at__isnull=True).filter(
         project=project,
         status=status,
     ).select_related("created_by", "reviewed_by")
@@ -1779,8 +1852,9 @@ def resolve_project_spec_change_proposal(
     if decision is None:
         raise HttpError(400, "Decision must be accept or reject.")
     with transaction.atomic():
+        _lock_resource_project("project_spec_proposal", proposal_id)
         proposal = get_object_or_404(
-            ProjectSpecChangeProposal.objects.select_for_update(of=("self",)).select_related(
+            ProjectSpecChangeProposal.objects.filter(project__archived_at__isnull=True).select_for_update(of=("self",)).select_related(
                 "project", "issue", "created_by", "reviewed_by"
             ),
             id=proposal_id,
@@ -1788,7 +1862,7 @@ def resolve_project_spec_change_proposal(
         if user.id != proposal.project.owner_id:
             raise HttpError(403, "Only the project owner can resolve scope proposals.")
         spec = get_object_or_404(
-            ProjectSpec.objects.select_for_update(of=("self",)),
+            ProjectSpec.objects.filter(project__archived_at__isnull=True).select_for_update(of=("self",)),
             project=proposal.project,
         )
         try:
@@ -1814,8 +1888,9 @@ def update_issue(request, issue_id: int, payload: IssueUpdateIn):
             issue_type=None,
         )
     with transaction.atomic():
+        _lock_resource_project("request", issue_id)
         issue = get_object_or_404(
-            Issue.objects.select_for_update(of=("self",)).select_related("project"), id=issue_id
+            Issue.objects.filter(project__archived_at__isnull=True).select_for_update(of=("self",)).select_related("project"), id=issue_id
         )
         if not _can_manage_issue(user, issue):
             raise HttpError(403, "Not allowed to update this issue.")
@@ -1853,7 +1928,7 @@ def update_issue(request, issue_id: int, payload: IssueUpdateIn):
                     )
                 if assessment is None:
                     spec_revision = (
-                        ProjectSpec.objects.filter(project=issue.project)
+                        ProjectSpec.objects.filter(project__archived_at__isnull=True).filter(project=issue.project)
                         .values_list("revision", flat=True)
                         .first()
                         or 0
@@ -1892,16 +1967,16 @@ def update_issue(request, issue_id: int, payload: IssueUpdateIn):
             )
         apply_issue_changes(issue, actor=user, source=None, **values)
 
-    issue = _get_annotated_issue_queryset().get(id=issue.id)
-
-    return _issue_to_dict(issue)
+        issue = _get_annotated_issue_queryset().get(id=issue.id)
+        result = _issue_to_dict(issue)
+    return result
 
 
 @router.get("/me/request-queue", response=QueueSnapshotOut)
 def get_request_queue(request, project_id: Optional[int] = None, limit: int = 100):
     user = _require_auth_user(request)
     _validate_limit(limit)
-    projects = Project.objects.filter(owner=user)
+    projects = Project.objects.active().filter(owner=user)
     if project_id is not None:
         projects = projects.filter(id=project_id)
         if not projects.exists():
@@ -1955,7 +2030,7 @@ def list_issue_changes(request, after_id: int = 0, limit: int = 50):
         raise HttpError(400, "after_id cannot be negative.")
     _validate_limit(limit)
     queryset = (
-        IssueEvent.objects.select_related("actor", "issue__project")
+        IssueEvent.objects.filter(issue__project__archived_at__isnull=True).select_related("actor", "issue__project")
         .filter(issue__project__owner=user, id__gt=after_id)
         .order_by("id")
     )
@@ -1972,7 +2047,7 @@ def list_issue_changes(request, after_id: int = 0, limit: int = 50):
 def list_issue_activity(request, issue_id: int, limit: int = 100):
     user = _require_auth_user(request)
     _validate_limit(limit)
-    issue = get_object_or_404(Issue.objects.select_related("project"), id=issue_id)
+    issue = get_object_or_404(Issue.objects.filter(project__archived_at__isnull=True).select_related("project"), id=issue_id)
     if not _can_manage_issue(user, issue):
         raise HttpError(403, "Not allowed to view this issue activity.")
     events = list(
@@ -1987,13 +2062,14 @@ def list_issue_activity(request, issue_id: int, limit: int = 100):
 def link_issue_duplicate(request, issue_id: int, payload: DuplicateLinkIn):
     user = _require_auth_user(request)
     with transaction.atomic():
+        _lock_resource_project("request", issue_id)
         issue = get_object_or_404(
-            Issue.objects.select_for_update(of=("self",)).select_related("project"), id=issue_id
+            Issue.objects.filter(project__archived_at__isnull=True).select_for_update(of=("self",)).select_related("project"), id=issue_id
         )
         if not _can_manage_issue(user, issue):
             raise HttpError(403, "Not allowed to classify this issue as a duplicate.")
         canonical = get_object_or_404(
-            Issue.objects.select_related("project"),
+            Issue.objects.filter(project__archived_at__isnull=True).select_related("project"),
             id=payload.canonical_issue_id,
         )
         try:
@@ -2001,23 +2077,26 @@ def link_issue_duplicate(request, issue_id: int, payload: DuplicateLinkIn):
         except DomainRuleError as exc:
             raise HttpError(400, exc.message) from exc
 
-    issue = _get_annotated_issue_queryset().get(id=issue.id)
-    return _issue_to_dict(issue)
+        issue = _get_annotated_issue_queryset().get(id=issue.id)
+        result = _issue_to_dict(issue)
+    return result
 
 
 @router.delete("/issues/{issue_id}/duplicate", response=IssueOut)
 def unlink_issue_duplicate(request, issue_id: int):
     user = _require_auth_user(request)
     with transaction.atomic():
+        _lock_resource_project("request", issue_id)
         issue = get_object_or_404(
-            Issue.objects.select_for_update(of=("self",)).select_related("project"), id=issue_id
+            Issue.objects.filter(project__archived_at__isnull=True).select_for_update(of=("self",)).select_related("project"), id=issue_id
         )
         if not _can_manage_issue(user, issue):
             raise HttpError(403, "Not allowed to remove this duplicate link.")
         unlink_duplicate_resource(issue=issue, actor=user)
 
-    issue = _get_annotated_issue_queryset().get(id=issue.id)
-    return _issue_to_dict(issue)
+        issue = _get_annotated_issue_queryset().get(id=issue.id)
+        result = _issue_to_dict(issue)
+    return result
 
 
 @router.get(
@@ -2026,7 +2105,7 @@ def unlink_issue_duplicate(request, issue_id: int):
 )
 def list_issue_delivery_artifacts(request, issue_id: int):
     user = _require_auth_user(request)
-    issue = get_object_or_404(Issue.objects.select_related("project"), id=issue_id)
+    issue = get_object_or_404(Issue.objects.filter(project__archived_at__isnull=True).select_related("project"), id=issue_id)
     if not _can_manage_issue(user, issue):
         raise HttpError(403, "Not allowed to view this issue's delivery artifacts.")
     artifacts = issue.delivery_artifacts.select_related("added_by").all()
@@ -2054,8 +2133,9 @@ def link_issue_delivery_artifact(
         raise HttpError(400, "Artifact label must be 200 characters or fewer.")
 
     with transaction.atomic():
+        _lock_resource_project("request", issue_id)
         issue = get_object_or_404(
-            Issue.objects.select_for_update(of=("self",)).select_related("project"), id=issue_id
+            Issue.objects.filter(project__archived_at__isnull=True).select_for_update(of=("self",)).select_related("project"), id=issue_id
         )
         if not _can_manage_issue(user, issue):
             raise HttpError(403, "Not allowed to link delivery evidence to this issue.")
@@ -2067,11 +2147,9 @@ def link_issue_delivery_artifact(
             label=label,
             conflict_on_metadata_change=False,
         )
-    artifact = IssueDeliveryArtifact.objects.select_related("added_by").get(id=artifact.id)
-    return {
-        "created": created,
-        "artifact": _delivery_artifact_to_dict(artifact),
-    }
+        artifact = IssueDeliveryArtifact.objects.select_related("added_by").get(id=artifact.id)
+        result = {"created": created, "artifact": _delivery_artifact_to_dict(artifact)}
+    return result
 
 
 @router.delete(
@@ -2081,8 +2159,9 @@ def link_issue_delivery_artifact(
 def unlink_issue_delivery_artifact(request, issue_id: int, artifact_id: int):
     user = _require_auth_user(request)
     with transaction.atomic():
+        _lock_resource_project("request", issue_id)
         issue = get_object_or_404(
-            Issue.objects.select_for_update(of=("self",)).select_related("project"), id=issue_id
+            Issue.objects.filter(project__archived_at__isnull=True).select_for_update(of=("self",)).select_related("project"), id=issue_id
         )
         if not _can_manage_issue(user, issue):
             raise HttpError(403, "Not allowed to unlink delivery evidence from this issue.")
@@ -2096,9 +2175,11 @@ def unlink_issue_delivery_artifact(request, issue_id: int, artifact_id: int):
 
 
 @router.post("/issues/{issue_id}/upvote/toggle", response=UpvoteToggleOut)
+@transaction.atomic
 def toggle_issue_upvote(request, issue_id: int):
     user = _require_auth_user(request)
-    issue = get_object_or_404(Issue.objects.select_related("project"), id=issue_id)
+    _lock_resource_project("request", issue_id)
+    issue = get_object_or_404(Issue.objects.filter(project__archived_at__isnull=True).select_related("project"), id=issue_id)
 
     existing = IssueUpvote.objects.filter(issue=issue, user=user).first()
     if existing:
@@ -2127,7 +2208,7 @@ def toggle_issue_upvote(request, issue_id: int):
 
 @router.get("/issues/{issue_id}/comments", response=list[CommentOut])
 def list_issue_comments(request, issue_id: int):
-    issue = get_object_or_404(Issue.objects.select_related("project"), id=issue_id)
+    issue = get_object_or_404(Issue.objects.filter(project__archived_at__isnull=True).select_related("project"), id=issue_id)
     comments = issue.comments.select_related("author").all()
     return [_comment_to_dict(comment) for comment in comments]
 
@@ -2135,27 +2216,29 @@ def list_issue_comments(request, issue_id: int):
 @router.post("/issues/{issue_id}/comments", response={201: CommentOut})
 def create_issue_comment(request, issue_id: int, payload: CommentCreateIn):
     user = _require_auth_user(request)
-    issue = get_object_or_404(Issue.objects.select_related("project"), id=issue_id)
+    issue = get_object_or_404(Issue.objects.filter(project__archived_at__isnull=True).select_related("project"), id=issue_id)
     body = _clean_non_empty(payload.body, "Comment body")
     _moderate_comment_submission(body, issue)
 
     with transaction.atomic():
+        _lock_resource_project("request", issue_id)
         comment = create_comment_resource(
             issue=issue,
             author=user,
             body=body,
             source=None,
         )
-    comment = IssueComment.objects.select_related("author", "issue__project__owner").get(id=comment.id)
+        comment = IssueComment.objects.filter(issue__project__archived_at__isnull=True).select_related("author", "issue__project__owner").get(id=comment.id)
+        result = _comment_to_dict(comment)
     _notify_owner_on_new_comment(request, comment)
-    return 201, _comment_to_dict(comment)
+    return 201, result
 
 
 @router.patch("/issues/{issue_id}/comments/{comment_id}", response=CommentOut)
 def update_issue_comment(request, issue_id: int, comment_id: int, payload: CommentCreateIn):
     user = _require_auth_user(request)
     comment = get_object_or_404(
-        IssueComment.objects.select_related("author", "issue__project__owner"),
+        IssueComment.objects.filter(issue__project__archived_at__isnull=True).select_related("author", "issue__project__owner"),
         id=comment_id,
         issue_id=issue_id,
     )
@@ -2167,8 +2250,9 @@ def update_issue_comment(request, issue_id: int, comment_id: int, payload: Comme
     _moderate_comment_submission(body, comment.issue)
 
     with transaction.atomic():
+        _lock_resource_project("request", issue_id)
         comment = get_object_or_404(
-            IssueComment.objects.select_for_update(of=("self",)).select_related(
+            IssueComment.objects.filter(issue__project__archived_at__isnull=True).select_for_update(of=("self",)).select_related(
                 "author", "issue__project__owner"
             ),
             id=comment_id,
@@ -2182,5 +2266,6 @@ def update_issue_comment(request, issue_id: int, comment_id: int, payload: Comme
             body=body,
             source=None,
         )
-    comment = IssueComment.objects.select_related("author", "issue__project__owner").get(id=comment.id)
-    return _comment_to_dict(comment)
+        comment = IssueComment.objects.filter(issue__project__archived_at__isnull=True).select_related("author", "issue__project__owner").get(id=comment.id)
+        result = _comment_to_dict(comment)
+    return result

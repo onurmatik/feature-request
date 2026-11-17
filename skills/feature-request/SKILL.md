@@ -13,8 +13,8 @@ or follow up on requests stored in FeatureRequest.
 - This skill is a downstream operational adapter. `agent/contract.yaml` is the sole semantic
   source for tool schemas, scopes, capabilities, ownership, approvals, errors, side effects,
   idempotency, and retry behavior.
-- Agent Contract 1.1.0 defines `get_account_capabilities` as the implemented bootstrap tool.
-- The repository implements the full 30-tool Contract projection, including public Product scope
+- Agent Contract 1.2.0 defines `get_account_capabilities` as the implemented bootstrap tool.
+- The repository implements the full 33-tool Contract projection, including public Product scope
   reads, owner-controlled scope updates, scope reassessment, and private proposal resolution.
   MCP production conformance is `pending` until the immutable MCP release and real-client
   acceptance gates pass; do not present the public service as released before then.
@@ -68,6 +68,8 @@ or follow up on requests stored in FeatureRequest.
 ## Project Operations
 
 - Use focused `create_project`, `get_project`, and `update_project` tools.
+- Use `list_archived_projects`, `archive_project`, and `restore_project` for the
+  Contract-defined archive lifecycle; consult its visibility and capacity rules.
 - `delete_project` is destructive. Call `get_project` first, require explicit user direction,
   and pass the same id as `confirm_project_id`.
 - Use `get_project_spec` to read the public one-page Product scope. Use `update_project_spec`

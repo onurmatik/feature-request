@@ -16,7 +16,7 @@ from mcp.types import Tool, ToolAnnotations
 
 CONTRACT_PATH = Path(settings.BASE_DIR) / "agent" / "contract.yaml"
 PIN_PATH = Path(settings.BASE_DIR) / "agent" / "runtime-contract-pin.json"
-SERVER_VERSION = "1.1.0"
+SERVER_VERSION = "1.2.0"
 
 
 @lru_cache(maxsize=1)

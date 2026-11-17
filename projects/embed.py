@@ -202,7 +202,8 @@ def create_pending_submission(
     fingerprint = email_fingerprint(email)
     raw_token = secrets.token_urlsafe(32)
     with transaction.atomic():
-        Project.objects.select_for_update(of=("self",)).only("pk").get(pk=project.pk)
+        if not Project.objects.active().select_for_update(of=("self",)).filter(pk=project.pk).first():
+            raise EmbedSubmissionError(404, "Project not found.")
         recent_count = EmbeddedIssueSubmission.objects.filter(
             project=project,
             submitter_fingerprint=fingerprint,

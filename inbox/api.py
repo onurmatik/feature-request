@@ -6,6 +6,7 @@ from typing import Optional
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.mail import send_mail
+from django.db import transaction
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from ninja import Router, Schema
@@ -62,8 +63,8 @@ def _message_to_dict(message: OwnerMessage):
         "id": message.id,
         "recipient_id": message.recipient_id,
         "recipient_handle": message.recipient.handle,
-        "project_id": message.project_id,
-        "project_slug": message.project.slug if message.project else None,
+        "project_id": message.project_id if message.project and not message.project.archived_at else None,
+        "project_slug": message.project.slug if message.project and not message.project.archived_at else None,
         "sender_user_id": message.sender_user_id,
         "sender_handle": message.sender_user.handle if message.sender_user else None,
         "sender_name": message.sender_name,
@@ -79,7 +80,7 @@ def _resolve_project(owner, project_slug: Optional[str]):
         return None
 
     return get_object_or_404(
-        Project.objects.select_related("owner"),
+        Project.objects.active().select_related("owner"),
         owner=owner,
         slug=project_slug,
     )
@@ -210,14 +211,19 @@ def create_owner_message(request, owner_handle: str, payload: OwnerMessageCreate
     _moderate_message_submission(body)
     project = _resolve_project(owner, payload.project_slug)
 
-    message = OwnerMessage.objects.create(
-        recipient=owner,
-        project=project,
-        sender_user=sender_user,
-        sender_name=sender_name,
-        sender_email=sender_email,
-        body=body,
-    )
+    with transaction.atomic():
+        if project is not None:
+            project = get_object_or_404(
+                Project.objects.active().select_for_update(of=("self",)), pk=project.pk,
+            )
+        message = OwnerMessage.objects.create(
+            recipient=owner,
+            project=project,
+            sender_user=sender_user,
+            sender_name=sender_name,
+            sender_email=sender_email,
+            body=body,
+        )
     _notify_owner_on_new_message(request, message)
     message = OwnerMessage.objects.select_related(
         "recipient",
